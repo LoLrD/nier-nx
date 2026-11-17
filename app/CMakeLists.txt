@@ -10,6 +10,8 @@ include(generated/rexglue.cmake)
 
 set(NIER_SOURCES
     src/main.cpp
+    src/nier_input_driver.cpp
+    src/nier_input_script.cpp
 )
 add_executable(nier ${NIER_SOURCES})
 target_include_directories(nier PRIVATE src)

@@ -1,11 +1,22 @@
 #pragma once
 
+#include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <memory>
+#include <string>
 #include <system_error>
 
+#include <rex/cvar.h>
 #include <rex/filesystem.h>
+#include <rex/input/input_system.h>
 #include <rex/rex_app.h>
+#include <rex/runtime.h>
+
+#include "nier_input_driver.h"
+#include "nier_input_script.h"
+
+REXCVAR_DECLARE(std::string, nier_input_script);
 
 class NierApp : public rex::ReXApp {
  public:
@@ -24,5 +35,19 @@ class NierApp : public rex::ReXApp {
     if (std::filesystem::is_directory(extracted, ec)) {
       paths.game_data_root = extracted;
     }
+  }
+
+  void OnPostSetup() override {
+    const std::string path = REXCVAR_GET(nier_input_script);
+    if (path.empty()) {
+      return;
+    }
+    auto script = NierInputScript::Load(path);
+    if (!script) {
+      std::fprintf(stderr, "%s\n", script.error().c_str());
+      std::exit(2);
+    }
+    auto* input = static_cast<rex::input::InputSystem*>(runtime()->input_system());
+    input->AddDriver(std::make_unique<NierScriptInputDriver>(std::move(*script)));
   }
 };
