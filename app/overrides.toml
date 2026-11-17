@@ -1,0 +1,425 @@
+# NieR-specific analysis corrections. Every entry names the tool or evidence that justifies it
+# (tools/gap_fixpoint.py, tools/runtime_gap_resolver.py, or a manual inspection noted here).
+
+[functions]
+
+# Structural gap scan, fixpoint pass 2 (tools/gap_fixpoint.py).
+"0x8225C478" = { }
+
+# Structural gap scan, fixpoint pass 1 (tools/gap_fixpoint.py).
+"0x8225C468" = { }
+
+# Structural gap scan, fixpoint pass 19 (tools/gap_fixpoint.py).
+"0x8225C458" = { }
+
+# Structural gap scan, fixpoint pass 18 (tools/gap_fixpoint.py).
+"0x82255858" = { }
+"0x8225C448" = { }
+
+# Structural gap scan, fixpoint pass 17 (tools/gap_fixpoint.py).
+"0x82255848" = { }
+"0x8225C438" = { }
+"0x82386640" = { }
+
+# Structural gap scan, fixpoint pass 16 (tools/gap_fixpoint.py).
+"0x82255838" = { }
+"0x8225C428" = { }
+"0x82386630" = { }
+
+# Structural gap scan, fixpoint pass 15 (tools/gap_fixpoint.py).
+"0x82255828" = { }
+"0x8225C418" = { }
+"0x8235F378" = { }
+"0x82386620" = { }
+
+# Structural gap scan, fixpoint pass 14 (tools/gap_fixpoint.py).
+"0x82255818" = { }
+"0x8225C408" = { }
+"0x8235F368" = { }
+"0x82386610" = { }
+
+# Structural gap scan, fixpoint pass 13 (tools/gap_fixpoint.py).
+"0x82255808" = { }
+"0x8225C3F8" = { }
+"0x822D8E38" = { }
+"0x8235F358" = { }
+"0x82386600" = { }
+
+# Structural gap scan, fixpoint pass 12 (tools/gap_fixpoint.py).
+"0x822557F8" = { }
+"0x8225C3E8" = { }
+"0x822D8E2C" = { }
+"0x8235F348" = { }
+"0x823865F0" = { }
+
+# Structural gap scan, fixpoint pass 11 (tools/gap_fixpoint.py).
+"0x822557E8" = { }
+"0x8225C3D8" = { }
+"0x822D8E20" = { }
+"0x8235F338" = { }
+"0x823865E0" = { }
+
+# Structural gap scan, fixpoint pass 10 (tools/gap_fixpoint.py).
+"0x822557D8" = { }
+"0x8225C3C8" = { }
+"0x82296A20" = { }
+"0x822D8E14" = { }
+"0x8235F328" = { }
+"0x823865D0" = { }
+
+# Structural gap scan, fixpoint pass 9 (tools/gap_fixpoint.py).
+"0x822557C8" = { }
+"0x8225C3B8" = { }
+"0x8228F414" = { }
+"0x82296A18" = { }
+"0x822D8E08" = { }
+"0x8235F318" = { }
+"0x823865C0" = { }
+
+# Structural gap scan, fixpoint pass 8 (tools/gap_fixpoint.py).
+"0x822557B8" = { }
+"0x8225C3A8" = { }
+"0x8228743C" = { }
+"0x8228F40C" = { }
+"0x82296A0C" = { }
+"0x822D8E00" = { }
+"0x822F2EA8" = { }
+"0x8235F308" = { }
+"0x823865B0" = { }
+
+# Structural gap scan, fixpoint pass 7 (tools/gap_fixpoint.py).
+"0x8213276C" = { }
+"0x822557A8" = { }
+"0x8225C398" = { }
+"0x82287434" = { }
+"0x8228F404" = { }
+"0x82296A00" = { }
+"0x822D8DA8" = { }
+"0x822F2E9C" = { }
+"0x822FC018" = { }
+"0x8235F2F8" = { }
+"0x823865A0" = { }
+"0x823B9930" = { }
+"0x823B9A00" = { }
+
+# Structural gap scan, fixpoint pass 6 (tools/gap_fixpoint.py).
+"0x82132764" = { }
+"0x82255798" = { }
+"0x8225C388" = { }
+"0x82287428" = { }
+"0x8228F3FC" = { }
+"0x822969F4" = { }
+"0x822D8D40" = { }
+"0x822F2E90" = { }
+"0x822FC00C" = { }
+"0x823476F4" = { }
+"0x8234775C" = { }
+"0x823477B4" = { }
+"0x8235F2E8" = { }
+"0x82386590" = { }
+"0x823B9928" = { }
+"0x823B9988" = { }
+"0x823B99F8" = { }
+"0x823B9A58" = { }
+"0x824A1B70" = { }
+
+# Structural gap scan, fixpoint pass 5 (tools/gap_fixpoint.py).
+"0x8213275C" = { }
+"0x82255788" = { }
+"0x8225C378" = { }
+"0x8228741C" = { }
+"0x8228F3F4" = { }
+"0x822969EC" = { }
+"0x822D1878" = { }
+"0x822D8D3C" = { }
+"0x822F2E84" = { }
+"0x822FC000" = { }
+"0x823476EC" = { }
+"0x8234774C" = { }
+"0x8234776C" = { }
+"0x823477AC" = { }
+"0x82347D8C" = { }
+"0x82347DAC" = { }
+"0x82347DEC" = { }
+"0x82347E30" = { }
+"0x82347E50" = { }
+"0x82347E90" = { }
+"0x8235F2D8" = { }
+"0x82386580" = { }
+"0x823B9920" = { }
+"0x823B9940" = { }
+"0x823B9980" = { }
+"0x823B99F0" = { }
+"0x823B9A10" = { }
+"0x823B9A50" = { }
+"0x824A1B68" = { }
+
+# Structural gap scan, fixpoint pass 4 (tools/gap_fixpoint.py).
+"0x82132754" = { }
+"0x82255778" = { }
+"0x8225C368" = { }
+"0x82287410" = { }
+"0x8228F3EC" = { }
+"0x822969E4" = { }
+"0x822D1870" = { }
+"0x822D8D34" = { }
+"0x822F2E78" = { }
+"0x822FBFF4" = { }
+"0x8230C5E8" = { }
+"0x8231B1B8" = { }
+"0x823476E4" = { }
+"0x82347764" = { }
+"0x8234777C" = { }
+"0x823477A4" = { }
+"0x82347DA4" = { }
+"0x82347DBC" = { }
+"0x82347DE4" = { }
+"0x82347E48" = { }
+"0x82347E60" = { }
+"0x82347E88" = { }
+"0x8235F2C8" = { }
+"0x82386570" = { }
+"0x823B9938" = { }
+"0x823B9950" = { }
+"0x823B9978" = { }
+"0x823B9A08" = { }
+"0x823B9A20" = { }
+"0x823B9A48" = { }
+"0x8249D498" = { }
+"0x824A1B60" = { }
+
+# Structural gap scan, fixpoint pass 3 (tools/gap_fixpoint.py).
+"0x8213274C" = { }
+"0x82255768" = { }
+"0x8225C358" = { }
+"0x82287404" = { }
+"0x8228F3E4" = { }
+"0x822969DC" = { }
+"0x822D1868" = { }
+"0x822D8D2C" = { }
+"0x822F2E70" = { }
+"0x822FBFE8" = { }
+"0x8230C5E0" = { }
+"0x82311950" = { }
+"0x8231B1B0" = { }
+"0x823476DC" = { }
+"0x82347774" = { }
+"0x8234779C" = { }
+"0x82347DB4" = { }
+"0x82347DDC" = { }
+"0x82347E58" = { }
+"0x82347E80" = { }
+"0x8235F2B8" = { }
+"0x82386560" = { }
+"0x823B9948" = { }
+"0x823B9970" = { }
+"0x823B9A18" = { }
+"0x823B9A40" = { }
+"0x8249D490" = { }
+"0x8249D4B8" = { }
+"0x824A1B58" = { }
+"0x824A1B90" = { }
+
+# Structural gap scan, fixpoint pass 2 (tools/gap_fixpoint.py).
+"0x82132744" = { }
+"0x82140908" = { }
+"0x82255758" = { }
+"0x8225C348" = { }
+"0x822873F8" = { }
+"0x8228F3DC" = { }
+"0x822969D4" = { }
+"0x822A7928" = { }
+"0x822AF94C" = { }
+"0x822D1860" = { }
+"0x822D8D24" = { }
+"0x822F2E18" = { }
+"0x822FBFE0" = { }
+"0x8230C58C" = { }
+"0x82311948" = { }
+"0x823179E8" = { }
+"0x8231ABCC" = { }
+"0x8231B15C" = { }
+"0x823476C4" = { }
+"0x823476D4" = { }
+"0x82347784" = { }
+"0x82347794" = { }
+"0x82347DC4" = { }
+"0x82347DD4" = { }
+"0x82347E68" = { }
+"0x82347E78" = { }
+"0x8235F2A8" = { }
+"0x82386550" = { }
+"0x823B9958" = { }
+"0x823B9968" = { }
+"0x823B9A28" = { }
+"0x823B9A38" = { }
+"0x823B9C04" = { }
+"0x823B9C3C" = { }
+"0x8249D488" = { }
+"0x8249D4B0" = { }
+"0x824A1B50" = { }
+"0x824A1B88" = { }
+
+# Structural gap scan, fixpoint pass 1 (tools/gap_fixpoint.py).
+"0x82103038" = { }
+"0x8210F7F8" = { }
+"0x8211EAC0" = { }
+"0x8213273C" = { }
+"0x8213F290" = { }
+"0x8213F410" = { }
+"0x8213F75C" = { }
+"0x8213F9DC" = { }
+"0x8213FC40" = { }
+"0x82140880" = { }
+"0x82141BC0" = { }
+"0x821803C8" = { }
+"0x821AE3E8" = { }
+"0x821C74F0" = { }
+"0x821D9618" = { }
+"0x821D97F0" = { }
+"0x821D9978" = { }
+"0x821D9E18" = { }
+"0x821DA378" = { }
+"0x821DA5A0" = { }
+"0x821DA728" = { }
+"0x821E50A0" = { }
+"0x821E6E50" = { }
+"0x821FA8B8" = { }
+"0x82207508" = { }
+"0x82207750" = { }
+"0x8220CC18" = { }
+"0x822476D0" = { }
+"0x82255748" = { }
+"0x8225C320" = { }
+"0x8225C338" = { }
+"0x8225F2C0" = { }
+"0x8226044C" = { }
+"0x82269DE0" = { }
+"0x822873C4" = { }
+"0x8228F38C" = { }
+"0x8228F6C8" = { }
+"0x82296990" = { }
+"0x822A78E8" = { }
+"0x822AF930" = { }
+"0x822B2AB8" = { }
+"0x822CAE30" = { }
+"0x822D183C" = { }
+"0x822D8D04" = { }
+"0x822DA5B8" = { }
+"0x822E46A0" = { }
+"0x822EA008" = { }
+"0x822F2DB0" = { }
+"0x822FBF94" = { }
+"0x822FD7B0" = { }
+"0x8230B868" = { }
+"0x8230C548" = { }
+"0x823118F4" = { }
+"0x82312C20" = { }
+"0x82317974" = { }
+"0x8231AB6C" = { }
+"0x8231B118" = { }
+"0x823476CC" = { }
+"0x8234778C" = { }
+"0x82347DCC" = { }
+"0x82347E70" = { }
+"0x8234DBB8" = { }
+"0x8235F298" = { }
+"0x82361798" = { }
+"0x8236DF08" = { }
+"0x8236DFA8" = { }
+"0x8236E108" = { }
+"0x8236E270" = { }
+"0x8236E398" = { }
+"0x8236E3F8" = { }
+"0x8236E4E0" = { }
+"0x8236EBE8" = { }
+"0x8237FC34" = { }
+"0x82386540" = { }
+"0x82389088" = { }
+"0x823B1B28" = { }
+"0x823B1BB0" = { }
+"0x823B69C0" = { }
+"0x823B95F4" = { }
+"0x823B9890" = { }
+"0x823B9960" = { }
+"0x823B9A30" = { }
+"0x823B9C20" = { }
+"0x823C7090" = { }
+"0x823C77C0" = { }
+"0x823CE138" = { }
+"0x823CE178" = { }
+"0x823DD2C0" = { }
+"0x823DFBA8" = { }
+"0x823E5658" = { }
+"0x823F92C0" = { }
+"0x823FDEDC" = { }
+"0x823FDF78" = { }
+"0x823FE0E4" = { }
+"0x823FE180" = { }
+"0x823FE8F8" = { }
+"0x82404270" = { }
+"0x82404330" = { }
+"0x824047E0" = { }
+"0x824049D8" = { }
+"0x82404A28" = { }
+"0x8240D328" = { }
+"0x8240EA10" = { }
+"0x82429BF8" = { }
+"0x8242C228" = { }
+"0x82435E00" = { }
+"0x8249BE18" = { }
+"0x8249BE40" = { }
+"0x8249BE68" = { }
+"0x8249D480" = { }
+"0x8249D4A8" = { }
+"0x824A1B48" = { }
+"0x824A1B80" = { }
+"0x824A1E08" = { }
+"0x824A1F30" = { }
+"0x824A1F58" = { }
+"0x824A1F80" = { }
+"0x824A2450" = { }
+"0x824A3150" = { }
+"0x824A3EC0" = { }
+"0x824A43A8" = { }
+"0x824B5B28" = { }
+"0x824D0E20" = { }
+"0x824D0E80" = { }
+"0x824D1170" = { }
+"0x824DB8E0" = { }
+"0x824DB910" = { }
+"0x824DDBA0" = { }
+"0x824F58D8" = { }
+"0x824F68E0" = { }
+"0x824FD8B0" = { }
+"0x82509860" = { }
+"0x8250A630" = { }
+"0x8251B9F8" = { }
+"0x8251C418" = { }
+"0x82538FB0" = { }
+"0x8253EE80" = { }
+"0x82542788" = { }
+"0x825436B8" = { }
+"0x825436F0" = { }
+"0x8258BD40" = { }
+"0x82591110" = { }
+"0x82593490" = { }
+"0x825947C0" = { }
+"0x825A0B98" = { }
+"0x825A2AF0" = { }
+"0x825D0270" = { }
+"0x825FD748" = { }
+"0x82605490" = { }
+"0x826054A8" = { }
+"0x826056E0" = { }
+"0x822953C0" = { }
+"0x824A6C30" = { }
+
+# Validation of the first generation: a direct unconditional branch to each address below had no function.
+# tools/find_gaps.py --check confirmed every target starts an unclaimed code gap (20, 8, 8, 24, 32 bytes).
+# No sizes are imposed: Discover determines the boundary from the PPC code.
+"0x821AE070" = { }
+"0x82499C50" = { }
+"0x824EA3D0" = { }
+"0x8252DF28" = { }
+"0x8252EA50" = { }
