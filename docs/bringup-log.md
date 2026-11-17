@@ -210,3 +210,10 @@ Fixes:
   difference 0.003).
 - Redundant dumps skipped (`sdk/UPSTREAM.md`): 3 dumps per menu frame instead of 5. Menu capture against the original
   build: 0.1 % of pixels differ (the animated emblem).
+- Console (run `menu1`): menu 6.3 → 15.0 fps (158.7 → 66.7 ms); transfers 2 draws per frame instead of 11, stencil
+  bit draws 1.8 ms (was 65.3). Remaining: resolve dumps 31.4 ms (3 dumps), transfers 16.9 ms (2 draws), resolve
+  copies 7.2 ms; with all GPU work skipped the frame is 20.7 ms.
+- Next suspect: 8-10 ms per dump or transfer pass of 921,600 samples. NAK emits the microcoded legacy `IMUL` on
+  SM50 for every 32-bit multiply, including `x / 80` (umul_high) and `x / pitch`; the generated shaders had 8-10 of
+  them per sample. Rewritten without integer multiplies (`sdk/UPSTREAM.md`); menu and prologue captures on macOS look
+  the same.
