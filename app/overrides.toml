@@ -423,3 +423,7 @@
 "0x824EA3D0" = { }
 "0x8252DF28" = { }
 "0x8252EA50" = { }
+
+# Runtime auto-resolve candidate, accepted from an observed indirect-call failure.
+# Exact start the 232-byte gap 0x82154BA8-0x82154C90; only this address is declared.
+"0x82154BA8" = { }
