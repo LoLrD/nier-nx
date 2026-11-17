@@ -146,6 +146,7 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem, private 
         vblank_thread_.reset();
       }
     }
+    shaders_.reset();
     if (presenter_) {
       if (app_context_) {
         app_context_->CallInUIThreadSynchronous([this]() { presenter_.reset(); });
