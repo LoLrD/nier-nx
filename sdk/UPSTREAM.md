@@ -22,3 +22,7 @@ code generator and runtime changes of masseffect-nx. The third-party sources are
   LOD bias then did `OpFAdd(int, float)`: invalid SPIR-V that MoltenVK rejects ("no matching function for call to
   spvFAdd"), and the failed pipelines led to a crash in MoltenVK's descriptor update on the GPU command thread (NieR
   froze on the first loading screen). Each variable now has its own declaration, as in upstream ReXGlue.
+- `src/system/xam/content_manager.cpp` (`ListContent`): the result of `ReadContentHeaderFile` (an `X_RESULT`, Win32
+  codes: `X_ERROR_FILE_NOT_FOUND` is 2) was tested with `XFAILED`/`XSUCCEEDED`, which check NTSTATUS severity bits, so a
+  missing `.header` counted as success and the game got an uninitialized entry (NieR's 15 Nightmares DLC listed as
+  `'@0p'`; save folders without a header the same). Now compared with `X_ERROR_SUCCESS`.
