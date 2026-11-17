@@ -226,6 +226,24 @@ int main() {
     GpuRegisters regs;
     FakeBus bus;
     Pm4Executor exec(regs, bus);
+    regs.Set(XE_GPU_REG_RB_MODECONTROL, 4);
+    Stream s;
+    s << Type3(xenos::PM4_DRAW_INDX, 4) << 0 << 0x00030004 << 0x01234560 << 0x40000010;
+    auto reader = s.Reader();
+    exec.Execute(reader);
+    Check(regs.Get(XE_GPU_REG_VGT_DMA_BASE) == 0x01234560 && regs.Get(XE_GPU_REG_VGT_DMA_SIZE) == 0x40000010,
+          "draw_indx_sets_index_buffer");
+    Stream s2;
+    s2 << Type3(xenos::PM4_DRAW_INDX_2, 3) << 0x00050004 << 0x02000000 << 0x00000020;
+    auto reader2 = s2.Reader();
+    exec.Execute(reader2);
+    Check(regs.Get(XE_GPU_REG_VGT_DMA_BASE) == 0x02000000 && regs.Get(XE_GPU_REG_VGT_DMA_SIZE) == 0x00000020,
+          "draw_indx_2_sets_index_buffer");
+  }
+  {
+    GpuRegisters regs;
+    FakeBus bus;
+    Pm4Executor exec(regs, bus);
     Stream s;
     s << Type3(xenos::PM4_SET_CONSTANT, 3) << ((0u << 16) | 4) << 0x3F800000 << 0x40000000;
     s << Type3(xenos::PM4_SET_CONSTANT, 2) << ((4u << 16) | 0x10) << 77;

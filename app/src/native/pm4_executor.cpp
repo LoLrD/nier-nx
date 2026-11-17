@@ -152,10 +152,10 @@ bool Pm4Executor::Type3(RingReader& data, uint32_t opcode, uint32_t count) {
       EventWriteZpd(data);
       return true;
     case xenos::PM4_DRAW_INDX:
-      Draw(data, true);
+      Draw(data, true, count);
       return true;
     case xenos::PM4_DRAW_INDX_2:
-      Draw(data, false);
+      Draw(data, false, count);
       return true;
     case xenos::PM4_SET_CONSTANT:
       SetConstant(data, count);
@@ -330,11 +330,17 @@ void Pm4Executor::LoadAluConstant(RingReader& data) {
   }
 }
 
-void Pm4Executor::Draw(RingReader& data, bool has_viz_query) {
+void Pm4Executor::Draw(RingReader& data, bool has_viz_query, uint32_t count) {
   if (has_viz_query) {
     data.Read();
+    --count;
   }
-  SetRegister(XE_GPU_REG_VGT_DRAW_INITIATOR, data.Read());
+  const uint32_t initiator = data.Read();
+  SetRegister(XE_GPU_REG_VGT_DRAW_INITIATOR, initiator);
+  if (((initiator >> 6) & 3) == uint32_t(xenos::SourceSelect::kDMA) && count >= 3) {
+    SetRegister(XE_GPU_REG_VGT_DMA_BASE, data.Read());
+    SetRegister(XE_GPU_REG_VGT_DMA_SIZE, data.Read());
+  }
   const bool resolve = (registers_.Get(XE_GPU_REG_RB_MODECONTROL) & 7) == kCopyEdramMode;
   ++(resolve ? stats_.resolves : stats_.draws);
   bus_.Draw(resolve);

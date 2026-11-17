@@ -56,7 +56,7 @@ class Pm4Executor {
   void EventWriteZpd(RingReader& data);
   void SetConstant(RingReader& data, uint32_t count);
   void LoadAluConstant(RingReader& data);
-  void Draw(RingReader& data, bool has_viz_query);
+  void Draw(RingReader& data, bool has_viz_query, uint32_t count);
   void VizQuery(RingReader& data);
 
   void ImLoadImmediate(RingReader& data);
