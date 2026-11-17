@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -105,6 +106,64 @@ namespace shaders {
 #include "../shaders/vulkan_spirv/resolve_full_8bpp_cs.h"
 #include "../shaders/vulkan_spirv/resolve_full_8bpp_scaled_cs.h"
 }  // namespace shaders
+
+namespace {
+
+spv::Id EdramMulConst(SpirvBuilder& builder, spv::Id value, uint32_t factor) {
+  spv::Id type_uint = builder.makeUintType(32);
+  spv::Id sum = spv::NoResult;
+  for (uint32_t bits = factor; bits; bits &= bits - 1) {
+    spv::Id term = builder.createBinOp(spv::OpShiftLeftLogical, type_uint, value,
+                                       builder.makeUintConstant(uint32_t(std::countr_zero(bits))));
+    sum = sum == spv::NoResult ? term : builder.createBinOp(spv::OpIAdd, type_uint, sum, term);
+  }
+  return sum == spv::NoResult ? builder.makeUintConstant(0) : sum;
+}
+
+spv::Id EdramMulSmall(SpirvBuilder& builder, spv::Id a, spv::Id b) {
+  spv::Id type_uint = builder.makeUintType(32);
+  spv::Id type_float = builder.makeFloatType(32);
+  return builder.createUnaryOp(
+      spv::OpConvertFToU, type_uint,
+      builder.createBinOp(spv::OpFMul, type_float,
+                          builder.createUnaryOp(spv::OpConvertUToF, type_float, a),
+                          builder.createUnaryOp(spv::OpConvertUToF, type_float, b)));
+}
+
+std::pair<spv::Id, spv::Id> EdramDivModConst(SpirvBuilder& builder, spv::Id value, uint32_t divisor) {
+  spv::Id type_uint = builder.makeUintType(32);
+  if (std::has_single_bit(divisor)) {
+    return {builder.createBinOp(spv::OpShiftRightLogical, type_uint, value,
+                                builder.makeUintConstant(uint32_t(std::countr_zero(divisor)))),
+            builder.createBinOp(spv::OpBitwiseAnd, type_uint, value, builder.makeUintConstant(divisor - 1))};
+  }
+  spv::Id type_float = builder.makeFloatType(32);
+  spv::Id quotient = builder.createUnaryOp(
+      spv::OpConvertFToU, type_uint,
+      builder.createBinOp(spv::OpFMul, type_float,
+                          builder.createBinOp(spv::OpFAdd, type_float,
+                                              builder.createUnaryOp(spv::OpConvertUToF, type_float, value),
+                                              builder.makeFloatConstant(0.5f)),
+                          builder.makeFloatConstant(1.0f / float(divisor))));
+  return {quotient, builder.createBinOp(spv::OpISub, type_uint, value,
+                                        EdramMulConst(builder, quotient, divisor))};
+}
+
+std::pair<spv::Id, spv::Id> EdramDivModSmall(SpirvBuilder& builder, spv::Id value, spv::Id divisor) {
+  spv::Id type_uint = builder.makeUintType(32);
+  spv::Id type_float = builder.makeFloatType(32);
+  spv::Id quotient = builder.createUnaryOp(
+      spv::OpConvertFToU, type_uint,
+      builder.createBinOp(spv::OpFDiv, type_float,
+                          builder.createBinOp(spv::OpFAdd, type_float,
+                                              builder.createUnaryOp(spv::OpConvertUToF, type_float, value),
+                                              builder.makeFloatConstant(0.5f)),
+                          builder.createUnaryOp(spv::OpConvertUToF, type_float, divisor)));
+  return {quotient,
+          builder.createBinOp(spv::OpISub, type_uint, value, EdramMulSmall(builder, quotient, divisor))};
+}
+
+}  // namespace
 
 const VulkanRenderTargetCache::ResolveCopyShaderCode
     VulkanRenderTargetCache::kResolveCopyShaders[size_t(
@@ -2661,20 +2720,14 @@ VkShaderModule VulkanRenderTargetCache::GetTransferShader(TransferShaderKey key)
                                   builder.createLoad(input_fragment_coord, spv::NoPrecision),
                                   uint_vector_temp));
   spv::Id dest_pixel_x = builder.createCompositeExtract(dest_pixel_coord, type_uint, 0);
-  spv::Id const_dest_tile_width_pixels = builder.makeUintConstant(
+  auto [dest_tile_index_x, dest_tile_pixel_x] = EdramDivModConst(
+      builder, dest_pixel_x,
       tile_width_samples >>
-      (uint32_t(dest_is_64bpp) + uint32_t(key.dest_msaa_samples >= xenos::MsaaSamples::k4X)));
-  spv::Id dest_tile_index_x =
-      builder.createBinOp(spv::OpUDiv, type_uint, dest_pixel_x, const_dest_tile_width_pixels);
-  spv::Id dest_tile_pixel_x =
-      builder.createBinOp(spv::OpUMod, type_uint, dest_pixel_x, const_dest_tile_width_pixels);
+          (uint32_t(dest_is_64bpp) + uint32_t(key.dest_msaa_samples >= xenos::MsaaSamples::k4X)));
   spv::Id dest_pixel_y = builder.createCompositeExtract(dest_pixel_coord, type_uint, 1);
-  spv::Id const_dest_tile_height_pixels = builder.makeUintConstant(
+  auto [dest_tile_index_y, dest_tile_pixel_y] = EdramDivModConst(
+      builder, dest_pixel_y,
       tile_height_samples >> uint32_t(key.dest_msaa_samples >= xenos::MsaaSamples::k2X));
-  spv::Id dest_tile_index_y =
-      builder.createBinOp(spv::OpUDiv, type_uint, dest_pixel_y, const_dest_tile_height_pixels);
-  spv::Id dest_tile_pixel_y =
-      builder.createBinOp(spv::OpUMod, type_uint, dest_pixel_y, const_dest_tile_height_pixels);
 
   assert_true(push_constants_member_address != UINT32_MAX);
   id_vector_temp.clear();
@@ -2686,12 +2739,11 @@ VkShaderModule VulkanRenderTargetCache::GetTransferShader(TransferShaderKey key)
   // Calculate the 32bpp tile index from its X and Y parts.
   spv::Id dest_tile_index = builder.createBinOp(
       spv::OpIAdd, type_uint,
-      builder.createBinOp(
-          spv::OpIMul, type_uint,
-          builder.createTriOp(spv::OpBitFieldUExtract, type_uint, address_constant,
-                              builder.makeUintConstant(0),
-                              builder.makeUintConstant(xenos::kEdramPitchTilesBits)),
-          dest_tile_index_y),
+      EdramMulSmall(builder,
+                    builder.createTriOp(spv::OpBitFieldUExtract, type_uint, address_constant,
+                                        builder.makeUintConstant(0),
+                                        builder.makeUintConstant(xenos::kEdramPitchTilesBits)),
+                    dest_tile_index_y),
       dest_tile_index_x);
 
   // Load the destination sample index.
@@ -3036,29 +3088,22 @@ VkShaderModule VulkanRenderTargetCache::GetTransferShader(TransferShaderKey key)
       builder.createTriOp(spv::OpBitFieldUExtract, type_uint, address_constant,
                           builder.makeUintConstant(xenos::kEdramPitchTilesBits),
                           builder.makeUintConstant(xenos::kEdramPitchTilesBits));
-  spv::Id source_tile_index_y =
-      builder.createBinOp(spv::OpUDiv, type_uint, source_tile_index, source_pitch_tiles);
-  spv::Id source_tile_index_x =
-      builder.createBinOp(spv::OpUMod, type_uint, source_tile_index, source_pitch_tiles);
+  auto [source_tile_index_y, source_tile_index_x] =
+      EdramDivModSmall(builder, source_tile_index, source_pitch_tiles);
   // Finally calculate the source texture coordinates.
   spv::Id source_pixel_x_int = builder.createUnaryOp(
       spv::OpBitcast, type_int,
-      builder.createBinOp(
-          spv::OpIAdd, type_uint,
-          builder.createBinOp(
-              spv::OpIMul, type_uint,
-              builder.makeUintConstant(tile_width_samples >> source_pixel_width_dwords_log2),
-              source_tile_index_x),
-          source_tile_pixel_x));
+      builder.createBinOp(spv::OpIAdd, type_uint,
+                          EdramMulConst(builder, source_tile_index_x,
+                                        tile_width_samples >> source_pixel_width_dwords_log2),
+                          source_tile_pixel_x));
   spv::Id source_pixel_y_int = builder.createUnaryOp(
       spv::OpBitcast, type_int,
       builder.createBinOp(
           spv::OpIAdd, type_uint,
-          builder.createBinOp(
-              spv::OpIMul, type_uint,
-              builder.makeUintConstant(tile_height_samples >> uint32_t(key.source_msaa_samples >=
-                                                                       xenos::MsaaSamples::k2X)),
-              source_tile_index_y),
+          EdramMulConst(builder, source_tile_index_y,
+                        tile_height_samples >>
+                            uint32_t(key.source_msaa_samples >= xenos::MsaaSamples::k2X)),
           source_tile_pixel_y));
 
   // Load the source.
@@ -4041,32 +4086,25 @@ VkShaderModule VulkanRenderTargetCache::GetTransferShader(TransferShaderKey key)
                 builder.createTriOp(spv::OpBitFieldUExtract, type_uint, host_depth_address_constant,
                                     builder.makeUintConstant(xenos::kEdramPitchTilesBits),
                                     builder.makeUintConstant(xenos::kEdramPitchTilesBits));
-            spv::Id host_depth_source_tile_index_y =
-                builder.createBinOp(spv::OpUDiv, type_uint, host_depth_source_tile_index,
-                                    host_depth_source_pitch_tiles);
-            spv::Id host_depth_source_tile_index_x =
-                builder.createBinOp(spv::OpUMod, type_uint, host_depth_source_tile_index,
-                                    host_depth_source_pitch_tiles);
+            auto [host_depth_source_tile_index_y, host_depth_source_tile_index_x] =
+                EdramDivModSmall(builder, host_depth_source_tile_index,
+                                 host_depth_source_pitch_tiles);
             // Finally calculate the host depth source texture coordinates.
             spv::Id host_depth_source_pixel_x_int = builder.createUnaryOp(
                 spv::OpBitcast, type_int,
                 builder.createBinOp(
                     spv::OpIAdd, type_uint,
-                    builder.createBinOp(spv::OpIMul, type_uint,
-                                        builder.makeUintConstant(tile_width_samples >>
-                                                                 uint32_t(key.source_msaa_samples >=
-                                                                          xenos::MsaaSamples::k4X)),
-                                        host_depth_source_tile_index_x),
+                    EdramMulConst(builder, host_depth_source_tile_index_x,
+                                  tile_width_samples >>
+                                      uint32_t(key.source_msaa_samples >= xenos::MsaaSamples::k4X)),
                     host_depth_source_tile_pixel_x));
             spv::Id host_depth_source_pixel_y_int = builder.createUnaryOp(
                 spv::OpBitcast, type_int,
                 builder.createBinOp(
                     spv::OpIAdd, type_uint,
-                    builder.createBinOp(spv::OpIMul, type_uint,
-                                        builder.makeUintConstant(tile_height_samples >>
-                                                                 uint32_t(key.source_msaa_samples >=
-                                                                          xenos::MsaaSamples::k2X)),
-                                        host_depth_source_tile_index_y),
+                    EdramMulConst(builder, host_depth_source_tile_index_y,
+                                  tile_height_samples >>
+                                      uint32_t(key.source_msaa_samples >= xenos::MsaaSamples::k2X)),
                     host_depth_source_tile_pixel_y));
             // Load the host depth source.
             spv::Builder::TextureParameters host_depth_source_texture_parameters = {};
@@ -4121,16 +4159,10 @@ VkShaderModule VulkanRenderTargetCache::GetTransferShader(TransferShaderKey key)
             // written to the beginning of the buffer, without the base offset.
             spv::Id host_depth_offset = builder.createBinOp(
                 spv::OpIAdd, type_uint,
-                builder.createBinOp(
-                    spv::OpIMul, type_uint,
-                    builder.makeUintConstant(tile_width_samples * tile_height_samples),
-                    dest_tile_index),
-                builder.createBinOp(
-                    spv::OpIAdd, type_uint,
-                    builder.createBinOp(spv::OpIMul, type_uint,
-                                        builder.makeUintConstant(tile_width_samples),
-                                        dest_tile_sample_y),
-                    dest_tile_sample_x));
+                EdramMulConst(builder, dest_tile_index, tile_width_samples * tile_height_samples),
+                builder.createBinOp(spv::OpIAdd, type_uint,
+                                    EdramMulConst(builder, dest_tile_sample_y, tile_width_samples),
+                                    dest_tile_sample_x));
             id_vector_temp.clear();
             // The only SSBO structure member.
             id_vector_temp.push_back(builder.makeIntConstant(0));
@@ -5590,18 +5622,12 @@ VkPipeline VulkanRenderTargetCache::GetDumpPipeline(DumpPipelineKey key) {
   spv::Id rectangle_sample_x = builder.createCompositeExtract(global_invocation_id, type_uint, 0);
   uint32_t tile_width =
       (xenos::kEdramTileWidthSamples >> uint32_t(format_is_64bpp)) * draw_resolution_scale_x();
-  spv::Id const_tile_width = builder.makeUintConstant(tile_width);
-  spv::Id rectangle_tile_index_x =
-      builder.createBinOp(spv::OpUDiv, type_uint, rectangle_sample_x, const_tile_width);
-  spv::Id tile_sample_x =
-      builder.createBinOp(spv::OpUMod, type_uint, rectangle_sample_x, const_tile_width);
+  auto [rectangle_tile_index_x, tile_sample_x] =
+      EdramDivModConst(builder, rectangle_sample_x, tile_width);
   spv::Id rectangle_sample_y = builder.createCompositeExtract(global_invocation_id, type_uint, 1);
   uint32_t tile_height = xenos::kEdramTileHeightSamples * draw_resolution_scale_y();
-  spv::Id const_tile_height = builder.makeUintConstant(tile_height);
-  spv::Id rectangle_tile_index_y =
-      builder.createBinOp(spv::OpUDiv, type_uint, rectangle_sample_y, const_tile_height);
-  spv::Id tile_sample_y =
-      builder.createBinOp(spv::OpUMod, type_uint, rectangle_sample_y, const_tile_height);
+  auto [rectangle_tile_index_y, tile_sample_y] =
+      EdramDivModConst(builder, rectangle_sample_y, tile_height);
 
   // Get the tile index in the EDRAM relative to the dump rectangle base tile.
   id_vector_temp.clear();
@@ -5613,10 +5639,10 @@ VkPipeline VulkanRenderTargetCache::GetDumpPipeline(DumpPipelineKey key) {
   spv::Id const_edram_pitch_tiles_bits = builder.makeUintConstant(xenos::kEdramPitchTilesBits);
   spv::Id rectangle_tile_index = builder.createBinOp(
       spv::OpIAdd, type_uint,
-      builder.createBinOp(spv::OpIMul, type_uint,
-                          builder.createTriOp(spv::OpBitFieldUExtract, type_uint, pitches_constant,
-                                              const_uint_0, const_edram_pitch_tiles_bits),
-                          rectangle_tile_index_y),
+      EdramMulSmall(builder,
+                    builder.createTriOp(spv::OpBitFieldUExtract, type_uint, pitches_constant,
+                                        const_uint_0, const_edram_pitch_tiles_bits),
+                    rectangle_tile_index_y),
       rectangle_tile_index_x);
   // Add the base tile in the dispatch to the dispatch-local tile index, not
   // wrapping yet so in case of a wraparound, the address relative to the base
@@ -5638,14 +5664,12 @@ VkPipeline VulkanRenderTargetCache::GetDumpPipeline(DumpPipelineKey key) {
   // addressing, into the EDRAM sample index.
   spv::Id edram_sample_address = builder.createBinOp(
       spv::OpIAdd, type_uint,
-      builder.createBinOp(
-          spv::OpIMul, type_uint, builder.makeUintConstant(tile_width * tile_height),
-          builder.createBinOp(spv::OpBitwiseAnd, type_uint, edram_tile_index_non_wrapped,
-                              builder.makeUintConstant(xenos::kEdramTileCount - 1))),
-      builder.createBinOp(
-          spv::OpIAdd, type_uint,
-          builder.createBinOp(spv::OpIMul, type_uint, const_tile_width, tile_sample_y),
-          tile_sample_x));
+      EdramMulConst(builder,
+                    builder.createBinOp(spv::OpBitwiseAnd, type_uint, edram_tile_index_non_wrapped,
+                                        builder.makeUintConstant(xenos::kEdramTileCount - 1)),
+                    tile_width * tile_height),
+      builder.createBinOp(spv::OpIAdd, type_uint, EdramMulConst(builder, tile_sample_y, tile_width),
+                          tile_sample_x));
   if (key.is_depth) {
     // Swap 40-sample columns in the depth buffer in the destination address to
     // get the final address of the sample in the EDRAM.
@@ -5673,19 +5697,13 @@ VkPipeline VulkanRenderTargetCache::GetDumpPipeline(DumpPipelineKey key) {
   spv::Id source_pitch_tiles =
       builder.createTriOp(spv::OpBitFieldUExtract, type_uint, pitches_constant,
                           const_edram_pitch_tiles_bits, const_edram_pitch_tiles_bits);
-  spv::Id source_tile_index_y =
-      builder.createBinOp(spv::OpUDiv, type_uint, source_tile_index, source_pitch_tiles);
-  spv::Id source_tile_index_x =
-      builder.createBinOp(spv::OpUMod, type_uint, source_tile_index, source_pitch_tiles);
+  auto [source_tile_index_y, source_tile_index_x] =
+      EdramDivModSmall(builder, source_tile_index, source_pitch_tiles);
   // Combine the source tile offset and the sample index within the tile.
   spv::Id source_sample_x = builder.createBinOp(
-      spv::OpIAdd, type_uint,
-      builder.createBinOp(spv::OpIMul, type_uint, const_tile_width, source_tile_index_x),
-      tile_sample_x);
+      spv::OpIAdd, type_uint, EdramMulConst(builder, source_tile_index_x, tile_width), tile_sample_x);
   spv::Id source_sample_y = builder.createBinOp(
-      spv::OpIAdd, type_uint,
-      builder.createBinOp(spv::OpIMul, type_uint, const_tile_height, source_tile_index_y),
-      tile_sample_y);
+      spv::OpIAdd, type_uint, EdramMulConst(builder, source_tile_index_y, tile_height), tile_sample_y);
   // Get the source pixel coordinate and the sample index within the pixel.
   spv::Id source_pixel_x = source_sample_x, source_pixel_y = source_sample_y;
   spv::Id source_sample_id = spv::NoResult;

@@ -50,3 +50,9 @@ code generator and runtime changes of masseffect-nx. The third-party sources are
   again if the same rectangle of it was already dumped to the EDRAM buffer for the same resolve span and nothing has
   changed since (any draw, transfer, resolve clear or cache clear forgets the records; a dump drops the records of the
   EDRAM range it overwrites). NieR resolves the same 640x360 4xMSAA target three times in a row in the menu.
+- `src/graphics/vulkan/render_target_cache.cpp`: the generated render target dump and EDRAM transfer shaders compute
+  EDRAM addresses without 32-bit integer multiplies and divisions. NAK emits the microcoded legacy `IMUL` on Maxwell
+  (SM50, the Switch's GM20B), and a dump or transfer pass of a 640x360 4xMSAA target cost 8-10 ms there. Multiplies by
+  constants are sums of shifts, products with the pitch are float products (exact below 2^24), and divisions by a
+  constant tile size or the pitch are `uint((float(x) + 0.5) * (1 / d))`, exact for x < 2^16 even with a reciprocal
+  off by 2 ulp.
