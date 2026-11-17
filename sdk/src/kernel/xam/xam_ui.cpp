@@ -17,6 +17,10 @@
 
 #include <imgui.h>
 
+#if REX_PLATFORM_SWITCH
+#include <switch.h>
+#endif
+
 REXCVAR_DEFINE_BOOL(headless, false, "Kernel",
                     "Don't display any UI, using defaults for prompts as needed");
 REXCVAR_DEFINE_STRING(keyboard_ui_auto_text, "", "Kernel",
@@ -437,6 +441,37 @@ u32 XamShowKeyboardUI_entry(u32 user_index, u32 flags, mapped_wstring default_te
 
   X_RESULT result;
   const std::string auto_text = REXCVAR_GET(keyboard_ui_auto_text);
+#if REX_PLATFORM_SWITCH
+  if (auto_text.empty() && !REXCVAR_GET(headless)) {
+    auto guest_utf8 = [](auto text) {
+      return text ? rex::string::to_utf8(rex::memory::load_and_swap<std::u16string>(
+                        REX_KERNEL_MEMORY()->TranslateVirtual(text.guest_address())))
+                  : std::string();
+    };
+    auto run = [title_str = guest_utf8(title), desc_str = guest_utf8(description),
+                def_text_str = guest_utf8(default_text), buffer, buffer_length]() -> X_RESULT {
+      SwkbdConfig keyboard;
+      if (R_FAILED(swkbdCreate(&keyboard, 0))) {
+        return X_ERROR_CANCELLED;
+      }
+      swkbdConfigMakePresetDefault(&keyboard);
+      swkbdConfigSetHeaderText(&keyboard, title_str.c_str());
+      swkbdConfigSetGuideText(&keyboard, desc_str.c_str());
+      swkbdConfigSetInitialText(&keyboard, def_text_str.c_str());
+      swkbdConfigSetStringLenMax(&keyboard, buffer_length ? buffer_length - 1 : 0);
+      std::string out(size_t(buffer_length) * 4 + 1, '\0');
+      const Result rc = swkbdShow(&keyboard, out.data(), out.size());
+      swkbdClose(&keyboard);
+      if (R_FAILED(rc)) {
+        return X_ERROR_CANCELLED;
+      }
+      out.resize(std::strlen(out.c_str()));
+      rex::string::copy_and_swap_truncating(buffer, rex::string::to_utf16(out), buffer_length);
+      return X_ERROR_SUCCESS;
+    };
+    return xeXamDispatchHeadless(run, overlapped.guest_address());
+  }
+#endif
   if (!auto_text.empty()) {
     auto run = [auto_text, buffer, buffer_length]() -> X_RESULT {
       rex::string::copy_and_swap_truncating(buffer, rex::string::to_utf16(auto_text), buffer_length);

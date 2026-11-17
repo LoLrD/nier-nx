@@ -37,3 +37,6 @@ code generator and runtime changes of masseffect-nx. The third-party sources are
   un-ignores a modified `config.h` in its `.gitignore`, but the modified `config.h` is not in its repository, so a Switch
   build of the published tree fails with `#error "no config"`. The WMV3 add-on (`config_masseffect_wmv3.h`) is not
   included: NieR has no WMV movies.
+- `src/kernel/xam/xam_ui.cpp` (`XamShowKeyboardUI`, Switch only): show the system software keyboard (libnx `swkbd`)
+  with the game's title, description and default text instead of the ImGui keyboard dialog, which has no usable input on
+  the console. `keyboard_ui_auto_text` and `headless` still take precedence.
