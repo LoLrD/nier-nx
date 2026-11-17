@@ -1,6 +1,8 @@
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
+#include <fstream>
+#include <string>
 #include <vector>
 
 #include "shader_dump.h"
@@ -31,15 +33,26 @@ int main() {
   ShaderDump dump(dir);
   const std::vector<uint32_t> a = {1, 2, 3, 4};
   const std::vector<uint32_t> b = {5, 6, 7, 8};
-  Check(dump.Record(1, a.data(), uint32_t(a.size())), "first record is new");
-  Check(!dump.Record(1, a.data(), uint32_t(a.size())), "shader_dump_writes_once");
-  Check(dump.Record(0, b.data(), uint32_t(b.size())), "other shader is new");
+  Check(dump.Record(1, 0x1A000, a.data(), uint32_t(a.size())), "first record is new");
+  Check(!dump.Record(1, 0x1A000, a.data(), uint32_t(a.size())), "shader_dump_writes_once");
+  Check(dump.Record(0, 0x2B000, b.data(), uint32_t(b.size())), "other shader is new");
   Check(dump.unique() == 2, "unique count");
   Check(Count(dir, "ps_") == 1 && Count(dir, "vs_") == 1, "shader_dump_names_by_stage");
   for (const auto& entry : std::filesystem::directory_iterator(dir)) {
     if (entry.path().filename().string().rfind("ps_", 0) == 0) {
       Check(std::filesystem::file_size(entry.path()) == 16, "dump keeps the microcode bytes");
     }
+  }
+  {
+    std::ifstream index(dir / "index.tsv");
+    std::string line;
+    int lines = 0;
+    bool address_found = false;
+    while (std::getline(index, line)) {
+      ++lines;
+      address_found |= line.find("\t0001a000\t") != std::string::npos;
+    }
+    Check(lines == 2 && address_found, "index_lists_each_shader_with_its_address");
   }
   std::filesystem::remove_all(dir);
   return failures ? 1 : 0;

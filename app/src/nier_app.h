@@ -112,6 +112,30 @@ class NierApp : public rex::ReXApp {
     std::fprintf(stderr, "[control] captured %s (%ux%u)\n", path.c_str(), image.width, image.height);
   }
 
+  void DumpMemory(const std::string& path) {
+    auto* memory = runtime()->memory();
+    std::ofstream out(path, std::ios::binary);
+    uint64_t address = 0;
+    uint64_t written = 0;
+    while (address < 0xC0000000ull) {
+      auto* heap = memory->LookupHeap(uint32_t(address));
+      rex::memory::HeapAllocationInfo info{};
+      if (!heap || !heap->QueryRegionInfo(uint32_t(address), &info) || !info.region_size) {
+        address += 0x10000;
+        continue;
+      }
+      if ((info.state & rex::memory::kMemoryAllocationCommit) && (info.protect & rex::memory::kMemoryProtectRead)) {
+        const uint32_t header[2] = {info.base_address, info.region_size};
+        out.write(reinterpret_cast<const char*>(header), sizeof(header));
+        out.write(memory->TranslateVirtual<const char*>(info.base_address), info.region_size);
+        written += info.region_size;
+      }
+      address = uint64_t(info.base_address) + info.region_size;
+    }
+    std::fprintf(stderr, "[control] dumped %llu MB of guest memory to %s\n",
+                 static_cast<unsigned long long>(written >> 20), path.c_str());
+  }
+
   void WatchControlFile() {
     const char* path = std::getenv("NIER_CONTROL_FILE");
     if (!path) {
@@ -126,6 +150,10 @@ class NierApp : public rex::ReXApp {
           for (const auto& [key, value] : ParseNierControl(text)) {
             if (key == "capture") {
               CaptureFrame(value);
+              continue;
+            }
+            if (key == "dump_memory") {
+              DumpMemory(value);
               continue;
             }
             rex::cvar::SetFlagByName(key, value);

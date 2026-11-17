@@ -11,7 +11,7 @@ class ShaderDump {
  public:
   explicit ShaderDump(std::filesystem::path dir);
 
-  bool Record(uint32_t type, const uint32_t* words_big_endian, uint32_t size_words);
+  bool Record(uint32_t type, uint32_t address, const uint32_t* words_big_endian, uint32_t size_words);
   size_t unique() const { return seen_.size(); }
 
  private:

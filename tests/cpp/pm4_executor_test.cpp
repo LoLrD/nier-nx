@@ -43,7 +43,7 @@ class FakeBus final : public GpuBus {
     swaps.push_back({frontbuffer, width, height});
   }
   void PublishReadPointer(uint32_t position) override { published.push_back(position); }
-  void ShaderLoad(uint32_t type, const uint32_t* words, uint32_t size) override {
+  void ShaderLoad(uint32_t type, uint32_t, const uint32_t* words, uint32_t size) override {
     shader_loads.emplace_back(type, std::vector<uint32_t>(words, words + size));
   }
   bool Yield(uint32_t) override {

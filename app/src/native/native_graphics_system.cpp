@@ -215,9 +215,9 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem, private 
     }
   }
 
-  void ShaderLoad(uint32_t type, const uint32_t* words_big_endian, uint32_t size_words) override {
+  void ShaderLoad(uint32_t type, uint32_t address, const uint32_t* words_big_endian, uint32_t size_words) override {
     if (shader_dump_) {
-      shader_dump_->Record(type, words_big_endian, size_words);
+      shader_dump_->Record(type, address, words_big_endian, size_words);
     }
   }
 

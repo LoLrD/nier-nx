@@ -175,7 +175,7 @@ bool Pm4Executor::Type3(RingReader& data, uint32_t opcode, uint32_t count) {
       const uint32_t address_type = data.Read();
       const uint32_t size = data.Read() & 0xFFFF;
       ++stats_.shader_loads;
-      bus_.ShaderLoad(address_type & 3, bus_.Words(address_type & ~3u), size);
+      bus_.ShaderLoad(address_type & 3, address_type & ~3u, bus_.Words(address_type & ~3u), size);
       return true;
     }
     case xenos::PM4_IM_LOAD_IMMEDIATE:
@@ -350,7 +350,7 @@ void Pm4Executor::ImLoadImmediate(RingReader& data) {
     inline_microcode_[i] = __builtin_bswap32(data.Read());
   }
   ++stats_.shader_loads;
-  bus_.ShaderLoad(type, inline_microcode_.data(), size);
+  bus_.ShaderLoad(type, 0, inline_microcode_.data(), size);
 }
 
 void Pm4Executor::VizQuery(RingReader& data) {
