@@ -21,6 +21,13 @@ add_executable(nier ${NIER_SOURCES})
 target_include_directories(nier PRIVATE src)
 
 rexglue_setup_target(nier GPU_PLUGINS xenos)
+if(NOT REXGLUE_PLATFORM_SWITCH)
+    if(TARGET rexgpu-xenos)
+        target_link_libraries(nier PRIVATE rexgpu-xenos)
+    else()
+        target_link_libraries(nier PRIVATE rex::gpu-xenos)
+    endif()
+endif()
 
 if(REXGLUE_PLATFORM_SWITCH)
     rexglue_switch_add_nro(nier

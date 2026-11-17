@@ -9,22 +9,22 @@ namespace nier::native {
 using namespace rex::graphics;
 
 uint32_t GpuRegisters::Get(uint32_t index) const {
-  return index < kCount ? values_[index] : 0;
+  return index < kCount ? file_.values[index] : 0;
 }
 
 std::optional<MemoryStore> GpuRegisters::Set(uint32_t index, uint32_t value) {
   if (index >= kCount) {
     return std::nullopt;
   }
-  values_[index] = value;
+  file_.values[index] = value;
   if (index < XE_GPU_REG_SCRATCH_REG0 || index > XE_GPU_REG_SCRATCH_REG7) {
     return std::nullopt;
   }
   const uint32_t scratch = index - XE_GPU_REG_SCRATCH_REG0;
-  if (!((1u << scratch) & values_[XE_GPU_REG_SCRATCH_UMSK])) {
+  if (!((1u << scratch) & file_.values[XE_GPU_REG_SCRATCH_UMSK])) {
     return std::nullopt;
   }
-  return MemoryStore{values_[XE_GPU_REG_SCRATCH_ADDR] + scratch * 4, value};
+  return MemoryStore{file_.values[XE_GPU_REG_SCRATCH_ADDR] + scratch * 4, value};
 }
 
 uint32_t GpuRegisters::ReadMmio(uint32_t index, uint32_t display_width, uint32_t display_height) const {

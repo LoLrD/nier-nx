@@ -62,3 +62,6 @@ code generator and runtime changes of masseffect-nx. The third-party sources are
   was copied back to guest memory: in NieR's gameplay 28 per frame, about 56 MB, all `memcpy` on the GPU command thread
   (plus the cache invalidation of the readback buffer and the texture reloads the CPU writes cause). NieR only reads
   its exposure chain (4-256 KB); `readback_resolve_max_kb = 256` keeps the image right.
+- `src/graphics/CMakeLists.txt`: on Apple the `rexgpu-xenos` dylib keeps default symbol visibility, so an app can link
+  it (NieR's native renderer uses the SDK's shader translator and register file); the plugin loader still opens the
+  same image. Other platforms keep hidden visibility; the Switch build is a static archive.

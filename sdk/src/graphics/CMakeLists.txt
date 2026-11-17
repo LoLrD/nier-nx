@@ -105,11 +105,13 @@ else()
 endif()
 add_library(rex::gpu-xenos ALIAS rexgpu-xenos)
 
-set_target_properties(rexgpu-xenos PROPERTIES
-    EXPORT_NAME gpu-xenos
-    CXX_VISIBILITY_PRESET hidden
-    VISIBILITY_INLINES_HIDDEN ON
-)
+set_target_properties(rexgpu-xenos PROPERTIES EXPORT_NAME gpu-xenos)
+if(NOT APPLE)
+    set_target_properties(rexgpu-xenos PROPERTIES
+        CXX_VISIBILITY_PRESET hidden
+        VISIBILITY_INLINES_HIDDEN ON
+    )
+endif()
 
 target_include_directories(rexgpu-xenos PRIVATE
     ${REXGLUE_ROOT}/thirdparty/renderdoc

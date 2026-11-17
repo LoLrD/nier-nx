@@ -1,8 +1,9 @@
 #pragma once
 
-#include <array>
 #include <cstdint>
 #include <optional>
+
+#include <rex/graphics/register_file.h>
 
 namespace nier::native {
 
@@ -18,9 +19,10 @@ class GpuRegisters {
   uint32_t Get(uint32_t index) const;
   std::optional<MemoryStore> Set(uint32_t index, uint32_t value);
   uint32_t ReadMmio(uint32_t index, uint32_t display_width, uint32_t display_height) const;
+  const rex::graphics::RegisterFile& file() const { return file_; }
 
  private:
-  std::array<uint32_t, kCount> values_{};
+  rex::graphics::RegisterFile file_;
 };
 
 }  // namespace nier::native

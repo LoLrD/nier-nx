@@ -4,6 +4,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "out" / "tests"
+REGISTER_FILE = str(ROOT / "sdk" / "src" / "graphics" / "register_file.cpp")
 INCLUDES = [
     ROOT / "sdk" / "include",
     ROOT / "out" / "build" / "mac" / "rexglue-sdk" / "include",
@@ -20,7 +21,7 @@ def build_and_run(name: str, sources: list[str]) -> subprocess.CompletedProcess:
     for include in INCLUDES:
         command += ["-I", str(include)]
     command += [str(ROOT / "tests" / "cpp" / f"{name}_test.cpp")]
-    command += [str(ROOT / "app" / "src" / "native" / source) for source in sources]
+    command += [str(source if source.startswith("/") else ROOT / "app" / "src" / "native" / source) for source in sources]
     command += ["-o", str(binary)]
     build = subprocess.run(command, capture_output=True, text=True)
     if build.returncode != 0:
@@ -37,10 +38,10 @@ class NativeSkeletonTest(unittest.TestCase):
         self.check("pm4_reader", [])
 
     def test_gpu_registers(self) -> None:
-        self.check("gpu_registers", ["gpu_registers.cpp"])
+        self.check("gpu_registers", ["gpu_registers.cpp", REGISTER_FILE])
 
     def test_pm4_executor(self) -> None:
-        self.check("pm4_executor", ["gpu_registers.cpp", "pm4_executor.cpp"])
+        self.check("pm4_executor", ["gpu_registers.cpp", "pm4_executor.cpp", REGISTER_FILE])
 
     def test_ring_state(self) -> None:
         self.check("ring_state", [])

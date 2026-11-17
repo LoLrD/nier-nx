@@ -55,5 +55,10 @@ int main() {
     Check(!regs.Set(0x5003, 1), "out_of_range_ignored set");
     Check(regs.Get(0x5003) == 0 && regs.ReadMmio(0x5003, 1280, 720) == 0, "out_of_range_ignored read");
   }
+  {
+    GpuRegisters regs;
+    regs.Set(XE_GPU_REG_SQ_PROGRAM_CNTL, 0x10000203);
+    Check(regs.file().Get<reg::SQ_PROGRAM_CNTL>().value == 0x10000203, "register_file_view");
+  }
   return failures ? 1 : 0;
 }
