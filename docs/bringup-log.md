@@ -104,3 +104,21 @@ Each entry: symptom → cause → fix, with the evidence. Newest last.
   vsync mode MoltenVK offers here, presenting inside the GPU command thread blocks it until the display refresh, and
   the 60 FPS menu missed every fourth vblank. Menu idle 60–95 s (`app/input/menu_idle.tsv`): p90 34 ms, 26 % of frames
   ≥ 20 ms, max 234 ms → with `present_own_thread = true` p90 18 ms, max 19 ms, still FIFO (no tearing).
+
+## 2026-11-17 — white scenes: CPU reads back resolves
+
+- Tooling: `NIER_CONTROL_FILE` (cvars applied at run time, `capture = <path>` writes the guest frame as PPM via
+  `CaptureGuestOutput`, independent of the window) + SDK cvars `gpu_debug_describe_frame`, `gpu_debug_skip_ps`,
+  `gpu_debug_skip_draw_first/count`.
+- Frame anatomy (prologue gameplay, ~270 draws): scene into EDRAM 0x2D0; 175 `9DCAD296…` packs the scene as RGBM
+  (rgb / max, alpha = max · scale + bias); 176–185 `CCB40C96…` downsample to 1×1 (resolves into one mip chain);
+  186 `5B08DBAE…` depth of field (depth from a raw D24S8 → RGBA8 resolve); 187 `3A56DB93…` RGBM decode + tone curve
+  with an exposure value; 249–270 glow and UI.
+- Skipping 187 left a pale, overexposed scene; skipping the 1×1 chain changed nothing. Ruled out: exp bias in
+  resolves (0), texture `exp_adjust` (the fork's word-3 reading matches current upstream), fork changes to the render
+  target cache.
+- Cause (hint from the user: Xenia/RPCS3 had the same white screen on NieR; RPCS3 fixes such games with "Write Color
+  Buffers"): the game computes exposure on the CPU from the downsampled frame, and the SDK default
+  `readback_resolve = "none"` never copies resolve results back to guest memory, so the CPU read zeros and maxed out
+  the exposure. `readback_resolve = "fast"` (previous frame, copied every frame) → normal image (mean brightness
+  218 → 94, white pixels 80 % → 0 %). Cost on the Switch to be measured in phase 2 (`some` = copy on cache miss).
