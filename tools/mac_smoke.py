@@ -48,7 +48,8 @@ def take_shot(pid: int, path: Path) -> bool:
 
 def dump_stacks(pid: int, path: Path) -> None:
     result = subprocess.run(
-        ["lldb", "--batch", "-p", str(pid), "-o", "thread backtrace all", "-o", "detach"],
+        ["lldb", "--batch", "-p", str(pid), "-o", "thread backtrace all", "-o", "detach",
+         "-k", "thread backtrace all", "-k", "detach"],
         capture_output=True,
         text=True,
         timeout=120,
@@ -61,8 +62,9 @@ def log_size(log_file: Path | None) -> int:
 
 
 def run(command: list[str], seconds: float, silence_seconds: float, run_dir: Path, log_file: Path | None = None,
-        shot_times: list[float] | None = None) -> dict:
+        shot_times: list[float] | None = None, stack_times: list[float] | None = None) -> dict:
     pending_shots = sorted(shot_times or [])
+    pending_stacks = sorted(stack_times or [])
     shots: list[str] = []
     run_dir.mkdir(parents=True, exist_ok=True)
     if log_file and log_file.exists():
@@ -108,6 +110,11 @@ def run(command: list[str], seconds: float, silence_seconds: float, run_dir: Pat
             shot = run_dir / "shots" / f"{at:06.1f}s.png"
             if take_shot(process.pid, shot):
                 shots.append(str(shot))
+        while pending_stacks and now - start >= pending_stacks[0]:
+            at = pending_stacks.pop(0)
+            dump_stacks(process.pid, run_dir / f"stacks-{at:06.1f}s.txt")
+            with lock:
+                last_output = time.monotonic()
         if now - start >= seconds:
             process.terminate()
             try:
@@ -139,11 +146,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--silence-seconds", type=float, default=20)
     parser.add_argument("--out-root", type=Path, default=ROOT / "out" / "smoke")
     parser.add_argument("--shots", type=lambda v: [float(x) for x in v.split(",")], default=[])
+    parser.add_argument("--stacks-at", type=lambda v: [float(x) for x in v.split(",")], default=[])
     parser.add_argument("--log-file", type=Path, default=ROOT / "out" / "mac" / "nier.log")
     parser.add_argument("--command", nargs=argparse.REMAINDER,
                         default=[str(ROOT / "out" / "mac" / "nier")])
     args = parser.parse_args(argv)
-    summary = run(args.command, args.seconds, args.silence_seconds, args.out_root / args.name, args.log_file, args.shots)
+    summary = run(args.command, args.seconds, args.silence_seconds, args.out_root / args.name, args.log_file, args.shots, args.stacks_at)
     print(json.dumps(summary, indent=2))
     return 0 if summary["result"] in ("ok", "timeout_ok") else 1
 

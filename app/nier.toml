@@ -1,3 +1,8 @@
 log_file = "out/mac/nier.log"
 log_level = "debug"
+log_max_file_size_mb = 512
 gpu_plugin = "xenos"
+
+[log.levels]
+apu = "info"
+krnl = "info"

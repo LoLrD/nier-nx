@@ -98,6 +98,19 @@ class SmokeRunTest(unittest.TestCase):
         self.assertEqual(summary["unregistered_calls"], ["82000010"])
         self.assertTrue((self.out / "t" / "game.log").exists())
 
+    def test_stacks_at_dumps_threads_and_keeps_running(self) -> None:
+        result = subprocess.run(
+            [sys.executable, str(SMOKE), "--seconds", "3", "--name", "t", "--silence-seconds", "10",
+             "--out-root", str(self.out), "--stacks-at", "1",
+             "--command", sys.executable, "-c", "import time\nwhile True:\n print('tick', flush=True)\n time.sleep(0.2)"],
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+        summary = json.loads((self.out / "t" / "summary.json").read_text())
+        self.assertEqual(summary["result"], "timeout_ok", result.stdout + result.stderr)
+        self.assertTrue((self.out / "t" / "stacks-0001.0s.txt").exists())
+
     def test_shots_without_window_are_skipped(self) -> None:
         result = subprocess.run(
             [sys.executable, str(SMOKE), "--seconds", "2", "--name", "t", "--silence-seconds", "5",
