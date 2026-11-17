@@ -22,7 +22,7 @@ for dir in "${CRASH_DIRS[@]}"; do ftp_list "$dir" | sed "s#^#$dir/#"; done > "$D
 TOML="$DEPLOYED_DIR/nier.toml"
 if [[ -n "$ROUTE" ]]; then
   ftp_put "$ROOT/$ROUTE" route.tsv
-  { echo "nier_input_script = \"sdmc:$SD_DIR/route.tsv\""; cat "$NX_OUT/nier.toml"; } > "$TOML"
+  { echo "nier_input_script = \"sdmc:$SD_DIR/route.tsv\""; echo "keyboard_ui_auto_text = \"Nier\""; cat "$NX_OUT/nier.toml"; } > "$TOML"
 else
   cp "$NX_OUT/nier.toml" "$TOML"
 fi
