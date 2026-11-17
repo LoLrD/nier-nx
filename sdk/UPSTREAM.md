@@ -16,3 +16,9 @@ code generator and runtime changes of masseffect-nx. The third-party sources are
 - `src/kernel/xam/xam_ui.cpp` (`XamShowKeyboardUI`): cvar `keyboard_ui_auto_text`. When set, keyboard prompts are
   answered with that text at once, without the ImGui dialog, so automated runs can pass name entry (NieR asks for the
   hero's name after the difficulty menu; `headless` answers with the empty default text).
+- `src/graphics/pipeline/shader/spirv_translator.cpp`: `var_main_tfetch_lod_` was assigned the int variable
+  `xe_var_vfetch_bound` (a broken merge of the fork's vfetch bound tracking: `var_main_tfetch_lod_ = var_main_vfetch_bound_ =
+  createVariable(int ...)`, with the float `xe_var_tfetch_lod` created and dropped). Every pixel shader with a texture
+  LOD bias then did `OpFAdd(int, float)`: invalid SPIR-V that MoltenVK rejects ("no matching function for call to
+  spvFAdd"), and the failed pipelines led to a crash in MoltenVK's descriptor update on the GPU command thread (NieR
+  froze on the first loading screen). Each variable now has its own declaration, as in upstream ReXGlue.
