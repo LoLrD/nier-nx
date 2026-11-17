@@ -5854,6 +5854,11 @@ void VulkanCommandProcessor::UpdateDynamicState(const draw_util::ViewportInfo& v
   scissor_rect.offset.y = int32_t(scissor.offset[1]);
   scissor_rect.extent.width = scissor.extent[0];
   scissor_rect.extent.height = scissor.extent[1];
+#if REX_PLATFORM_SWITCH
+  if (RexSwitchPerfSkip(2048)) {
+    scissor_rect.extent = {0, 0};
+  }
+#endif
   SetScissor(scissor_rect);
 
   if (render_target_cache_->GetPath() == RenderTargetCache::Path::kHostRenderTargets) {

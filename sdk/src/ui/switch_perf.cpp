@@ -251,6 +251,7 @@ struct Mode {
 constexpr Mode kModes[] = {
     {0, "normal"},
     {1, "no draws"},
+    {2048, "no draw pixels"},
     {2, "no transfers"},
     {64, "no stencil bit transfers"},
     {128, "no host depth store"},
@@ -261,7 +262,7 @@ constexpr Mode kModes[] = {
     {8, "no texture loads"},
     {16, "no presentation effect"},
     {32, "no tile dispatch"},
-    {2047, "nothing"},
+    {4095, "nothing"},
 };
 constexpr size_t kModeCount = sizeof(kModes) / sizeof(kModes[0]);
 
@@ -1604,7 +1605,8 @@ void RexSwitchPerfMax(unsigned id, u64 value) {
 /*
  * Bits: 1 draws, 2 transfers, 4 resolves, 8 texture loads,
  * 16 presentation effect, 32 tiled dispatch, 64 stencil bit transfer draws,
- * 128 host depth store, 256 resolve dumps, 512 resolve clears, 1024 resolve copies.
+ * 128 host depth store, 256 resolve dumps, 512 resolve clears, 1024 resolve copies,
+ * 2048 zero scissor for the guest draws (vertices only).
  */
 bool RexSwitchPerfSkip(unsigned bit) {
   return (g_skip_mask.load(std::memory_order_relaxed) & bit) != 0;
