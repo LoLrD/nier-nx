@@ -27,8 +27,10 @@
 #include "nier_fps_meter.h"
 #include "nier_input_driver.h"
 #include "nier_input_script.h"
+#include "native/native_graphics_system.h"
 
 REXCVAR_DECLARE(std::string, nier_input_script);
+REXCVAR_DECLARE(std::string, nier_renderer);
 
 class NierApp : public rex::ReXApp {
  public:
@@ -36,6 +38,12 @@ class NierApp : public rex::ReXApp {
 
   static std::unique_ptr<rex::ui::WindowedApp> Create(rex::ui::WindowedAppContext& ctx) {
     return std::unique_ptr<NierApp>(new NierApp(ctx, "nier", PPCImageConfig));
+  }
+
+  void OnPreSetup(rex::RuntimeConfig& config) override {
+    if (REXCVAR_GET(nier_renderer) == "native") {
+      config.graphics = nier::native::CreateNativeGraphicsSystem();
+    }
   }
 
   void OnConfigurePaths(rex::PathConfig& paths) override {

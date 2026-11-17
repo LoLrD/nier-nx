@@ -12,8 +12,12 @@ ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_COMMAND = [str(ROOT / "out" / "mac" / "nier")]
 DEFAULT_LOG_FILE = ROOT / "out" / "logs" / "nier.log"
 UNREGISTERED = re.compile(r"Call to invalid or unregistered function at guest address (?:0x)?([0-9A-Fa-f]{8})")
-FRAME = "XELOG_GPU PRESENT:"
+FRAMES = ("XELOG_GPU PRESENT:", "[native] present ")
 IO_STATS = re.compile(r"\[io\] \d+ s: (\d+) opens \((\d+) failed\)")
+
+
+def is_frame(line: str) -> bool:
+    return any(marker in line for marker in FRAMES)
 
 
 def summarize_log(lines: list[str]) -> dict:
@@ -28,7 +32,7 @@ def summarize_log(lines: list[str]) -> dict:
             opens += int(io.group(1))
             failed += int(io.group(2))
     return {
-        "frames": sum(1 for line in lines if FRAME in line),
+        "frames": sum(1 for line in lines if is_frame(line)),
         "files_opened": opens - failed,
         "files_failed": failed,
         "unregistered_calls": unregistered,
@@ -98,7 +102,7 @@ class Activity:
         now = time.monotonic()
         with self.lock:
             self.last_output = now
-            if FRAME in line:
+            if is_frame(line):
                 self.last_frame = now
 
     def poll_log(self) -> None:

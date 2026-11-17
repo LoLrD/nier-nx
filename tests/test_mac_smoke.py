@@ -42,6 +42,14 @@ class SummarizeLogTest(unittest.TestCase):
         ]
         self.assertEqual(mac_smoke.summarize_log(lines)["frames"], 2)
 
+    def test_summarize_counts_native_presents(self) -> None:
+        lines = [
+            "[2026-11-18 10:00:00.000] [debug] [core] [t1] [native] present 1 1280x720",
+            "[2026-11-17 14:31:16.178] [debug] [gpu] [t1] XELOG_GPU PRESENT: swap_texture_view=0x7b0eb94b40 packet_size=1280x720",
+            "[2026-11-18 10:00:00.010] [info] [core] [t1] [native] 10 s: 1 packets, 0 draws, 0 resolves, 1 swaps",
+        ]
+        self.assertEqual(mac_smoke.summarize_log(lines)["frames"], 2)
+
     def test_summarize_counts_successful_and_failed_opens_from_io_stats(self) -> None:
         lines = [
             "[2026-11-17 16:20:28.526] [info] [krnl] [t248303] [io] 15 s: 100 opens (92 failed) 1.0 ms in total, worst 0.1 ms",

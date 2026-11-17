@@ -258,3 +258,14 @@ mode (zero scissor for guest draws) to split draws into vertex and pixel work.
   text, camera framing). Reverted (the generated code is regenerated, nothing was committed).
 - Guest video mode 960x544 (`video_mode_width/height`, the lever that gave Mass Effect +35 %): NieR calls
   `VdQueryVideoMode` but its render targets stay 1280x720, so it does not size them from the video mode.
+
+## 2026-11-18 — native renderer N1: skeleton on macOS
+
+- `nier_renderer = "native"` replaces the SDK's Xenos plugin with `app/src/native/` (`NativeGraphicsSystem`): PM4 ring
+  thread, register mirror, vblank thread, interrupts, read-pointer writeback; draws, shader loads and resolves are only
+  counted, the screen stays black. PM4 semantics are ported from the SDK's `CommandProcessor` and covered by
+  `tests/test_native_skeleton.py`; the EVENT_WRITE_SHD counter counts vblanks as well as swaps, as in the SDK.
+- 90 s `menu_idle` runs on the M4: Xenos 5074 frames, native 5382 (`[native] present`), both `timeout_ok`, the same
+  8 files opened and 92 probes failed, no unregistered calls, exit code 0.
+- Native reports per 10 s: 600 swaps (60 fps), 1800 interrupts, ~13,200 WAIT_REG_MEM; in the menu 14,400 draws and 3000
+  resolves = 24 draws and 5 resolves per frame, the same as the Xenos path's frame description.
