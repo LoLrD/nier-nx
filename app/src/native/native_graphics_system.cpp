@@ -28,6 +28,7 @@
 #include "pm4_executor.h"
 #include "pm4_reader.h"
 #include "ring_state.h"
+#include "native_shaders.h"
 #include "shader_dump.h"
 
 REXCVAR_DEFINE_STRING(nier_renderer, "xenos", "NieR", "Graphics: xenos (SDK emulation) or native")
@@ -88,6 +89,10 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem, private 
     if (!memory_->AddVirtualMappedRange(kMmioBase, kMmioMask, kMmioSize, this, &MmioRead, &MmioWrite)) {
       REXLOG_ERROR("[native] could not register the GPU MMIO range");
       return X_STATUS_UNSUCCESSFUL;
+    }
+    if (provider_) {
+      shaders_ = std::make_unique<NativeShaders>(
+          static_cast<rex::ui::vulkan::VulkanProvider*>(provider_.get())->vulkan_device());
     }
     if (const std::string dir = REXCVAR_GET(nier_shader_dump_dir); !dir.empty()) {
       shader_dump_ = std::make_unique<ShaderDump>(dir);
@@ -219,6 +224,15 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem, private 
     if (shader_dump_) {
       shader_dump_->Record(type, address, words_big_endian, size_words);
     }
+    if (shaders_) {
+      shaders_->Load(type, words_big_endian, size_words);
+    }
+  }
+
+  void Draw(bool resolve) override {
+    if (shaders_ && !resolve) {
+      shaders_->PrepareDraw(registers_.file());
+    }
   }
 
   bool Yield(uint32_t wait) override {
@@ -294,12 +308,14 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem, private 
     }
     report_start_ = now;
     const Pm4Stats& s = executor_.stats();
+    const NativeShaders::Stats t = shaders_ ? shaders_->stats() : NativeShaders::Stats{};
     REXLOG_INFO(
         "[native] 10 s: {} packets, {} draws, {} resolves, {} swaps, {} interrupts, {} shader loads, {} waits, {} "
-        "overflows, {} unique shaders",
+        "overflows, {} unique shaders, {} shader translations, {} failed, {} ms translating (max {} ms)",
         s.packets - last_.packets, s.draws - last_.draws, s.resolves - last_.resolves, s.swaps - last_.swaps,
         s.interrupts - last_.interrupts, s.shader_loads - last_.shader_loads, s.waits - last_.waits,
-        s.overflows - last_.overflows, shader_dump_ ? shader_dump_->unique() : 0);
+        s.overflows - last_.overflows, shader_dump_ ? shader_dump_->unique() : 0, t.translations,
+        t.failures, t.translate_us / 1000, t.max_translate_us / 1000);
     last_ = s;
   }
 
@@ -312,6 +328,7 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem, private 
   GpuRegisters registers_;
   Pm4Executor executor_{registers_, *this};
   std::unique_ptr<ShaderDump> shader_dump_;
+  std::unique_ptr<NativeShaders> shaders_;
   RingState ring_;
   std::atomic<bool> active_{false};
   std::atomic<uint32_t> callback_{0};

@@ -29,6 +29,7 @@ class FakeBus final : public GpuBus {
   std::vector<std::vector<uint32_t>> swaps;
   std::vector<uint32_t> published;
   std::vector<std::pair<uint32_t, std::vector<uint32_t>>> shader_loads;
+  std::vector<bool> draws;
   uint32_t yields = 0;
   uint32_t release_after = 0;
   uint32_t release_address = 0;
@@ -43,6 +44,7 @@ class FakeBus final : public GpuBus {
     swaps.push_back({frontbuffer, width, height});
   }
   void PublishReadPointer(uint32_t position) override { published.push_back(position); }
+  void Draw(bool resolve) override { draws.push_back(resolve); }
   void ShaderLoad(uint32_t type, uint32_t, const uint32_t* words, uint32_t size) override {
     shader_loads.emplace_back(type, std::vector<uint32_t>(words, words + size));
   }
@@ -218,6 +220,7 @@ int main() {
     auto copy_reader = copy.Reader();
     exec.Execute(copy_reader);
     Check(exec.stats().resolves == 1 && exec.stats().draws == 2, "copy_counted_as_resolve");
+    Check(bus.draws == std::vector<bool>{false, false, true}, "draw_reports_to_bus");
   }
   {
     GpuRegisters regs;

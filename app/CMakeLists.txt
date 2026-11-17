@@ -14,11 +14,12 @@ set(NIER_SOURCES
     src/nier_input_script.cpp
     src/native/gpu_registers.cpp
     src/native/native_graphics_system.cpp
+    src/native/native_shaders.cpp
     src/native/pm4_executor.cpp
     src/native/shader_dump.cpp
 )
 add_executable(nier ${NIER_SOURCES})
-target_include_directories(nier PRIVATE src)
+target_include_directories(nier PRIVATE src ${REXSDK_DIR}/thirdparty/glslang ${REXSDK_DIR}/thirdparty/xxHash)
 
 rexglue_setup_target(nier GPU_PLUGINS xenos)
 if(NOT REXGLUE_PLATFORM_SWITCH)

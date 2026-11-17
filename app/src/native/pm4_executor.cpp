@@ -335,11 +335,9 @@ void Pm4Executor::Draw(RingReader& data, bool has_viz_query) {
     data.Read();
   }
   SetRegister(XE_GPU_REG_VGT_DRAW_INITIATOR, data.Read());
-  if ((registers_.Get(XE_GPU_REG_RB_MODECONTROL) & 7) == kCopyEdramMode) {
-    ++stats_.resolves;
-  } else {
-    ++stats_.draws;
-  }
+  const bool resolve = (registers_.Get(XE_GPU_REG_RB_MODECONTROL) & 7) == kCopyEdramMode;
+  ++(resolve ? stats_.resolves : stats_.draws);
+  bus_.Draw(resolve);
 }
 
 void Pm4Executor::ImLoadImmediate(RingReader& data) {
