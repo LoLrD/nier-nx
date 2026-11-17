@@ -1297,7 +1297,7 @@ bool VulkanRenderTargetCache::Resolve(const memory::Memory& memory,
           }
           command_processor_.SubmitBarriers(true);
 #if REX_PLATFORM_SWITCH
-          if (!RexSwitchPerfSkip(4))
+          if (!RexSwitchPerfSkip(4u | 1024u))
 #endif
           command_buffer.CmdVkDispatch(copy_group_count_x, copy_group_count_y, 1);
 
@@ -1359,7 +1359,7 @@ bool VulkanRenderTargetCache::Resolve(const memory::Memory& memory,
                                             sizeof(depth_clear_constants), &depth_clear_constants);
           command_processor_.SubmitBarriers(true);
 #if REX_PLATFORM_SWITCH
-          if (!RexSwitchPerfSkip(4))
+          if (!RexSwitchPerfSkip(4u | 512u))
 #endif
           command_buffer.CmdVkDispatch(clear_group_count.first, clear_group_count.second, 1);
         }
@@ -1382,7 +1382,7 @@ bool VulkanRenderTargetCache::Resolve(const memory::Memory& memory,
           }
           command_processor_.SubmitBarriers(true);
 #if REX_PLATFORM_SWITCH
-          if (!RexSwitchPerfSkip(4))
+          if (!RexSwitchPerfSkip(4u | 512u))
 #endif
           command_buffer.CmdVkDispatch(clear_group_count.first, clear_group_count.second, 1);
         }
@@ -4682,7 +4682,7 @@ void VulkanRenderTargetCache::PerformTransfersAndResolveClears(
             sizeof(host_depth_store_rectangle_constant), &host_depth_store_rectangle_constant);
         command_processor_.SubmitBarriers(true);
 #if REX_PLATFORM_SWITCH
-        if (!RexSwitchPerfSkip(2))
+        if (!RexSwitchPerfSkip(2u | 128u))
 #endif
         command_buffer.CmdVkDispatch(group_count_x, group_count_y, 1);
         MarkEdramBufferModified();
@@ -5308,7 +5308,7 @@ void VulkanRenderTargetCache::PerformTransfersAndResolveClears(
             RexSwitchPerfCount(13);
 #endif
 #if REX_PLATFORM_SWITCH
-            if (!RexSwitchPerfSkip(2))
+            if (!RexSwitchPerfSkip(transfer_is_stencil_bit ? (2u | 64u) : 2u))
 #endif
             command_buffer.CmdVkDraw(transfer_vertex_count, 1, 0, 0);
           }
@@ -6178,7 +6178,7 @@ bool VulkanRenderTargetCache::DumpRenderTargets(uint32_t dump_base, uint32_t dum
       }
       command_processor_.SubmitBarriers(true);
 #if REX_PLATFORM_SWITCH
-      if (!RexSwitchPerfSkip(4))
+      if (!RexSwitchPerfSkip(4u | 256u))
 #endif
       command_buffer.CmdVkDispatch(
           (draw_resolution_scale_x() *

@@ -40,3 +40,6 @@ code generator and runtime changes of masseffect-nx. The third-party sources are
 - `src/kernel/xam/xam_ui.cpp` (`XamShowKeyboardUI`, Switch only): show the system software keyboard (libnx `swkbd`)
   with the game's title, description and default text instead of the ImGui keyboard dialog, which has no usable input on
   the console. `keyboard_ui_auto_text` and `headless` still take precedence.
+- `src/ui/switch_perf.cpp`, `src/graphics/vulkan/render_target_cache.cpp`: the GPU A/B lap (L+R+ZL) splits transfers
+  into stencil bit draws (64) and host depth stores (128), and resolves into render target dumps (256), clears (512)
+  and copies (1024); the old "no transfers" (2) and "no resolves" (4) modes still cover all of them.

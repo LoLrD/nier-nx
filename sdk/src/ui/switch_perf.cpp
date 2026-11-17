@@ -252,11 +252,16 @@ constexpr Mode kModes[] = {
     {0, "normal"},
     {1, "no draws"},
     {2, "no transfers"},
+    {64, "no stencil bit transfers"},
+    {128, "no host depth store"},
     {4, "no resolves"},
+    {256, "no resolve dumps"},
+    {512, "no resolve clears"},
+    {1024, "no resolve copies"},
     {8, "no texture loads"},
     {16, "no presentation effect"},
     {32, "no tile dispatch"},
-    {63, "nothing"},
+    {2047, "nothing"},
 };
 constexpr size_t kModeCount = sizeof(kModes) / sizeof(kModes[0]);
 
@@ -269,7 +274,7 @@ constexpr size_t kModeCount = sizeof(kModes) / sizeof(kModes[0]);
  *
  * Now the player starts the rotation with L+R+ZL from inside the race, which is the only place where
  * the measurement is useful. From then on it removes one part of the GPU work per report, goes once
- * through the eight modes and returns to "normal".
+ * through the modes and returns to "normal".
  *
  * How to read it. If with "nothing" the game is just as slow, the cost is not in the GPU work but
  * in something fixed: submissions, the driver, or the guest itself. If FPS shoots up, the mode where
@@ -1598,7 +1603,8 @@ void RexSwitchPerfMax(unsigned id, u64 value) {
 
 /*
  * Bits: 1 draws, 2 transfers, 4 resolves, 8 texture loads,
- * 16 presentation effect, 32 tiled dispatch.
+ * 16 presentation effect, 32 tiled dispatch, 64 stencil bit transfer draws,
+ * 128 host depth store, 256 resolve dumps, 512 resolve clears, 1024 resolve copies.
  */
 bool RexSwitchPerfSkip(unsigned bit) {
   return (g_skip_mask.load(std::memory_order_relaxed) & bit) != 0;

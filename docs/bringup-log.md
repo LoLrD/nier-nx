@@ -164,3 +164,26 @@ Every frame is over 40 ms. `readback_resolve = "none"` gives the same 151–166 
 - So the frame is bound by the console GPU. In the menu ~160 ms of GPU per frame for a handful of draws is far more
   than that work should take, so most of the GPU time goes somewhere the profile does not show yet. Next: GPU
   timestamps per category (draws, EDRAM transfers, resolves, readback, present).
+
+## 2026-11-17 — Switch: GPU A/B lap in the menu (run `ab1`)
+
+The SDK's A/B lap (L+R+ZL, `sdk/src/ui/switch_perf.cpp`) drops one part of the GPU work per 10 s block;
+`tools/console-test/ab_table.py` turns the profile into a table. Main menu, GPU-bound, normal frame 158.7 ms:
+
+| Mode | fps | frame | saves |
+|---|---|---|---|
+| no draws | 6.5 | 153.8 ms | 4.9 ms |
+| no transfers | 14.0 | 71.4 ms | 87.3 ms |
+| no resolves | 9.9 | 101.0 ms | 57.7 ms |
+| no texture loads | 6.6 | 151.5 ms | 7.2 ms |
+| no presentation effect | 6.3 | 158.7 ms | 0 |
+| no tile dispatch | 6.4 | 156.2 ms | 2.5 ms |
+| nothing | 56.0 | 17.9 ms | 140.9 ms |
+
+- The menu's own draws cost ~5 ms. EDRAM transfers (3 render targets, 11 transfer draws per frame) cost ~87 ms and
+  5 resolves ~58 ms: about 8 ms per transfer draw and 11 ms per resolve, far above a full-screen pass on this GPU.
+- Suspect for the transfers: NVK has no `VK_EXT_shader_stencil_export`, so every transfer into a depth target adds 8
+  stencil bit draws (`need_stencil_bit_draws` in `render_target_cache.cpp`); masseffect-nx measured the same pattern
+  at 133 ms per frame. 1 depth + 8 stencil bits + 2 colour = 11 draws would match.
+- The gameplay lap did not start: at 1.4 fps the combo has to be held until the game polls input.
+- Next: the lap now also splits transfers (stencil bits, host depth store) and resolves (dumps, clears, copies).
