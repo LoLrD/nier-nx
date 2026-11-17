@@ -269,3 +269,17 @@ mode (zero scissor for guest draws) to split draws into vertex and pixel work.
   8 files opened and 92 probes failed, no unregistered calls, exit code 0.
 - Native reports per 10 s: 600 swaps (60 fps), 1800 interrupts, ~13,200 WAIT_REG_MEM; in the menu 14,400 draws and 3000
   resolves = 24 draws and 5 resolves per frame, the same as the Xenos path's frame description.
+
+## 2026-11-18 — native renderer N2: where NieR's shaders come from
+
+- Containers (0x102A11xx) found by `tools/shaders/extract_containers.py`: 5095 unique (default image + both CPKs,
+  1175 CRILAYLA blocks), 912 in a guest memory dump taken in the prologue.
+- Shaders the game loads (`nier_shader_dump_dir`, native renderer, menu + prologue routes): 98 (54 PS, 44 VS). Only 27
+  match a container (PS byte-exact, VS without the fetch fields D3D patches); every one of those 26 containers
+  translates to valid SPIR-V. The other 71 are loaded by IM_LOAD from physical memory in the regions of loaded game
+  resources (0x12C…, 0x16B…, 0x195…–0x1D5…); their microcode is found raw in uncompressed CPK files, preceded by float
+  literals, with no container header near it: NieR keeps them in its own resource format.
+- XenosRecomp (masseffect-nx fork) on the 5095 disc containers: 2221 HLSL, 1862 valid SPIR-V; rejections: vertex fetch
+  without a declared element (2306), conditional EXEC on an undeclared boolean constant (568), DXC errors (359).
+- Raw microcode wrapped as a register-linked container (masseffect-nx `wrap_raw_shader.py`): 1 of 6 samples reaches
+  valid SPIR-V (undeclared vertex fetches rejected, depth export not declared).
