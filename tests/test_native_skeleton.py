@@ -65,6 +65,9 @@ class NativeSkeletonTest(unittest.TestCase):
     def test_target_keys(self) -> None:
         self.check("target_keys", ["target_keys.cpp"], link_sdk=True)
 
+    def test_primitive_setup(self) -> None:
+        self.check("primitive_setup", ["primitive_setup.cpp"], link_sdk=True)
+
     def test_sdk_link(self) -> None:
         self.check("sdk_link", [], link_sdk=True)
 
