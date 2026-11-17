@@ -11,6 +11,8 @@ def find_blocks(data) -> list[int]:
 
 
 def block_size(data, offset: int) -> int:
+    if offset + 0x10 > len(data):
+        return 0
     _, compressed = struct.unpack_from("<II", data, offset + 8)
     return 0x10 + compressed + PREFIX_SIZE
 
@@ -29,6 +31,8 @@ def decompress(block: bytes) -> bytes:
         value = 0
         while count:
             if not left:
+                if position < 0x10:
+                    raise ValueError("CRILAYLA stream ends early")
                 pool = block[position]
                 position -= 1
                 left = 8
@@ -43,6 +47,8 @@ def decompress(block: bytes) -> bytes:
     while written < uncompressed:
         if bits(1):
             source = end - written + bits(13) + 3
+            if source > end:
+                raise ValueError("CRILAYLA reference outside the output")
             length = 3
             for width in VLE_LEVELS:
                 level = bits(width)

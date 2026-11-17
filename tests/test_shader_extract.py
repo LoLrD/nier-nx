@@ -102,6 +102,19 @@ class ContainerTest(unittest.TestCase):
             self.assertEqual(summary["blocks"], 1)
             self.assertTrue(next(out.glob("vs_*.bin")).read_bytes() == container)
 
+    def test_bad_crilayla_blocks_are_counted(self) -> None:
+        container = make_container()
+        good = encode(bytes(256), container, literal_tokens(container))
+        corrupt = b"CRILAYLA" + struct.pack("<II", 4096, 8) + b"\xff" * 8 + bytes(256)
+        truncated = good[:-40]
+        tail = b"CRILAYLA" + b"\x01\x02"
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "archive.cpk"
+            source.write_bytes(good + b"\x00" * 8 + corrupt + b"\x00" * 8 + truncated + tail)
+            summary = extract_containers.run(Path(tmp) / "out", [source])
+            self.assertEqual(summary["unique"], 1)
+            self.assertEqual(summary["bad_blocks"], 3)
+
     def test_duplicates_stored_once(self) -> None:
         container = make_container()
         with tempfile.TemporaryDirectory() as tmp:

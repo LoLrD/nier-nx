@@ -48,8 +48,12 @@ def find_containers(data) -> tuple[list[bytes], int]:
     return found, rejected
 
 
-def scan_block(block: bytes) -> tuple[list[bytes], int]:
-    return find_containers(crilayla.decompress(block))
+def scan_block(block: bytes) -> tuple[list[bytes], int, int]:
+    try:
+        containers, rejected = find_containers(crilayla.decompress(block))
+    except (ValueError, IndexError, struct.error):
+        return [], 0, 1
+    return containers, rejected, 0
 
 
 def store(out: Path, container: bytes, seen: set[str]) -> None:
@@ -64,23 +68,26 @@ def store(out: Path, container: bytes, seen: set[str]) -> None:
 def run(out: Path, files: list[Path]) -> dict:
     out.mkdir(parents=True, exist_ok=True)
     seen = {path.name for path in out.glob("*.bin")}
-    summary = {"files": 0, "blocks": 0, "containers": 0, "unique": 0, "rejected": 0}
+    summary = {"files": 0, "blocks": 0, "bad_blocks": 0, "containers": 0, "unique": 0, "rejected": 0}
     for path in files:
         with open(path, "rb") as handle, mmap.mmap(handle.fileno(), 0, access=mmap.ACCESS_READ) as data:
             summary["files"] += 1
-            results = [find_containers(data)]
+            results = [(*find_containers(data), 0)]
             blocks = []
             for offset in crilayla.find_blocks(data):
                 size = crilayla.block_size(data, offset)
-                if offset + size <= len(data):
+                if size and offset + size <= len(data):
                     blocks.append(bytes(data[offset:offset + size]))
+                else:
+                    summary["bad_blocks"] += 1
             summary["blocks"] += len(blocks)
             if blocks:
                 with Pool() as pool:
                     results += pool.map(scan_block, blocks)
-        for containers, rejected in results:
+        for containers, rejected, bad in results:
             summary["containers"] += len(containers)
             summary["rejected"] += rejected
+            summary["bad_blocks"] += bad
             for container in containers:
                 store(out, container, seen)
     summary["unique"] = len(seen)
