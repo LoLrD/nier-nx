@@ -10,6 +10,7 @@
 #include <rex/cvar.h>
 #include <rex/filesystem.h>
 #include <rex/input/input_system.h>
+#include <rex/memory.h>
 #include <rex/rex_app.h>
 #include <rex/runtime.h>
 
@@ -35,6 +36,17 @@ class NierApp : public rex::ReXApp {
     if (std::filesystem::is_directory(extracted, ec)) {
       paths.game_data_root = extracted;
     }
+  }
+
+  void OnPostLoadXexImage() override {
+    const char* path = std::getenv("NIER_DUMP_IMAGE");
+    if (!path) {
+      return;
+    }
+    const auto* image = runtime()->memory()->TranslateVirtual<const uint8_t*>(PPCImageConfig.image_base);
+    std::FILE* file = std::fopen(path, "wb");
+    std::fwrite(image, 1, PPCImageConfig.image_size, file);
+    std::fclose(file);
   }
 
   void OnPostSetup() override {
