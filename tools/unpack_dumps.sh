@@ -22,5 +22,7 @@ ISO="$(find "$DATA/iso" -maxdepth 1 -name '*.iso' | head -1)"
 [[ -n "$ISO" ]] || { echo "no .iso inside $GAME_7Z" >&2; exit 1; }
 python3 -I "$ROOT/tools/extract_iso.py" "$ISO" -o "$DATA/game_root"
 unzip -o -q "$DLC_ZIP" -d "$DATA/content"
+mkdir -p "$DATA/marketplace"
+ln -sfn ../content "$DATA/marketplace/0000000000000000"
 ln -sfn "$DATA" "$ROOT/assets"
 echo "ok: $ROOT/assets -> $DATA"

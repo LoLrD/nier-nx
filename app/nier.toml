@@ -3,6 +3,8 @@ log_level = "debug"
 log_max_file_size_mb = 512
 gpu_plugin = "xenos"
 vulkan_allow_present_mode_immediate = false
+dlc_enable = true
+content_marketplace_root = "assets/marketplace"
 
 [log.levels]
 apu = "info"
