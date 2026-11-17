@@ -69,6 +69,17 @@ class CheckGameTest(unittest.TestCase):
         self.assertEqual(result.returncode, 3)
         self.assertIn("default.xex", result.stderr)
 
+    def test_iso_hash_mismatch_exit2(self) -> None:
+        iso = Path(self.tmp.name) / "Nier.iso"
+        iso.write_bytes(b"damaged")
+        result = subprocess.run(
+            [sys.executable, str(CHECK), "--lock", str(self.lock), "--iso", str(iso)],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("Nier.iso does not match app/game.lock", result.stderr)
+
 
 class UnpackDumpsTest(unittest.TestCase):
     def test_refuses_when_disk_space_is_short(self) -> None:

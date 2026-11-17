@@ -23,12 +23,24 @@ def dlc_package(root: Path) -> Path | None:
     return packages[0] if packages else None
 
 
+def check_iso(iso: Path, lock: dict) -> int:
+    got = file_sha256(iso)
+    if got != lock["iso_sha256"]:
+        print(f"{iso.name} does not match app/game.lock (expected {lock['iso_sha256']}, got {got}): "
+              "this port supports only Nier (USA, Europe) disc", file=sys.stderr)
+        return 2
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Checks the extracted game against app/game.lock.")
     parser.add_argument("--root", type=Path, default=ROOT / "assets")
     parser.add_argument("--lock", type=Path, default=ROOT / "app" / "game.lock")
+    parser.add_argument("--iso", type=Path, help="check only this disc image")
     args = parser.parse_args(argv)
     lock = tomllib.loads(args.lock.read_text())
+    if args.iso:
+        return check_iso(args.iso, lock)
 
     xex = args.root / "game_root" / "default.xex"
     if not xex.is_file():
