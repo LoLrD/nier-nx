@@ -32,6 +32,8 @@ namespace {
 
 constexpr size_t kStagingPageBytes = 16 << 20;
 constexpr VkDeviceSize kDrawUniformBytes = 16384;
+constexpr uint64_t kEvictionPeriodFrames = 64;
+constexpr uint64_t kUnusedFrames = 600;
 
 }  // namespace
 
@@ -285,7 +287,8 @@ void NativeRenderer::Draw(const RegisterFile& regs) {
     ++stats_.skipped_empty;
     return;
   }
-  const auto prepared = shaders_.PrepareDraw(regs, draw.vs_type);
+  const SampleScale scale = ScaleFor(regs.Get<reg::RB_SURFACE_INFO>().msaa_samples);
+  const auto prepared = shaders_.PrepareDraw(regs, draw.vs_type, scale.x, scale.y);
   if (!prepared) {
     ++stats_.skipped_shader;
     return;
@@ -314,12 +317,19 @@ void NativeRenderer::Draw(const RegisterFile& regs) {
     Flush();
     BeginSubmission();
   }
-  for (const auto& binding : prepared->vertex_shader->vertex_bindings()) {
-    const auto fetch = regs.GetVertexFetch(binding.fetch_constant);
-    SyncMirror(fetch.address << 2, fetch.size << 2);
-  }
-  if (draw.index_source == IndexSource::kGuestDma) {
-    SyncMirror(draw.guest_index_address, draw.guest_index_bytes);
+  auto sync_ranges = [&] {
+    for (const auto& binding : prepared->vertex_shader->vertex_bindings()) {
+      const auto fetch = regs.GetVertexFetch(binding.fetch_constant);
+      SyncMirror(fetch.address << 2, fetch.size << 2);
+    }
+    if (draw.index_source == IndexSource::kGuestDma) {
+      SyncMirror(draw.guest_index_address, draw.guest_index_bytes);
+    }
+  };
+  const uint64_t submission = submissions_->current();
+  sync_ranges();
+  if (submissions_->current() != submission) {
+    sync_ranges();
   }
   TextureConstantInfo texture_info;
   uint32_t vs_textures = 0, vs_samplers = 0, ps_textures = 0, ps_samplers = 0;
@@ -521,6 +531,12 @@ void NativeRenderer::Swap(rex::ui::Presenter* presenter, uint32_t frontbuffer, u
   Flush();
   mirror_sync_.BeginFrame();
   textures_->BeginFrame();
+  resolves_->BeginFrame();
+  if (stats_.swaps % kEvictionPeriodFrames == 0) {
+    mirror_sync_.Prune(kUnusedFrames);
+    textures_->Evict(kUnusedFrames);
+    resolves_->Evict(kUnusedFrames, submissions_->current());
+  }
   ProcessCompleted();
 }
 
@@ -536,7 +552,7 @@ std::string NativeRenderer::Report() {
   std::string line = fmt::format(
       "[native] render: {}/{} draws drawn, skipped raster {} primitive {} target {} shader {} empty {}; {} resolves ({} colour, "
       "{} depth, {} clears, {} readbacks, {} skipped); mirror {} copies {} MB {} waits; textures {} uploads {} MB {} "
-      "unsupported {} resolve hits, {} live; {} targets, {} pipelines, {} submissions, {} black frames",
+      "unsupported {} resolve hits, {} live; {} resolve images, {} mirror keys; {} targets, {} pipelines, {} submissions, {} black frames",
       s.drawn - r.drawn, s.draws - r.draws, s.skipped_raster - r.skipped_raster,
       s.skipped_primitive - r.skipped_primitive, s.skipped_target - r.skipped_target,
       s.skipped_shader - r.skipped_shader, s.skipped_empty - r.skipped_empty, s.resolves - r.resolves, v.copies - reported_resolves_.copies,
@@ -545,7 +561,7 @@ std::string NativeRenderer::Report() {
       s.mirror_copies - r.mirror_copies, (s.mirror_bytes - r.mirror_bytes) >> 20, s.mirror_waits - r.mirror_waits,
       t.uploads - reported_textures_.uploads, (t.upload_bytes - reported_textures_.upload_bytes) >> 20,
       t.unsupported - reported_textures_.unsupported, t.resolve_hits - reported_textures_.resolve_hits,
-      textures_->live_images(), targets_->count(), pipelines_->pipeline_count(), submissions - reported_submissions_,
+      textures_->live_images(), resolves_->image_count(), mirror_sync_.key_count(), targets_->count(), pipelines_->pipeline_count(), submissions - reported_submissions_,
       s.black_frames - r.black_frames);
   reported_ = s;
   reported_textures_ = t;
