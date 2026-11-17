@@ -221,3 +221,12 @@ Fixes:
   31.4 → 3.1 ms, transfers 16.9 → 1.3 ms: each pass about 10x faster, so the microcoded `IMUL` was the cost. What is
   left: resolve copies 5.5 ms and texture loads 3.2 ms (both are prebuilt compute shaders with integer addressing),
   draws 2.4 ms. Menu summary: 6.3 → 41.2 fps at the same clocks.
+
+## 2026-11-17 — Switch: first gameplay lap (run `game1`)
+
+Prologue gameplay, same build as `menu2`: 5.1–7.0 fps (~170 ms). Per frame 150–173 draws, 31 resolves (17.4 screens),
+150–173 transfer calls with 126 transfer draws (22 render targets; 250 draws before the CPU extent estimation), 28
+texture loads. The lap is noisy in gameplay (the scene changes), but: no draws 105 ms (draws ~64 ms), no transfers
+~150 ms, nothing 54.6 ms (18.3 fps). In "nothing" the GPU command thread is at 84 % of a core: about 46 ms of CPU per
+frame for ~170 draws, so the command processor itself is the second limit. Next run: stack samples and a vertices-only
+mode (zero scissor for guest draws) to split draws into vertex and pixel work.
