@@ -1,0 +1,9 @@
+log_file = "sdmc:/switch/nier-nx/nier.log"
+log_level = "info"
+gpu_plugin = "xenos"
+readback_resolve = "fast"
+dlc_enable = true
+content_marketplace_root = "sdmc:/switch/nier-nx/marketplace"
+
+[log.levels]
+gpu = "debug"

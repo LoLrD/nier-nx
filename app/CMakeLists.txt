@@ -17,3 +17,10 @@ add_executable(nier ${NIER_SOURCES})
 target_include_directories(nier PRIVATE src)
 
 rexglue_setup_target(nier GPU_PLUGINS xenos)
+
+if(REXGLUE_PLATFORM_SWITCH)
+    rexglue_switch_add_nro(nier
+        NAME "NieR"
+        AUTHOR "nier-nx"
+        VERSION "0.1.0")
+endif()

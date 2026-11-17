@@ -10,6 +10,7 @@ sdk/thirdparty/*
 sdk/thirdparty/FFmpeg/*
 !sdk/thirdparty/FFmpeg/config_masseffect_wmv3.h
 !sdk/thirdparty/FFmpeg/config_switch_aarch64.h
+!sdk/thirdparty/FFmpeg/config.h
 !sdk/thirdparty/FFmpeg/libavcodec/
 sdk/thirdparty/FFmpeg/libavcodec/*
 !sdk/thirdparty/FFmpeg/libavcodec/fft_template.c

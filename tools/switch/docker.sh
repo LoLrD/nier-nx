@@ -21,4 +21,6 @@ in_container() {
   docker run --rm -v "$ROOT:$ROOT" -v "$DATA:$DATA" -w "$ROOT" "$IMAGE" "$@"
 }
 
-[[ "${BASH_SOURCE[0]}" == "$0" ]] && "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  "$@"
+fi
