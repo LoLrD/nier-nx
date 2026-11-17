@@ -72,6 +72,8 @@ extern "C" bool RexSwitchPerfSkip(unsigned bit);
 
 namespace rex::graphics::vulkan {
 
+extern bool g_debug_describe_this_frame;
+
 // Generated with `xb buildshaders`.
 namespace shaders {
 #include "../shaders/vulkan_spirv/host_depth_store_1xmsaa_cs.h"
@@ -4574,6 +4576,22 @@ void VulkanRenderTargetCache::PerformTransfersAndResolveClears(
     const uint64_t* render_target_resolve_clear_values,
     const Transfer::Rectangle* resolve_clear_rectangle) {
   assert_true(GetPath() == Path::kHostRenderTargets);
+  if (g_debug_describe_this_frame && render_target_transfers) {
+    const bool stencil_export =
+        command_processor_.GetVulkanDevice()->extensions().ext_EXT_shader_stencil_export;
+    for (uint32_t i = 0; i < render_target_count; ++i) {
+      if (!render_targets[i] || render_target_transfers[i].empty()) {
+        continue;
+      }
+      const RenderTargetKey dest_key = render_targets[i]->key();
+      for (const Transfer& transfer : render_target_transfers[i]) {
+        REXGPU_INFO("[transfer] {} <- {} tiles [{}, {}){}{}", dest_key.GetDebugName(),
+                    transfer.source->key().GetDebugName(), transfer.start_tiles, transfer.end_tiles,
+                    transfer.host_depth_source ? " +host depth" : "",
+                    dest_key.is_depth ? (stencil_export ? " +stencil export" : " +8 stencil bit draws") : "");
+      }
+    }
+  }
 #if REX_PLATFORM_SWITCH
   RexSwitchPerfCount(11);
   if (render_target_transfers) {
@@ -6117,6 +6135,10 @@ bool VulkanRenderTargetCache::DumpRenderTargets(uint32_t dump_base, uint32_t dum
     const ResolveCopyDumpRectangle& rectangle = invocation.rectangle;
     auto& vulkan_rt = *static_cast<VulkanRenderTarget*>(rectangle.render_target);
     RenderTargetKey rt_key = vulkan_rt.key();
+    if (g_debug_describe_this_frame) {
+      REXGPU_INFO("[dump] {} rows {} from row {} span [{}, {})", rt_key.GetDebugName(), rectangle.rows,
+                  rectangle.row_first, rectangle.row_first_start, rectangle.row_last_end);
+    }
     DumpPipelineKey pipeline_key = invocation.pipeline_key;
     VkPipeline pipeline = GetDumpPipeline(pipeline_key);
     if (!pipeline) {

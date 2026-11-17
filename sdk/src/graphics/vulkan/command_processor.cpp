@@ -2298,9 +2298,10 @@ extern "C" void RexSwitchPerfAdd(unsigned id, uint64_t value);
 extern "C" bool RexSwitchPerfSkip(unsigned bit);
 #endif
 
+bool g_debug_describe_this_frame = false;
+
 namespace {
 uint32_t g_debug_draw_index = 0;
-bool g_debug_describe_this_frame = false;
 
 bool DebugSkipsPixelShader(uint64_t hash) {
   static std::string cached_list;

@@ -43,3 +43,6 @@ code generator and runtime changes of masseffect-nx. The third-party sources are
 - `src/ui/switch_perf.cpp`, `src/graphics/vulkan/render_target_cache.cpp`: the GPU A/B lap (L+R+ZL) splits transfers
   into stencil bit draws (64) and host depth stores (128), and resolves into render target dumps (256), clears (512)
   and copies (1024); the old "no transfers" (2) and "no resolves" (4) modes still cover all of them.
+- `src/graphics/vulkan/render_target_cache.cpp`, `command_processor.cpp`: `gpu_debug_describe_frame` also logs EDRAM
+  ownership transfers (`[transfer]`, with the 8 stencil bit draws of a depth destination when the device has no
+  `VK_EXT_shader_stencil_export`) and render target dumps for resolves (`[dump]`).
