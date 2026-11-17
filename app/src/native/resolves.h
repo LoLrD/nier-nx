@@ -38,7 +38,7 @@ class Resolves {
   void Evict(uint64_t unused_frames, uint64_t submission);
   void Completed(uint64_t submission);
   size_t image_count() const { return images_.size(); }
-  VkImage FindImage(uint32_t address, uint32_t& width, uint32_t& height) const;
+  VkImage FindImage(uint32_t address, uint32_t& width, uint32_t& height, VkImageView* view = nullptr) const;
   const Stats& stats() const { return stats_; }
 
  private:

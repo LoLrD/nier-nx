@@ -19,6 +19,7 @@
 #include <rex/ui/vulkan/util.h>
 
 #include "primitive_setup.h"
+#include "shaders/apply_gamma_cs.h"
 #include "resolve_plan.h"
 #include "target_keys.h"
 
@@ -37,11 +38,13 @@ constexpr uint64_t kUnusedFrames = 600;
 
 }  // namespace
 
-NativeRenderer::NativeRenderer(const vk::VulkanDevice* device, rex::memory::Memory* memory, NativeShaders& shaders)
+NativeRenderer::NativeRenderer(const vk::VulkanDevice* device, rex::memory::Memory* memory, NativeShaders& shaders,
+                               const GpuRegisters& registers)
     : device_(device),
       memory_(memory),
       physical_base_(memory->TranslatePhysical<uint8_t*>(0)),
-      shaders_(shaders) {
+      shaders_(shaders),
+      registers_(registers) {
   if (!device_->properties().dynamicRendering) {
     REXLOG_ERROR("[native] the device has no dynamic rendering, nothing will be drawn");
     return;
@@ -101,16 +104,45 @@ NativeRenderer::NativeRenderer(const vk::VulkanDevice* device, rex::memory::Memo
                                    buffers.data(),
                                    nullptr};
   dfn.vkUpdateDescriptorSets(d, 1, &write, 0, nullptr);
-  VkFormatProperties output{};
-  device_->vulkan_instance()->functions().vkGetPhysicalDeviceFormatProperties(
-      device_->physical_device(), vk::VulkanPresenter::kGuestOutputFormat, &output);
-  output_blit_ = (output.optimalTilingFeatures & VK_FORMAT_FEATURE_BLIT_DST_BIT) != 0;
-  if (!output_blit_) {
-    REXLOG_ERROR("[native] the guest output format cannot be a blit destination, frames stay black");
-  }
+  CreateGammaPipeline();
   valid_ = true;
   REXLOG_INFO("[native] renderer ready: {} shared memory bindings, depth {}", shared_count,
               targets_->depth_format() == VK_FORMAT_D24_UNORM_S8_UINT ? "D24S8" : "D32S8");
+}
+
+void NativeRenderer::CreateGammaPipeline() {
+  const auto& dfn = device_->functions();
+  const VkDevice d = device_->device();
+  const std::array<VkDescriptorSetLayoutBinding, 3> bindings = {{
+      {0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr},
+      {1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr},
+      {2, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr},
+  }};
+  VkDescriptorSetLayoutCreateInfo set_info{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+  set_info.bindingCount = uint32_t(bindings.size());
+  set_info.pBindings = bindings.data();
+  dfn.vkCreateDescriptorSetLayout(d, &set_info, nullptr, &gamma_set_layout_);
+  const VkPushConstantRange push{VK_SHADER_STAGE_COMPUTE_BIT, 0, 2 * sizeof(int32_t)};
+  VkPipelineLayoutCreateInfo layout_info{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+  layout_info.setLayoutCount = 1;
+  layout_info.pSetLayouts = &gamma_set_layout_;
+  layout_info.pushConstantRangeCount = 1;
+  layout_info.pPushConstantRanges = &push;
+  dfn.vkCreatePipelineLayout(d, &layout_info, nullptr, &gamma_layout_);
+  const VkShaderModule module = vk::util::CreateShaderModule(device_, apply_gamma_cs, sizeof(apply_gamma_cs));
+  VkComputePipelineCreateInfo pipeline_info{VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
+  pipeline_info.stage = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_COMPUTE_BIT,
+                         module, "main", nullptr};
+  pipeline_info.layout = gamma_layout_;
+  dfn.vkCreateComputePipelines(d, VK_NULL_HANDLE, 1, &pipeline_info, nullptr, &gamma_pipeline_);
+  dfn.vkDestroyShaderModule(d, module, nullptr);
+  VkSamplerCreateInfo sampler{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+  sampler.magFilter = VK_FILTER_NEAREST;
+  sampler.minFilter = VK_FILTER_NEAREST;
+  sampler.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+  sampler.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+  sampler.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+  dfn.vkCreateSampler(d, &sampler, nullptr, &gamma_sampler_);
 }
 
 NativeRenderer::~NativeRenderer() {
@@ -123,6 +155,10 @@ NativeRenderer::~NativeRenderer() {
   submissions_->WaitIdle();
   const auto& dfn = device_->functions();
   const VkDevice d = device_->device();
+  dfn.vkDestroySampler(d, gamma_sampler_, nullptr);
+  dfn.vkDestroyPipeline(d, gamma_pipeline_, nullptr);
+  dfn.vkDestroyPipelineLayout(d, gamma_layout_, nullptr);
+  dfn.vkDestroyDescriptorSetLayout(d, gamma_set_layout_, nullptr);
   dfn.vkDestroyDescriptorPool(d, shared_pool_, nullptr);
   dfn.vkDestroyBuffer(d, builtin_indices_, nullptr);
   dfn.vkFreeMemory(d, builtin_memory_, nullptr);
@@ -420,11 +456,11 @@ void NativeRenderer::Resolve(const RegisterFile& regs) {
   resolves_->Resolve(submissions_->main(), PlanResolve(info, regs), submissions_->current());
 }
 
-void NativeRenderer::PresentInto(VkCommandBuffer cmd, VkImage output, bool written_before, uint32_t frontbuffer,
-                                 uint32_t width, uint32_t height) {
+void NativeRenderer::PresentInto(VkCommandBuffer cmd, VkImage output, VkImageView output_view, bool written_before,
+                                 uint32_t frontbuffer, uint32_t width, uint32_t height) {
   const auto& dfn = device_->functions();
   VkImageMemoryBarrier barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
-  barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+  barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_SHADER_WRITE_BIT;
   barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
   barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
   barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
@@ -434,29 +470,46 @@ void NativeRenderer::PresentInto(VkCommandBuffer cmd, VkImage output, bool writt
   dfn.vkCmdPipelineBarrier(cmd,
                            written_before ? vk::VulkanPresenter::kGuestOutputInternalStageMask
                                           : VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                           VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+                           VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0,
+                           nullptr, 1, &barrier);
   uint32_t source_width = 0, source_height = 0;
-  const VkImage source = resolves_->FindImage(frontbuffer, source_width, source_height);
-  if (source != VK_NULL_HANDLE && output_blit_) {
-    VkImageBlit blit{};
-    blit.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-    blit.srcOffsets[1] = {int32_t(std::min(width, source_width)), int32_t(std::min(height, source_height)), 1};
-    blit.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-    blit.dstOffsets[1] = {int32_t(width), int32_t(height), 1};
-    dfn.vkCmdBlitImage(cmd, source, VK_IMAGE_LAYOUT_GENERAL, output, VK_IMAGE_LAYOUT_GENERAL, 1, &blit,
-                       VK_FILTER_LINEAR);
+  VkImageView source_view = VK_NULL_HANDLE;
+  const VkImage source = resolves_->FindImage(frontbuffer, source_width, source_height, &source_view);
+  uint32_t ramp_offset = 0;
+  const VkDescriptorSet set = source != VK_NULL_HANDLE ? submissions_->Allocate(gamma_set_layout_) : VK_NULL_HANDLE;
+  if (set != VK_NULL_HANDLE &&
+      submissions_->Uniform(registers_.gamma_ramp().data(), sizeof(uint32_t) * 256, sizeof(uint32_t) * 256,
+                            ramp_offset)) {
+    const VkDescriptorImageInfo source_info{gamma_sampler_, source_view, VK_IMAGE_LAYOUT_GENERAL};
+    const VkDescriptorImageInfo output_info{VK_NULL_HANDLE, output_view, VK_IMAGE_LAYOUT_GENERAL};
+    const VkDescriptorBufferInfo ramp_info{submissions_->uniform_buffer(), ramp_offset, sizeof(uint32_t) * 256};
+    const std::array<VkWriteDescriptorSet, 3> writes = {{
+        {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, set, 0, 0, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+         &source_info, nullptr, nullptr},
+        {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, set, 1, 0, 1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, &output_info,
+         nullptr, nullptr},
+        {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, set, 2, 0, 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, nullptr,
+         &ramp_info, nullptr},
+    }};
+    dfn.vkUpdateDescriptorSets(device_->device(), uint32_t(writes.size()), writes.data(), 0, nullptr);
+    const int32_t size[2] = {int32_t(std::min(width, source_width)), int32_t(std::min(height, source_height))};
+    dfn.vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, gamma_pipeline_);
+    dfn.vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, gamma_layout_, 0, 1, &set, 0, nullptr);
+    dfn.vkCmdPushConstants(cmd, gamma_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(size), size);
+    dfn.vkCmdDispatch(cmd, (uint32_t(size[0]) + 7) / 8, (uint32_t(size[1]) + 7) / 8, 1);
   } else {
     ++stats_.black_frames;
     const VkClearColorValue black{{0.0f, 0.0f, 0.0f, 1.0f}};
     const VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
     dfn.vkCmdClearColorImage(cmd, output, VK_IMAGE_LAYOUT_GENERAL, &black, 1, &range);
   }
-  barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+  barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_SHADER_WRITE_BIT;
   barrier.dstAccessMask = vk::VulkanPresenter::kGuestOutputInternalAccessMask;
   barrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
   barrier.newLayout = vk::VulkanPresenter::kGuestOutputInternalLayout;
-  dfn.vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, vk::VulkanPresenter::kGuestOutputInternalStageMask, 0,
-                           0, nullptr, 0, nullptr, 1, &barrier);
+  dfn.vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                           vk::VulkanPresenter::kGuestOutputInternalStageMask, 0, 0, nullptr, 0, nullptr, 1,
+                           &barrier);
 }
 
 void NativeRenderer::SetFrameDump(std::string directory, uint32_t interval) {
@@ -522,8 +575,8 @@ void NativeRenderer::Swap(rex::ui::Presenter* presenter, uint32_t frontbuffer, u
   if (presenter && width && height) {
     presenter->RefreshGuestOutput(width, height, 16, 9, [&](rex::ui::Presenter::GuestOutputRefreshContext& context) {
       auto& output = static_cast<vk::VulkanPresenter::VulkanGuestOutputRefreshContext&>(context);
-      PresentInto(submissions_->main(), output.image(), output.image_ever_written_previously(), frontbuffer, width,
-                  height);
+      PresentInto(submissions_->main(), output.image(), output.image_view(), output.image_ever_written_previously(),
+                  frontbuffer, width, height);
       Flush();
       return true;
     });

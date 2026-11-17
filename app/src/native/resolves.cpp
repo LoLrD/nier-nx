@@ -395,7 +395,7 @@ void Resolves::Destroy(DestImage& image) {
   dfn.vkFreeMemory(d, image.memory, nullptr);
 }
 
-VkImage Resolves::FindImage(uint32_t address, uint32_t& width, uint32_t& height) const {
+VkImage Resolves::FindImage(uint32_t address, uint32_t& width, uint32_t& height, VkImageView* view) const {
   const auto key = latest_by_address_.find(address);
   if (key == latest_by_address_.end()) {
     return VK_NULL_HANDLE;
@@ -403,6 +403,9 @@ VkImage Resolves::FindImage(uint32_t address, uint32_t& width, uint32_t& height)
   const DestImage& image = images_.at(key->second);
   width = image.width;
   height = image.height;
+  if (view) {
+    *view = image.view;
+  }
   return image.image;
 }
 

@@ -8,6 +8,7 @@
 #include <rex/ui/vulkan/api.h>
 
 #include "draw_constants.h"
+#include "gpu_registers.h"
 #include "guest_mirror.h"
 #include "mirror_sync.h"
 #include "native_shaders.h"
@@ -51,7 +52,8 @@ class NativeRenderer {
     uint64_t mirror_waits = 0;
   };
 
-  NativeRenderer(const rex::ui::vulkan::VulkanDevice* device, rex::memory::Memory* memory, NativeShaders& shaders);
+  NativeRenderer(const rex::ui::vulkan::VulkanDevice* device, rex::memory::Memory* memory, NativeShaders& shaders,
+                 const GpuRegisters& registers);
   ~NativeRenderer();
   NativeRenderer(const NativeRenderer&) = delete;
   NativeRenderer& operator=(const NativeRenderer&) = delete;
@@ -74,13 +76,15 @@ class NativeRenderer {
   void SetDynamicState(const rex::graphics::RegisterFile& regs, const rex::graphics::draw_util::ViewportInfo& viewport,
                        const SampleScale& scale, bool polygonal);
   void DumpFrame(uint32_t frontbuffer, uint32_t width, uint32_t height);
-  void PresentInto(VkCommandBuffer command_buffer, VkImage output, bool written_before, uint32_t frontbuffer,
-                   uint32_t width, uint32_t height);
+  void PresentInto(VkCommandBuffer command_buffer, VkImage output, VkImageView output_view, bool written_before,
+                   uint32_t frontbuffer, uint32_t width, uint32_t height);
+  void CreateGammaPipeline();
 
   const rex::ui::vulkan::VulkanDevice* device_;
   rex::memory::Memory* memory_;
   uint8_t* physical_base_;
   NativeShaders& shaders_;
+  const GpuRegisters& registers_;
   bool valid_ = false;
   std::unique_ptr<Pipelines> pipelines_;
   std::unique_ptr<Submissions> submissions_;
@@ -95,7 +99,10 @@ class NativeRenderer {
   VkDeviceSize quad_indices_offset_ = 0;
   VkDescriptorPool shared_pool_ = VK_NULL_HANDLE;
   VkDescriptorSet shared_set_ = VK_NULL_HANDLE;
-  bool output_blit_ = false;
+  VkDescriptorSetLayout gamma_set_layout_ = VK_NULL_HANDLE;
+  VkPipelineLayout gamma_layout_ = VK_NULL_HANDLE;
+  VkPipeline gamma_pipeline_ = VK_NULL_HANDLE;
+  VkSampler gamma_sampler_ = VK_NULL_HANDLE;
   std::string dump_directory_;
   uint32_t dump_interval_ = 0;
   uint64_t processed_ = 0;

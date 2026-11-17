@@ -99,7 +99,7 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem, private 
     if (provider_) {
       const auto* device = static_cast<rex::ui::vulkan::VulkanProvider*>(provider_.get())->vulkan_device();
       shaders_ = std::make_unique<NativeShaders>(device);
-      renderer_ = std::make_unique<NativeRenderer>(device, memory_, *shaders_);
+      renderer_ = std::make_unique<NativeRenderer>(device, memory_, *shaders_, registers_);
       if (const std::string dir = REXCVAR_GET(nier_frame_dump_dir); !dir.empty()) {
         renderer_->SetFrameDump(dir, uint32_t(std::max(1, REXCVAR_GET(nier_frame_dump_interval))));
       }

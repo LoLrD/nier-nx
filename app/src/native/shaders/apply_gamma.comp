@@ -1,0 +1,27 @@
+#version 450
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0) uniform sampler2DArray source;
+layout(set = 0, binding = 1, rgb10_a2) uniform writeonly image2D destination;
+layout(set = 0, binding = 2) uniform Ramp {
+  uvec4 entries[64];
+} ramp;
+
+layout(push_constant) uniform Constants {
+  ivec2 size;
+} constants;
+
+uint Entry(uint index) {
+  return ramp.entries[index >> 2][index & 3u];
+}
+
+void main() {
+  ivec2 position = ivec2(gl_GlobalInvocationID.xy);
+  if (any(greaterThanEqual(position, constants.size))) {
+    return;
+  }
+  uvec3 color = uvec3(clamp(texelFetch(source, ivec3(position, 0), 0).rgb, 0.0, 1.0) * 255.0 + 0.5);
+  vec3 mapped = vec3((Entry(color.r) >> 20) & 0x3FFu, (Entry(color.g) >> 10) & 0x3FFu, Entry(color.b) & 0x3FFu);
+  imageStore(destination, position, vec4(mapped / 1023.0, 1.0));
+}

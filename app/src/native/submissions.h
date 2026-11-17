@@ -29,6 +29,7 @@ class Submissions {
   VkCommandBuffer upload() const { return slots_[current_ % kSlots].upload; }
   VkCommandBuffer main() const { return slots_[current_ % kSlots].main; }
   VkDescriptorSet constants_set() const { return slots_[current_ % kSlots].constants_set; }
+  VkBuffer uniform_buffer() const { return slots_[current_ % kSlots].uniforms; }
 
   void Begin();
   bool HasUniformSpace(VkDeviceSize bytes) const;

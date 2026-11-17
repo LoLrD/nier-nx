@@ -56,9 +56,12 @@ Submissions::Submissions(const vk::VulkanDevice* device, VkDescriptorSetLayout c
     VkFenceCreateInfo fence{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
     fence.flags = VK_FENCE_CREATE_SIGNALED_BIT;
     dfn.vkCreateFence(d, &fence, nullptr, &slot.fence);
-    const std::array<VkDescriptorPoolSize, 2> sizes = {{
+    const std::array<VkDescriptorPoolSize, 5> sizes = {{
         {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, kMaxSetsPerSlot * 4},
         {VK_DESCRIPTOR_TYPE_SAMPLER, kMaxSetsPerSlot * 4},
+        {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 16},
+        {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 16},
+        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 16},
     }};
     VkDescriptorPoolCreateInfo descriptors{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     descriptors.maxSets = kMaxSetsPerSlot;
