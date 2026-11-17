@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 
 #include "gpu_registers.h"
@@ -35,6 +36,7 @@ class Pm4Executor {
   Pm4Executor(GpuRegisters& registers, GpuBus& bus);
 
   Result Execute(RingReader& reader);
+  void IncrementCounter() { counter_.fetch_add(1, std::memory_order_relaxed); }
   const Pm4Stats& stats() const { return stats_; }
 
  private:
@@ -55,6 +57,7 @@ class Pm4Executor {
   GpuRegisters& registers_;
   GpuBus& bus_;
   Pm4Stats stats_;
+  std::atomic<uint32_t> counter_{0};
 };
 
 }  // namespace nier::native

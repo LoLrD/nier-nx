@@ -84,6 +84,7 @@ bool Pm4Executor::Type3(RingReader& data, uint32_t opcode, uint32_t count) {
       const uint32_t width = data.Read();
       const uint32_t height = data.Read();
       ++stats_.swaps;
+      IncrementCounter();
       bus_.Swap(frontbuffer, width, height);
       return true;
     }
@@ -130,7 +131,7 @@ bool Pm4Executor::Type3(RingReader& data, uint32_t opcode, uint32_t count) {
       const uint32_t address = data.Read();
       const uint32_t value = data.Read();
       SetRegister(XE_GPU_REG_VGT_EVENT_INITIATOR, initiator & 0x3F);
-      StoreSwapped(address, (initiator >> 31) & 1 ? uint32_t(stats_.swaps) : value);
+      StoreSwapped(address, (initiator >> 31) & 1 ? counter_.load(std::memory_order_relaxed) : value);
       return true;
     }
     case xenos::PM4_EVENT_WRITE_EXT:

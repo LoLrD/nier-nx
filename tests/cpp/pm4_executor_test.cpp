@@ -132,8 +132,9 @@ int main() {
     s << Type3(xenos::PM4_EVENT_WRITE_SHD, 3) << 0x80000000u << (0x5000 | 2) << 99;
     s << Type3(xenos::PM4_EVENT_WRITE_SHD, 3) << 0 << (0x5004 | 2) << 99;
     auto reader = s.Reader();
+    exec.IncrementCounter();
     exec.Execute(reader);
-    Check(bus.memory[0x5000] == Be(2), "event_write_shd_counter");
+    Check(bus.memory[0x5000] == Be(3), "event_write_shd_counter counts swaps and vblanks");
     Check(bus.memory[0x5004] == Be(99), "event_write_shd_value");
   }
   {

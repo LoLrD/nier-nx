@@ -12,6 +12,9 @@ set(NIER_SOURCES
     src/main.cpp
     src/nier_input_driver.cpp
     src/nier_input_script.cpp
+    src/native/gpu_registers.cpp
+    src/native/native_graphics_system.cpp
+    src/native/pm4_executor.cpp
 )
 add_executable(nier ${NIER_SOURCES})
 target_include_directories(nier PRIVATE src)
