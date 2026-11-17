@@ -150,8 +150,16 @@ Textures::Binding Textures::View(VkCommandBuffer upload, const xenos::xe_gpu_tex
   if (binding.dimension != xenos::FetchOpDimension::kCube &&
       binding.dimension != xenos::FetchOpDimension::k3DOrStacked) {
     if (auto it = resolve_images_.find(fetch.base_address << 12); it != resolve_images_.end()) {
-      const ResolveImage& resolved = it->second;
-      if (ResolveImageMatches(resolved.format, resolved.width, resolved.height, host->format, width, height)) {
+      ResolveImage& resolved = it->second;
+      if (NeedsRehash(resolved.guest_bytes, frame_, resolved.checked_frame, resolved.checked_frame == frame_)) {
+        resolved.checked_frame = frame_;
+        if (XXH3_64bits(physical_base_ + it->first, resolved.guest_bytes) != resolved.guest_hash) {
+          resolve_images_.erase(it);
+          it = resolve_images_.end();
+        }
+      }
+      if (it != resolve_images_.end() &&
+          ResolveImageMatches(resolved.format, resolved.width, resolved.height, host->format, width, height)) {
         ++stats_.resolve_hits;
         result.view = resolved.view;
         return result;
@@ -354,8 +362,38 @@ VkSampler Textures::Sampler(const xenos::xe_gpu_texture_fetch_t& fetch, const Sp
   return it->second;
 }
 
-void Textures::AddResolveImage(uint32_t address, VkFormat format, uint32_t width, uint32_t height, VkImageView view) {
-  resolve_images_[address] = {format, width, height, view};
+void Textures::AddResolveImage(uint32_t address, VkFormat format, uint32_t width, uint32_t height, VkImageView view,
+                               uint32_t guest_bytes) {
+  auto [it, inserted] = resolve_images_.try_emplace(address);
+  ResolveImage& resolved = it->second;
+  if (!inserted && resolved.view == view && resolved.guest_bytes == guest_bytes) {
+    return;
+  }
+  resolved = {format, width, height, view, guest_bytes, XXH3_64bits(physical_base_ + address, guest_bytes), frame_};
+}
+
+void Textures::RefreshResolveHash(uint32_t address) {
+  if (auto it = resolve_images_.find(address); it != resolve_images_.end()) {
+    it->second.guest_hash = XXH3_64bits(physical_base_ + address, it->second.guest_bytes);
+    it->second.checked_frame = frame_;
+  }
+}
+
+void Textures::RemoveResolveImage(uint32_t address, VkImageView view) {
+  if (auto it = resolve_images_.find(address); it != resolve_images_.end() && it->second.view == view) {
+    resolve_images_.erase(it);
+  }
+}
+
+void Textures::Evict(uint64_t unused_frames) {
+  std::erase_if(textures_, [&](auto& entry) {
+    Texture& texture = entry.second;
+    if (texture.used_frame + unused_frames >= frame_) {
+      return false;
+    }
+    retired_.push_back({texture.image, texture.last_submission});
+    return true;
+  });
 }
 
 void Textures::Completed(uint64_t submission) {

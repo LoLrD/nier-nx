@@ -34,7 +34,10 @@ class Resolves {
   Resolves& operator=(const Resolves&) = delete;
 
   void Resolve(VkCommandBuffer command_buffer, const ResolvePlan& plan, uint64_t submission);
+  void BeginFrame() { ++frame_; }
+  void Evict(uint64_t unused_frames, uint64_t submission);
   void Completed(uint64_t submission);
+  size_t image_count() const { return images_.size(); }
   VkImage FindImage(uint32_t address, uint32_t& width, uint32_t& height) const;
   const Stats& stats() const { return stats_; }
 
@@ -47,6 +50,13 @@ class Resolves {
     VkFormat format = VK_FORMAT_UNDEFINED;
     uint32_t width = 0;
     uint32_t height = 0;
+    uint32_t address = 0;
+    uint64_t last_frame = 0;
+    uint64_t last_submission = 0;
+  };
+  struct RetiredImage {
+    DestImage image;
+    uint64_t submission;
   };
   struct ReadbackBuffer {
     VkBuffer buffer = VK_NULL_HANDLE;
@@ -67,6 +77,7 @@ class Resolves {
   void Readback(VkCommandBuffer command_buffer, const ResolvePlan& plan, const DestImage& dest, uint64_t submission);
   ReadbackBuffer AcquireReadbackBuffer();
   VkDescriptorSet DepthDescriptorSet(VkImageView source, VkImageView dest);
+  void Destroy(DestImage& image);
 
   const rex::ui::vulkan::VulkanDevice* device_;
   RenderTargets& targets_;
@@ -81,7 +92,9 @@ class Resolves {
   VkPipeline depth_pipeline_ = VK_NULL_HANDLE;
   VkDescriptorPool depth_pool_ = VK_NULL_HANDLE;
   VkSampler depth_sampler_ = VK_NULL_HANDLE;
-  std::unordered_map<uint64_t, VkDescriptorSet> depth_sets_;
+  std::unordered_map<uint64_t, std::pair<VkImageView, VkDescriptorSet>> depth_sets_;
+  std::vector<RetiredImage> retired_;
+  uint64_t frame_ = 0;
   Stats stats_;
 };
 

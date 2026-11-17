@@ -20,6 +20,8 @@ class MirrorSync {
   void BeginFrame();
   MirrorDecision Use(uint32_t address, uint32_t size, const uint8_t* physical_base, uint64_t submission);
   void Completed(uint64_t submission);
+  void Prune(uint64_t unused_frames);
+  size_t key_count() const { return ranges_.size(); }
 
  private:
   struct Range {

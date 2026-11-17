@@ -43,7 +43,11 @@ class Textures {
                const rex::graphics::SpirvShader::TextureBinding& binding, uint64_t submission);
   VkSampler Sampler(const rex::graphics::xenos::xe_gpu_texture_fetch_t& fetch,
                     const rex::graphics::SpirvShader::SamplerBinding& binding);
-  void AddResolveImage(uint32_t address, VkFormat format, uint32_t width, uint32_t height, VkImageView view);
+  void AddResolveImage(uint32_t address, VkFormat format, uint32_t width, uint32_t height, VkImageView view,
+                       uint32_t guest_bytes);
+  void RefreshResolveHash(uint32_t address);
+  void RemoveResolveImage(uint32_t address, VkImageView view);
+  void Evict(uint64_t unused_frames);
   void Completed(uint64_t submission);
   const Stats& stats() const { return stats_; }
   size_t live_images() const { return textures_.size() + retired_.size(); }
@@ -75,6 +79,9 @@ class Textures {
     uint32_t width;
     uint32_t height;
     VkImageView view;
+    uint32_t guest_bytes;
+    uint64_t guest_hash;
+    uint64_t checked_frame;
   };
 
   Image CreateImage(const LoadedTexture& loaded);

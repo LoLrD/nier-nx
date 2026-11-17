@@ -84,5 +84,19 @@ int main() {
     auto reverted = sync.Use(100, 100, base, 3);
     Check(reverted.action == MirrorAction::kCopy, "overlapping_copy_invalidates_other_keys");
   }
+  {
+    MirrorSync sync;
+    sync.Use(0x400, 0x40, base, 1);
+    sync.Use(0x800, 0x40, base, 1);
+    sync.Completed(1);
+    for (int i = 0; i < 10; ++i) {
+      sync.BeginFrame();
+    }
+    sync.Use(0x800, 0x40, base, 2);
+    sync.Prune(5);
+    Check(sync.key_count() == 1, "old_keys_pruned");
+    sync.Prune(0);
+    Check(sync.key_count() == 1, "keys_read_by_pending_submission_kept");
+  }
   return failures ? 1 : 0;
 }

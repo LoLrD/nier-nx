@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 
+#include <rex/graphics/pipeline/texture/info.h>
 #include <rex/hash.h>
 #include <rex/logging.h>
 #include <rex/math.h>
@@ -66,6 +67,7 @@ Resolves::Resolves(const vk::VulkanDevice* device, RenderTargets& targets, Textu
       {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, kMaxDepthSets},
   }};
   VkDescriptorPoolCreateInfo pool_info{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+  pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
   pool_info.maxSets = kMaxDepthSets;
   pool_info.poolSizeCount = uint32_t(sizes.size());
   pool_info.pPoolSizes = sizes.data();
@@ -83,12 +85,10 @@ Resolves::~Resolves() {
   const auto& dfn = device_->functions();
   const VkDevice d = device_->device();
   for (auto& [key, image] : images_) {
-    if (image.storage_view) {
-      dfn.vkDestroyImageView(d, image.storage_view, nullptr);
-    }
-    dfn.vkDestroyImageView(d, image.view, nullptr);
-    dfn.vkDestroyImage(d, image.image, nullptr);
-    dfn.vkFreeMemory(d, image.memory, nullptr);
+    Destroy(image);
+  }
+  for (RetiredImage& retired : retired_) {
+    Destroy(retired.image);
   }
   for (const PendingReadback& pending : pending_) {
     free_readbacks_.push_back(pending.buffer);
@@ -119,7 +119,13 @@ void Resolves::Resolve(VkCommandBuffer command_buffer, const ResolvePlan& plan, 
         ++stats_.copies;
       }
       FullBarrier(device_, command_buffer);
-      textures_.AddResolveImage(plan.dest_address, dest.format, dest.width, dest.height, dest.view);
+      dest.last_frame = frame_;
+      dest.last_submission = submission;
+      const uint32_t bytes_per_pixel = rex::graphics::FormatInfo::Get(plan.dest_format)->bits_per_pixel / 8;
+      const uint32_t guest_bytes = std::min<uint32_t>(
+          rex::align(dest.width, 32u) * rex::align(dest.height, 32u) * bytes_per_pixel,
+          0x20000000u - std::min(plan.dest_address, 0x20000000u));
+      textures_.AddResolveImage(plan.dest_address, dest.format, dest.width, dest.height, dest.view, guest_bytes);
       if (plan.readback) {
         Readback(command_buffer, plan, dest, submission);
       }
@@ -173,6 +179,7 @@ Resolves::DestImage& Resolves::Dest(VkCommandBuffer command_buffer, const Resolv
   dest.format = format;
   dest.width = width;
   dest.height = height;
+  dest.address = plan.dest_address;
   const bool storage = format == VK_FORMAT_R32_SFLOAT;
   VkImageCreateInfo info{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
   info.imageType = VK_IMAGE_TYPE_2D;
@@ -255,28 +262,29 @@ void Resolves::CopyDepth(VkCommandBuffer command_buffer, const ResolvePlan& plan
 
 VkDescriptorSet Resolves::DepthDescriptorSet(VkImageView source, VkImageView dest) {
   const uint64_t key = XXH3_64bits_withSeed(&source, sizeof(source), uint64_t(dest));
-  auto [it, inserted] = depth_sets_.try_emplace(key, VK_NULL_HANDLE);
+  auto [it, inserted] = depth_sets_.try_emplace(key, dest, VK_NULL_HANDLE);
   if (!inserted) {
-    return it->second;
+    return it->second.second;
   }
   const auto& dfn = device_->functions();
   VkDescriptorSetAllocateInfo allocate{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
   allocate.descriptorPool = depth_pool_;
   allocate.descriptorSetCount = 1;
   allocate.pSetLayouts = &depth_set_layout_;
-  if (dfn.vkAllocateDescriptorSets(device_->device(), &allocate, &it->second) != VK_SUCCESS) {
+  if (dfn.vkAllocateDescriptorSets(device_->device(), &allocate, &it->second.second) != VK_SUCCESS) {
     REXLOG_ERROR("[native] out of depth resolve descriptor sets");
+    depth_sets_.erase(it);
     return VK_NULL_HANDLE;
   }
   const VkDescriptorImageInfo source_info{depth_sampler_, source, VK_IMAGE_LAYOUT_GENERAL};
   const VkDescriptorImageInfo dest_info{VK_NULL_HANDLE, dest, VK_IMAGE_LAYOUT_GENERAL};
   std::array<VkWriteDescriptorSet, 2> writes{};
-  writes[0] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, it->second, 0, 0, 1,
+  writes[0] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, it->second.second, 0, 0, 1,
                VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &source_info, nullptr, nullptr};
-  writes[1] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, it->second, 1, 0, 1,
+  writes[1] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, it->second.second, 1, 0, 1,
                VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, &dest_info, nullptr, nullptr};
   dfn.vkUpdateDescriptorSets(device_->device(), uint32_t(writes.size()), writes.data(), 0, nullptr);
-  return it->second;
+  return it->second.second;
 }
 
 void Resolves::Readback(VkCommandBuffer command_buffer, const ResolvePlan& plan, const DestImage& dest,
@@ -329,9 +337,52 @@ void Resolves::Completed(uint64_t submission) {
     WriteTiled(static_cast<const uint8_t*>(pending.buffer.mapping), plan.dest_x, plan.dest_y, plan.dest_width,
                plan.dest_height, rex::align(plan.dest_pitch, 32u), plan.dest_endian, plan.dest_swap,
                physical_base_ + plan.dest_address);
+    textures_.RefreshResolveHash(plan.dest_address);
     free_readbacks_.push_back(pending.buffer);
     return true;
   });
+  std::erase_if(retired_, [&](RetiredImage& retired) {
+    if (retired.submission > submission) {
+      return false;
+    }
+    Destroy(retired.image);
+    return true;
+  });
+}
+
+void Resolves::Evict(uint64_t unused_frames, uint64_t submission) {
+  const auto& dfn = device_->functions();
+  std::erase_if(images_, [&](auto& entry) {
+    DestImage& image = entry.second;
+    if (image.last_frame + unused_frames >= frame_) {
+      return false;
+    }
+    textures_.RemoveResolveImage(image.address, image.view);
+    if (auto latest = latest_by_address_.find(image.address);
+        latest != latest_by_address_.end() && latest->second == entry.first) {
+      latest_by_address_.erase(latest);
+    }
+    std::erase_if(depth_sets_, [&](auto& set) {
+      if (set.second.first != image.storage_view) {
+        return false;
+      }
+      dfn.vkFreeDescriptorSets(device_->device(), depth_pool_, 1, &set.second.second);
+      return true;
+    });
+    retired_.push_back({image, std::max(image.last_submission, submission)});
+    return true;
+  });
+}
+
+void Resolves::Destroy(DestImage& image) {
+  const auto& dfn = device_->functions();
+  const VkDevice d = device_->device();
+  if (image.storage_view) {
+    dfn.vkDestroyImageView(d, image.storage_view, nullptr);
+  }
+  dfn.vkDestroyImageView(d, image.view, nullptr);
+  dfn.vkDestroyImage(d, image.image, nullptr);
+  dfn.vkFreeMemory(d, image.memory, nullptr);
 }
 
 VkImage Resolves::FindImage(uint32_t address, uint32_t& width, uint32_t& height) const {

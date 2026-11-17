@@ -78,4 +78,11 @@ void MirrorSync::Completed(uint64_t submission) {
   std::erase_if(intervals_, [this](const Interval& interval) { return interval.submission <= completed_; });
 }
 
+void MirrorSync::Prune(uint64_t unused_frames) {
+  std::erase_if(ranges_, [&](const auto& entry) {
+    const Range& range = entry.second;
+    return range.used_submission <= completed_ && range.checked_frame + unused_frames < frame_;
+  });
+}
+
 }  // namespace nier::native
