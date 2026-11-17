@@ -4,9 +4,12 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <memory>
 #include <string>
 #include <system_error>
+#include <thread>
 
 #include <rex/cvar.h>
 #include <rex/filesystem.h>
@@ -16,8 +19,11 @@
 #include <rex/kernel/xboxkrnl/video.h>
 #include <rex/memory.h>
 #include <rex/rex_app.h>
+#include <rex/system/interfaces/graphics.h>
+#include <rex/ui/presenter.h>
 #include <rex/runtime.h>
 
+#include "nier_control_file.h"
 #include "nier_fps_meter.h"
 #include "nier_input_driver.h"
 #include "nier_input_script.h"
@@ -81,7 +87,51 @@ class NierApp : public rex::ReXApp {
     }
   }
 
+  void CaptureFrame(const std::string& path) {
+    rex::ui::RawImage image;
+    if (!runtime()->graphics_system()->presenter()->CaptureGuestOutput(image)) {
+      std::fprintf(stderr, "[control] capture failed\n");
+      return;
+    }
+    std::ofstream out(path, std::ios::binary);
+    out << "P6\n" << image.width << " " << image.height << "\n255\n";
+    for (uint32_t y = 0; y < image.height; ++y) {
+      const uint8_t* row = image.data.data() + y * image.stride;
+      for (uint32_t x = 0; x < image.width; ++x) {
+        out.write(reinterpret_cast<const char*>(row + x * 4), 3);
+      }
+    }
+    std::fprintf(stderr, "[control] captured %s (%ux%u)\n", path.c_str(), image.width, image.height);
+  }
+
+  void WatchControlFile() {
+    const char* path = std::getenv("NIER_CONTROL_FILE");
+    if (!path) {
+      return;
+    }
+    control_thread_ = std::jthread([this, file = std::string(path)](std::stop_token stop) {
+      std::string applied;
+      while (!stop.stop_requested()) {
+        std::ifstream in(file);
+        std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        if (text != applied) {
+          for (const auto& [key, value] : ParseNierControl(text)) {
+            if (key == "capture") {
+              CaptureFrame(value);
+              continue;
+            }
+            rex::cvar::SetFlagByName(key, value);
+            std::fprintf(stderr, "[control] %s = %s\n", key.c_str(), value.c_str());
+          }
+          applied = text;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));
+      }
+    });
+  }
+
   void OnPostSetup() override {
+    WatchControlFile();
     SetGuestFrameStats([this] {
       const auto sample = fps_meter_.Update(rex::kernel::xboxkrnl::GuestSwapCount(), std::chrono::steady_clock::now());
       return rex::ui::FrameStats{sample.frame_time_ms, sample.fps, sample.frames};
@@ -100,4 +150,5 @@ class NierApp : public rex::ReXApp {
   }
  private:
   NierFpsMeter fps_meter_;
+  std::jthread control_thread_;
 };

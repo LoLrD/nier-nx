@@ -1,7 +1,7 @@
 import CoreGraphics
 
 let pid = Int32(CommandLine.arguments[1])!
-let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as! [[String: Any]]
+let windows = CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as! [[String: Any]]
 var best: (id: Int, area: Double)? = nil
 for window in windows {
     guard window[kCGWindowOwnerPID as String] as? Int32 == pid,
