@@ -62,6 +62,9 @@ class NativeSkeletonTest(unittest.TestCase):
     def test_mirror_sync(self) -> None:
         self.check("mirror_sync", ["mirror_sync.cpp"], link_sdk=True)
 
+    def test_target_keys(self) -> None:
+        self.check("target_keys", ["target_keys.cpp"], link_sdk=True)
+
     def test_sdk_link(self) -> None:
         self.check("sdk_link", [], link_sdk=True)
 
