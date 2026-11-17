@@ -305,3 +305,24 @@ Temporary counters in the native path (reverted), route title → menu → prolo
   up to 2048×2048 (some with gamma signs), `k_8_8_8_8`, `k_CTX1`, a signed `k_16_16_16_16_EXPAND` 64×64 cube map, and a
   linear `k_32_32_32_32_FLOAT` 1024×1 vertex texture in most vertex shaders (bones); `k_8` linear 1280×720 / 640×360 on
   the title.
+
+## 2026-11-18 — native renderer N3a: a rough picture on macOS
+
+- `NativeRenderer` (`app/src/native/`): a 512 MB host-visible mirror of guest physical memory (vertex and index ranges
+  copied at record time, changes found by XXH3, waits only when a changed range is still read by a pending submission),
+  render targets keyed by EDRAM base/pitch/format with MSAA samples stored as pixels, runtime-translated shaders with
+  the SDK's binding layout, CPU-untiled textures with versions, resolves into images (colour by blit, depth by a compute
+  shader into `R32_SFLOAT`, readbacks of resolves up to 256 KB one submission late), dynamic rendering, up to 3
+  submissions in flight; VdSwap blits the frontbuffer's resolve image into the presenter's guest output.
+- `nier_frame_dump_dir` / `nier_frame_dump_interval` write presented frames as PPM from inside the renderer: window
+  captures are black whenever the Mac's screen is locked or asleep (`screencapture` of the whole screen gives zeros), and
+  a sleeping display blocks presentation (FIFO) for minutes — runs need `caffeinate -d`.
+- Bug found on the way: the PM4 executor (N1) did not read VGT_DMA_BASE / VGT_DMA_SIZE from DRAW_INDX packets, so every
+  indexed draw (all scene geometry) had zero indices.
+- Route title → prologue on the M4 (MoltenVK, D32S8 depth because the device has no D24S8 attachments): every draw is
+  drawn (0 skipped by primitive, target format, texture format or shader), 30 fps in the prologue cinematic, ~8400
+  resolves and ~3300 readbacks per 10 s, mirror ~52 MB/s copied, 0 mirror waits, 0 black frames, live textures stable
+  (~150). Logos, title, menus, dialogs, credits and the 3D scenes of the opening are recognizable.
+- Not right yet (input for N3b): many frames of the prologue cinematic are washed out white or show blocky 8×8
+  patterns, and large flat triangles flash over the scene; no EDRAM ownership transfers between aliased targets, no
+  gamma ramp, depth resolves take sample 0.
