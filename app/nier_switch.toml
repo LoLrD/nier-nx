@@ -2,6 +2,7 @@ log_file = "sdmc:/switch/nier-nx/nier.log"
 log_level = "info"
 gpu_plugin = "xenos"
 readback_resolve = "fast"
+readback_resolve_max_kb = 256
 execute_unclipped_draw_vs_on_cpu = true
 execute_unclipped_draw_vs_on_cpu_with_scissor = true
 dlc_enable = true

@@ -3,6 +3,7 @@ log_level = "debug"
 log_max_file_size_mb = 100
 gpu_plugin = "xenos"
 readback_resolve = "fast"
+readback_resolve_max_kb = 256
 execute_unclipped_draw_vs_on_cpu = true
 execute_unclipped_draw_vs_on_cpu_with_scissor = true
 audio_sdl_pump = true
