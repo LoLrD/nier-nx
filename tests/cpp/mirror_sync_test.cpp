@@ -73,5 +73,16 @@ int main() {
     Check(changed.action == MirrorAction::kCopy && changed.wait_submission == 0, "completed_submission_needs_no_wait");
     memory[0x300] = 0x11;
   }
+  {
+    MirrorSync sync;
+    sync.Use(100, 100, base, 1);
+    sync.Completed(1);
+    memory[160] = 0x77;
+    sync.Use(150, 100, base, 2);
+    sync.Completed(2);
+    memory[160] = 0x11;
+    auto reverted = sync.Use(100, 100, base, 3);
+    Check(reverted.action == MirrorAction::kCopy, "overlapping_copy_invalidates_other_keys");
+  }
   return failures ? 1 : 0;
 }

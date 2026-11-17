@@ -1,7 +1,7 @@
 #pragma once
 
 #include <cstdint>
-#include <unordered_map>
+#include <map>
 #include <vector>
 
 namespace nier::native {
@@ -26,6 +26,7 @@ class MirrorSync {
     uint64_t hash = 0;
     uint64_t checked_frame = UINT64_MAX;
     uint64_t used_submission = 0;
+    bool stale = false;
   };
   struct Interval {
     uint32_t begin;
@@ -38,11 +39,13 @@ class MirrorSync {
   static uint64_t Hash(const uint8_t* physical_base, uint64_t key);
   uint64_t PendingWait(uint64_t key, const uint8_t* physical_base) const;
   void Record(Range& range, uint64_t key, uint64_t submission);
+  void InvalidateOverlaps(uint64_t key);
 
   uint32_t small_range_bytes_;
   uint64_t frame_ = 0;
   uint64_t completed_ = 0;
-  std::unordered_map<uint64_t, Range> ranges_;
+  std::map<uint64_t, Range> ranges_;
+  uint32_t max_size_ = 0;
   std::vector<Interval> intervals_;
 };
 
