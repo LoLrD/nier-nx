@@ -77,3 +77,15 @@ Each entry: symptom → cause → fix, with the evidence. Newest last.
   and CoreAudio (device buffer). Trying `SDL_AUDIO_DEVICE_SAMPLE_FRAMES=2048`; awaiting the user's listening test.
 - **Tearing** (user report): the SDK allows `IMMEDIATE` present mode on desktop → `vulkan_allow_present_mode_immediate
   = false` in `nier.toml`.
+
+## 2026-11-17 — 15 Nightmares DLC (Task 8)
+
+- Layout the SDK expects: `<content_marketplace_root>/0000000000000000/535107E8/00000002/<package>` (raw STFS is
+  mounted directly). `tools/unpack_dumps.sh` links `marketplace/0000000000000000` to `content/`; `nier.toml` sets
+  `dlc_enable = true`, `content_marketplace_root = "assets/marketplace"`.
+- NieR enumerates Marketplace content right after boot. The entry first came out as `'@0p'`: `ListContent` tested the
+  `X_RESULT` of `ReadContentHeaderFile` with `XFAILED`, so a missing `.header` (`X_ERROR_FILE_NOT_FOUND` = 2) counted
+  as success and the game got an uninitialized entry. Fixed (see `sdk/UPSTREAM.md`); now
+  `'B5849AE068830A162D28A72C2E07667A19BCD61853' (displayed as '15 Nightmares')`.
+- Not verified yet: mounting (`[dlc] mount ...`). The game did not open the package in the first 2 minutes; it
+  likely mounts it when the player reaches the DLC's entry point. Check during phase 3 playthrough.
