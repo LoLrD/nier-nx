@@ -122,3 +122,43 @@ Each entry: symptom → cause → fix, with the evidence. Newest last.
   `readback_resolve = "none"` never copies resolve results back to guest memory, so the CPU read zeros and maxed out
   the exposure. `readback_resolve = "fast"` (previous frame, copied every frame) → normal image (mean brightness
   218 → 94, white pixels 80 % → 0 %). Cost on the Switch to be measured in phase 2 (`some` = copy on cache miss).
+
+## 2026-11-17 — Switch: first runs (phase 2)
+
+- Build: devkitA64 in Docker (`tools/switch/docker.sh`), NVK from mesa-switch with the masseffect-nx patch (`mesa/`),
+  `tools/build_nro.sh` → `out/nx/nier-nx.nro`. FFmpeg's `config.h` had no Horizon branch (see `sdk/UPSTREAM.md`).
+- Launch: hbmenu in title-takeover mode (hold R while starting a game). sys-botbase 2.5 crashed the `hid` service
+  (fatal 2001-0132, three identical reports, one of them on the user's own launch) whenever a game started with R
+  held → disabled. The netloader never accepted nxlink, so the NRO goes to `sdmc:/switch/nier-nx/` over FTP
+  (`tools/console-test/deploy.sh`), the user starts and closes the game, and `tools/console-test/collect.sh` fetches
+  the log, the profile, the matching ELF and new Atmosphère reports. A file the game is writing cannot be read over
+  FTP until it exits.
+- First run: logos, title, menus and the prologue on the console, no crash.
+- Name entry: the SDK's ImGui keyboard dialog cannot be used on the console → `XamShowKeyboardUI` opens the Horizon
+  software keyboard (`sdk/UPSTREAM.md`). Confirmed on the console.
+
+### Switch baseline
+
+Handheld, stock clocks (CPU 1020 MHz, GPU 460.8 MHz, memory 1600 MHz from the profiler), `readback_resolve = "fast"`,
+manual play, 10 s blocks of `logs/rex/rex_profile.log`:
+
+| Where | fps | frame | per frame |
+|---|---|---|---|
+| Title and menus (11 blocks) | 6.0–6.3 | ~160 ms | 5–24 draws, 5 resolves, 11 transfer draws |
+| Prologue gameplay (3 blocks) | 1.4–1.5 | ~680 ms | 130–170 draws, 28 resolves (14–15 screens), 130–170 EDRAM transfers (250 transfer draws, 45 render targets) |
+
+Every frame is over 40 ms. `readback_resolve = "none"` gives the same 151–166 ms in the menu.
+
+### Where the time goes (profile with stack sampling)
+
+- The game's render thread (guest entry 0x8258D948) uses 100 % of a core, but it only spins: `sub_82573758` waits
+  until the GPU read pointer (its writeback address is at `[device+10896]`) passes a ring position and polls
+  `sub_82579D50` (`db16cyc` spin hints, 5000 ms watchdog through `sub_8257D028`). This is Direct3D waiting for ring
+  space, not game work.
+- The GPU command thread (priority 0x2C) is blocked in the kernel 87–95 % of the time. Menu: 78 % in
+  `VulkanCommandProcessor::BeginSubmission` → `vkWaitForFences` (at most 3 frames in flight). Gameplay: 69 % in
+  `nvk_queue_submit` (the Horizon channel throttles in-flight submissions), 20 % in the readback fence. libnx counts
+  850–930 ms of fence waits per second.
+- So the frame is bound by the console GPU. In the menu ~160 ms of GPU per frame for a handful of draws is far more
+  than that work should take, so most of the GPU time goes somewhere the profile does not show yet. Next: GPU
+  timestamps per category (draws, EDRAM transfers, resolves, readback, present).
