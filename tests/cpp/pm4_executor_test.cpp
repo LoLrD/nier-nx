@@ -28,6 +28,7 @@ class FakeBus final : public GpuBus {
   std::vector<std::pair<uint32_t, uint32_t>> interrupts;
   std::vector<std::vector<uint32_t>> swaps;
   std::vector<uint32_t> published;
+  std::vector<std::pair<uint32_t, std::vector<uint32_t>>> shader_loads;
   uint32_t yields = 0;
   uint32_t release_after = 0;
   uint32_t release_address = 0;
@@ -42,6 +43,9 @@ class FakeBus final : public GpuBus {
     swaps.push_back({frontbuffer, width, height});
   }
   void PublishReadPointer(uint32_t position) override { published.push_back(position); }
+  void ShaderLoad(uint32_t type, const uint32_t* words, uint32_t size) override {
+    shader_loads.emplace_back(type, std::vector<uint32_t>(words, words + size));
+  }
   bool Yield(uint32_t) override {
     ++yields;
     if (release_after && yields == release_after) memory[release_address] = release_raw;
@@ -286,6 +290,35 @@ int main() {
     RingReader reader(ring.data(), 8, 6, 1);
     exec.Execute(reader);
     Check(bus.memory[0x4000] == Be(55) && reader.position() == 1, "packet_wrapping_across_ring_end");
+  }
+  {
+    GpuRegisters regs;
+    FakeBus bus;
+    std::vector<uint32_t> microcode(24);
+    for (uint32_t i = 0; i < 24; ++i) microcode[i] = Be(0x1000 + i);
+    bus.buffers[0xA000] = microcode;
+    Pm4Executor exec(regs, bus);
+    Stream s;
+    s << Type3(xenos::PM4_IM_LOAD, 2) << (0xA000 | 1) << 24;
+    auto reader = s.Reader();
+    exec.Execute(reader);
+    Check(bus.shader_loads.size() == 1 && bus.shader_loads[0].first == 1 && bus.shader_loads[0].second == microcode &&
+              exec.stats().shader_loads == 1,
+          "im_load_reports_words");
+  }
+  {
+    GpuRegisters regs;
+    FakeBus bus;
+    Pm4Executor exec(regs, bus);
+    Stream s;
+    s << Type3(xenos::PM4_IM_LOAD_IMMEDIATE, 8) << 0 << 6;
+    for (uint32_t i = 0; i < 6; ++i) s << (0x2000 + i);
+    auto reader = s.Reader();
+    exec.Execute(reader);
+    std::vector<uint32_t> expected;
+    for (uint32_t i = 0; i < 6; ++i) expected.push_back(Be(0x2000 + i));
+    Check(bus.shader_loads.size() == 1 && bus.shader_loads[0].first == 0 && bus.shader_loads[0].second == expected,
+          "im_load_immediate_reports_inline_words");
   }
   return failures ? 1 : 0;
 }

@@ -15,6 +15,7 @@ set(NIER_SOURCES
     src/native/gpu_registers.cpp
     src/native/native_graphics_system.cpp
     src/native/pm4_executor.cpp
+    src/native/shader_dump.cpp
 )
 add_executable(nier ${NIER_SOURCES})
 target_include_directories(nier PRIVATE src)

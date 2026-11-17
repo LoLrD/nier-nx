@@ -6,6 +6,7 @@
 #include <condition_variable>
 #include <cstdint>
 #include <cstring>
+#include <memory>
 #include <mutex>
 #include <string>
 
@@ -27,9 +28,13 @@
 #include "pm4_executor.h"
 #include "pm4_reader.h"
 #include "ring_state.h"
+#include "shader_dump.h"
 
 REXCVAR_DEFINE_STRING(nier_renderer, "xenos", "NieR", "Graphics: xenos (SDK emulation) or native")
     .allowed({"xenos", "native"})
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+REXCVAR_DEFINE_STRING(nier_shader_dump_dir, "", "NieR",
+                      "Native renderer: write each new shader microcode the game loads to this folder")
     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
 
 namespace nier::native {
@@ -83,6 +88,10 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem, private 
     if (!memory_->AddVirtualMappedRange(kMmioBase, kMmioMask, kMmioSize, this, &MmioRead, &MmioWrite)) {
       REXLOG_ERROR("[native] could not register the GPU MMIO range");
       return X_STATUS_UNSUCCESSFUL;
+    }
+    if (const std::string dir = REXCVAR_GET(nier_shader_dump_dir); !dir.empty()) {
+      shader_dump_ = std::make_unique<ShaderDump>(dir);
+      REXLOG_INFO("[native] shader discovery into {}", dir);
     }
     active_.store(true, std::memory_order_release);
     report_start_ = Clock::now();
@@ -206,6 +215,12 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem, private 
     }
   }
 
+  void ShaderLoad(uint32_t type, const uint32_t* words_big_endian, uint32_t size_words) override {
+    if (shader_dump_) {
+      shader_dump_->Record(type, words_big_endian, size_words);
+    }
+  }
+
   bool Yield(uint32_t wait) override {
     if (wait >= 0x100) {
       rex::thread::Sleep(std::chrono::milliseconds(wait / 0x100));
@@ -280,10 +295,11 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem, private 
     report_start_ = now;
     const Pm4Stats& s = executor_.stats();
     REXLOG_INFO(
-        "[native] 10 s: {} packets, {} draws, {} resolves, {} swaps, {} interrupts, {} shader loads, {} waits, {} overflows",
+        "[native] 10 s: {} packets, {} draws, {} resolves, {} swaps, {} interrupts, {} shader loads, {} waits, {} "
+        "overflows, {} unique shaders",
         s.packets - last_.packets, s.draws - last_.draws, s.resolves - last_.resolves, s.swaps - last_.swaps,
         s.interrupts - last_.interrupts, s.shader_loads - last_.shader_loads, s.waits - last_.waits,
-        s.overflows - last_.overflows);
+        s.overflows - last_.overflows, shader_dump_ ? shader_dump_->unique() : 0);
     last_ = s;
   }
 
@@ -295,6 +311,7 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem, private 
   rex::memory::Memory* memory_ = nullptr;
   GpuRegisters registers_;
   Pm4Executor executor_{registers_, *this};
+  std::unique_ptr<ShaderDump> shader_dump_;
   RingState ring_;
   std::atomic<bool> active_{false};
   std::atomic<uint32_t> callback_{0};

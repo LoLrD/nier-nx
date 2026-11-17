@@ -45,6 +45,9 @@ class NativeSkeletonTest(unittest.TestCase):
     def test_ring_state(self) -> None:
         self.check("ring_state", [])
 
+    def test_shader_dump(self) -> None:
+        self.check("shader_dump", ["shader_dump.cpp"])
+
 
 if __name__ == "__main__":
     unittest.main()

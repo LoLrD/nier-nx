@@ -171,9 +171,15 @@ bool Pm4Executor::Type3(RingReader& data, uint32_t opcode, uint32_t count) {
     case xenos::PM4_LOAD_ALU_CONSTANT:
       LoadAluConstant(data);
       return true;
-    case xenos::PM4_IM_LOAD:
-    case xenos::PM4_IM_LOAD_IMMEDIATE:
+    case xenos::PM4_IM_LOAD: {
+      const uint32_t address_type = data.Read();
+      const uint32_t size = data.Read() & 0xFFFF;
       ++stats_.shader_loads;
+      bus_.ShaderLoad(address_type & 3, bus_.Words(address_type & ~3u), size);
+      return true;
+    }
+    case xenos::PM4_IM_LOAD_IMMEDIATE:
+      ImLoadImmediate(data);
       return true;
     case xenos::PM4_VIZ_QUERY:
       VizQuery(data);
@@ -334,6 +340,17 @@ void Pm4Executor::Draw(RingReader& data, bool has_viz_query) {
   } else {
     ++stats_.draws;
   }
+}
+
+void Pm4Executor::ImLoadImmediate(RingReader& data) {
+  const uint32_t type = data.Read();
+  const uint32_t size = data.Read() & 0xFFFF;
+  inline_microcode_.resize(size);
+  for (uint32_t i = 0; i < size; ++i) {
+    inline_microcode_[i] = __builtin_bswap32(data.Read());
+  }
+  ++stats_.shader_loads;
+  bus_.ShaderLoad(type, inline_microcode_.data(), size);
 }
 
 void Pm4Executor::VizQuery(RingReader& data) {

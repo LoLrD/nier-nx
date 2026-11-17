@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <vector>
 
 #include "gpu_registers.h"
 #include "pm4_reader.h"
@@ -17,6 +18,7 @@ class GpuBus {
   virtual void Interrupt(uint32_t source, uint32_t cpu) = 0;
   virtual void Swap(uint32_t frontbuffer, uint32_t width, uint32_t height) = 0;
   virtual void PublishReadPointer(uint32_t position) = 0;
+  virtual void ShaderLoad(uint32_t type, const uint32_t* words_big_endian, uint32_t size_words) = 0;
   virtual bool Yield(uint32_t wait) = 0;
 };
 
@@ -56,10 +58,13 @@ class Pm4Executor {
   void Draw(RingReader& data, bool has_viz_query);
   void VizQuery(RingReader& data);
 
+  void ImLoadImmediate(RingReader& data);
+
   GpuRegisters& registers_;
   GpuBus& bus_;
   Pm4Stats stats_;
   std::atomic<uint32_t> counter_{0};
+  std::vector<uint32_t> inline_microcode_;
 };
 
 }  // namespace nier::native
