@@ -60,5 +60,37 @@ int main() {
     regs.Set(XE_GPU_REG_SQ_PROGRAM_CNTL, 0x10000203);
     Check(regs.file().Get<reg::SQ_PROGRAM_CNTL>().value == 0x10000203, "register_file_view");
   }
+  {
+    GpuRegisters regs;
+    Check(regs.gamma_ramp()[255] == (0x3FFu << 20 | 0x3FFu << 10 | 0x3FFu) && regs.gamma_ramp()[0] == 0,
+          "gamma_ramp_starts_linear");
+    const uint64_t version = regs.gamma_version();
+    regs.Set(XE_GPU_REG_DC_LUT_WRITE_EN_MASK, 7);
+    regs.Set(XE_GPU_REG_DC_LUT_RW_INDEX, 5);
+    regs.Set(XE_GPU_REG_DC_LUT_SEQ_COLOR, 0x100 << 6);
+    regs.Set(XE_GPU_REG_DC_LUT_SEQ_COLOR, 0x200 << 6);
+    regs.Set(XE_GPU_REG_DC_LUT_SEQ_COLOR, 0x300 << 6);
+    Check(regs.gamma_ramp()[5] == (0x100u << 20 | 0x200u << 10 | 0x300u), "gamma_ramp_written_red_green_blue");
+    Check(regs.Get(XE_GPU_REG_DC_LUT_RW_INDEX) == 6 && regs.gamma_version() != version,
+          "gamma_ramp_index_advances");
+    regs.Set(XE_GPU_REG_DC_LUT_WRITE_EN_MASK, 4);
+    regs.Set(XE_GPU_REG_DC_LUT_SEQ_COLOR, 0x3FF << 6);
+    regs.Set(XE_GPU_REG_DC_LUT_SEQ_COLOR, 0x3FF << 6);
+    regs.Set(XE_GPU_REG_DC_LUT_SEQ_COLOR, 0x3FF << 6);
+    Check((regs.gamma_ramp()[6] >> 20) == 0x3FF && (regs.gamma_ramp()[6] & 0xFFFFF) == ((6u * 0x3FF / 0xFF) << 10 | 6u * 0x3FF / 0xFF),
+          "gamma_ramp_write_mask_red_only");
+  }
+  {
+    GpuRegisters regs;
+    regs.Set(XE_GPU_REG_DC_LUT_WRITE_EN_MASK, 7);
+    regs.Set(XE_GPU_REG_DC_LUT_RW_INDEX, 2);
+    regs.Set(XE_GPU_REG_DC_LUT_30_COLOR, 0x00300C03);
+    Check(regs.gamma_ramp()[2] == 0x00300C03 && regs.Get(XE_GPU_REG_DC_LUT_RW_INDEX) == 3,
+          "gamma_ramp_30_color_writes_entry");
+    regs.Set(XE_GPU_REG_DC_LUT_WRITE_EN_MASK, 1);
+    regs.Set(XE_GPU_REG_DC_LUT_30_COLOR, 0x3FFFFFFF);
+    const uint32_t linear = 3u * 0x3FF / 0xFF;
+    Check(regs.gamma_ramp()[3] == (linear << 20 | linear << 10 | 0x3FF), "gamma_ramp_30_color_write_mask_blue_only");
+  }
   return failures ? 1 : 0;
 }

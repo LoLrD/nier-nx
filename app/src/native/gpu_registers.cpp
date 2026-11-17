@@ -8,6 +8,46 @@ namespace nier::native {
 
 using namespace rex::graphics;
 
+GpuRegisters::GpuRegisters() {
+  for (uint32_t i = 0; i < gamma_ramp_.size(); ++i) {
+    const uint32_t value = i * 0x3FF / 0xFF;
+    gamma_ramp_[i] = value << 20 | value << 10 | value;
+  }
+}
+
+void GpuRegisters::WriteGammaComponent(uint32_t value) {
+  const uint32_t index = file_.values[XE_GPU_REG_DC_LUT_RW_INDEX] & 0xFF;
+  if (file_.values[XE_GPU_REG_DC_LUT_WRITE_EN_MASK] & (1u << (2 - gamma_component_))) {
+    const uint32_t shift = 20 - gamma_component_ * 10;
+    gamma_ramp_[index] = (gamma_ramp_[index] & ~(0x3FFu << shift)) | (((value >> 6) & 0x3FF) << shift);
+    ++gamma_version_;
+  }
+  if (++gamma_component_ >= 3) {
+    AdvanceGammaIndex(index);
+  }
+}
+
+void GpuRegisters::WriteGammaEntry(uint32_t value) {
+  const uint32_t index = file_.values[XE_GPU_REG_DC_LUT_RW_INDEX] & 0xFF;
+  const uint32_t mask = file_.values[XE_GPU_REG_DC_LUT_WRITE_EN_MASK] & 7;
+  uint32_t keep = 0;
+  for (uint32_t component = 0; component < 3; ++component) {
+    if (!(mask & (1u << component))) {
+      keep |= 0x3FFu << (component * 10);
+    }
+  }
+  if (mask) {
+    gamma_ramp_[index] = (gamma_ramp_[index] & keep) | (value & 0x3FFFFFFF & ~keep);
+    ++gamma_version_;
+  }
+  AdvanceGammaIndex(index);
+}
+
+void GpuRegisters::AdvanceGammaIndex(uint32_t index) {
+  gamma_component_ = 0;
+  file_.values[XE_GPU_REG_DC_LUT_RW_INDEX] = (file_.values[XE_GPU_REG_DC_LUT_RW_INDEX] & ~0xFFu) | ((index + 1) & 0xFF);
+}
+
 uint32_t GpuRegisters::Get(uint32_t index) const {
   return index < kCount ? file_.values[index] : 0;
 }
@@ -17,6 +57,13 @@ std::optional<MemoryStore> GpuRegisters::Set(uint32_t index, uint32_t value) {
     return std::nullopt;
   }
   file_.values[index] = value;
+  if (index == XE_GPU_REG_DC_LUT_RW_INDEX) {
+    gamma_component_ = 0;
+  } else if (index == XE_GPU_REG_DC_LUT_SEQ_COLOR) {
+    WriteGammaComponent(value);
+  } else if (index == XE_GPU_REG_DC_LUT_30_COLOR) {
+    WriteGammaEntry(value);
+  }
   if (index < XE_GPU_REG_SCRATCH_REG0 || index > XE_GPU_REG_SCRATCH_REG7) {
     return std::nullopt;
   }
