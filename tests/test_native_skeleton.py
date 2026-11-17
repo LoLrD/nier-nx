@@ -15,6 +15,8 @@ INCLUDES = [
 SDK_LIBS = ROOT / "out" / "build" / "mac"
 SDK_LINK = [
     "-I", str(ROOT / "sdk" / "thirdparty" / "xxHash"),
+    "-I", str(ROOT / "sdk" / "thirdparty" / "glslang"),
+    "-I", str(ROOT / "sdk" / "thirdparty" / "vulkan-headers" / "include"),
     "-L", str(SDK_LIBS), "-lrexgpu-xenosrd", "-lrexruntimerd", f"-Wl,-rpath,{SDK_LIBS}",
 ]
 
@@ -67,6 +69,9 @@ class NativeSkeletonTest(unittest.TestCase):
 
     def test_primitive_setup(self) -> None:
         self.check("primitive_setup", ["primitive_setup.cpp"], link_sdk=True)
+
+    def test_draw_constants(self) -> None:
+        self.check("draw_constants", ["draw_constants.cpp"], link_sdk=True)
 
     def test_sdk_link(self) -> None:
         self.check("sdk_link", [], link_sdk=True)
