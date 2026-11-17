@@ -12,9 +12,14 @@ INCLUDES = [
     ROOT / "sdk" / "thirdparty" / "spdlog" / "include",
     ROOT / "app" / "src" / "native",
 ]
+SDK_LIBS = ROOT / "out" / "build" / "mac"
+SDK_LINK = [
+    "-I", str(ROOT / "sdk" / "thirdparty" / "xxHash"),
+    "-L", str(SDK_LIBS), "-lrexgpu-xenosrd", "-lrexruntimerd", f"-Wl,-rpath,{SDK_LIBS}",
+]
 
 
-def build_and_run(name: str, sources: list[str]) -> subprocess.CompletedProcess:
+def build_and_run(name: str, sources: list[str], link_sdk: bool = False) -> subprocess.CompletedProcess:
     OUT.mkdir(parents=True, exist_ok=True)
     binary = OUT / f"native_{name}_test"
     command = ["clang++", "-std=c++23", "-Wall", "-Werror"]
@@ -22,6 +27,8 @@ def build_and_run(name: str, sources: list[str]) -> subprocess.CompletedProcess:
         command += ["-I", str(include)]
     command += [str(ROOT / "tests" / "cpp" / f"{name}_test.cpp")]
     command += [str(source if source.startswith("/") else ROOT / "app" / "src" / "native" / source) for source in sources]
+    if link_sdk:
+        command += SDK_LINK
     command += ["-o", str(binary)]
     build = subprocess.run(command, capture_output=True, text=True)
     if build.returncode != 0:
@@ -30,8 +37,8 @@ def build_and_run(name: str, sources: list[str]) -> subprocess.CompletedProcess:
 
 
 class NativeSkeletonTest(unittest.TestCase):
-    def check(self, name: str, sources: list[str]) -> None:
-        result = build_and_run(name, sources)
+    def check(self, name: str, sources: list[str], link_sdk: bool = False) -> None:
+        result = build_and_run(name, sources, link_sdk)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_pm4_reader(self) -> None:
@@ -51,6 +58,9 @@ class NativeSkeletonTest(unittest.TestCase):
 
     def test_shader_dump(self) -> None:
         self.check("shader_dump", ["shader_dump.cpp"])
+
+    def test_sdk_link(self) -> None:
+        self.check("sdk_link", [], link_sdk=True)
 
 
 if __name__ == "__main__":

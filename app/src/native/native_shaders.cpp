@@ -16,8 +16,18 @@ namespace nier::native {
 using namespace rex::graphics;
 using rex::graphics::vulkan::VulkanShader;
 
+namespace {
+
+SpirvShaderTranslator::Features TranslatorFeatures(const rex::ui::vulkan::VulkanDevice* device) {
+  SpirvShaderTranslator::Features features(device);
+  features.image_view_format_swizzle = false;
+  return features;
+}
+
+}  // namespace
+
 NativeShaders::NativeShaders(const rex::ui::vulkan::VulkanDevice* device)
-    : device_(device), translator_(SpirvShaderTranslator::Features(device), false, false, false) {}
+    : device_(device), translator_(TranslatorFeatures(device), false, false, false) {}
 
 void NativeShaders::Load(uint32_t type, const uint32_t* words_big_endian, uint32_t size_words) {
   const uint64_t hash = XXH3_64bits(words_big_endian, size_t(size_words) * sizeof(uint32_t));
