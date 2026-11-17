@@ -45,6 +45,9 @@ constexpr uint32_t kMmioSize = 0x0000FFFF;
 constexpr uint32_t kRegCpRbWptr = 0x01C5;
 constexpr auto kRingWaitTimeout = std::chrono::milliseconds(5);
 constexpr auto kReportInterval = std::chrono::seconds(10);
+constexpr uint32_t kMinPublishStep = 0x20;
+constexpr uint32_t kDefaultPublishStep = 0x100;
+constexpr uint32_t kNoPartialPacket = UINT32_MAX;
 
 class NativeGraphicsSystem final : public rex::system::IGraphicsSystem, private GpuBus {
  public:
@@ -109,7 +112,10 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem, private 
     REXLOG_INFO("[native] ring at {:08X}, {} words", ptr, ring_.size_words());
   }
 
-  void EnableReadPointerWriteBack(uint32_t ptr, uint32_t) override {
+  void EnableReadPointerWriteBack(uint32_t ptr, uint32_t block_size_log2) override {
+    const uint32_t frequency = (uint32_t(1) << block_size_log2) >> 2;
+    publish_step_.store(frequency ? std::max(frequency, kMinPublishStep) : kDefaultPublishStep,
+                        std::memory_order_release);
     read_writeback_.store(ptr, std::memory_order_release);
   }
 
@@ -194,6 +200,12 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem, private 
     REXLOG_DEBUG("[native] present {} {}x{}", executor_.stats().swaps, width, height);
   }
 
+  void PublishReadPointer(uint32_t position) override {
+    if (const uint32_t writeback = read_writeback_.load(std::memory_order_acquire)) {
+      StoreWord(writeback, __builtin_bswap32(position));
+    }
+  }
+
   bool Yield(uint32_t wait) override {
     if (wait >= 0x100) {
       rex::thread::Sleep(std::chrono::milliseconds(wait / 0x100));
@@ -224,6 +236,7 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem, private 
 
   int RingLoop() {
     uint32_t read = 0;
+    uint32_t partial_write_pointer = kNoPartialPacket;
     uint32_t generation = ring_.generation();
     while (active_.load(std::memory_order_acquire)) {
       {
@@ -231,7 +244,7 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem, private 
         ring_waiting_.store(true, std::memory_order_seq_cst);
         ring_cv_.wait_for(lock, kRingWaitTimeout, [&] {
           return !active_.load(std::memory_order_acquire) || ring_.generation() != generation ||
-                 ring_.HasWork(read);
+                 ring_.HasNewWork(read, partial_write_pointer);
         });
         ring_waiting_.store(false, std::memory_order_relaxed);
       }
@@ -239,19 +252,22 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem, private 
       if (ring_.generation() != generation) {
         generation = ring_.generation();
         read = 0;
+        partial_write_pointer = kNoPartialPacket;
       }
       const uint32_t size = ring_.size_words();
-      if (!size || !ring_.HasWork(read)) {
+      if (!size || !ring_.HasNewWork(read, partial_write_pointer)) {
         continue;
       }
-      RingReader reader(Words(ring_.base()), size, read, ring_.write_pointer() & (size - 1));
-      if (executor_.Execute(reader) == Pm4Executor::Result::kAborted) {
+      const uint32_t write_pointer = ring_.write_pointer();
+      RingReader reader(Words(ring_.base()), size, read, write_pointer & (size - 1));
+      const Pm4Executor::Result result =
+          executor_.Execute(reader, publish_step_.load(std::memory_order_acquire));
+      if (result == Pm4Executor::Result::kAborted) {
         break;
       }
+      partial_write_pointer = result == Pm4Executor::Result::kPartial ? write_pointer : kNoPartialPacket;
       read = reader.position();
-      if (const uint32_t writeback = read_writeback_.load(std::memory_order_acquire)) {
-        StoreWord(writeback, __builtin_bswap32(read));
-      }
+      PublishReadPointer(read);
     }
     return 0;
   }
@@ -264,9 +280,10 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem, private 
     report_start_ = now;
     const Pm4Stats& s = executor_.stats();
     REXLOG_INFO(
-        "[native] 10 s: {} packets, {} draws, {} resolves, {} swaps, {} interrupts, {} shader loads, {} waits",
+        "[native] 10 s: {} packets, {} draws, {} resolves, {} swaps, {} interrupts, {} shader loads, {} waits, {} overflows",
         s.packets - last_.packets, s.draws - last_.draws, s.resolves - last_.resolves, s.swaps - last_.swaps,
-        s.interrupts - last_.interrupts, s.shader_loads - last_.shader_loads, s.waits - last_.waits);
+        s.interrupts - last_.interrupts, s.shader_loads - last_.shader_loads, s.waits - last_.waits,
+        s.overflows - last_.overflows);
     last_ = s;
   }
 
@@ -283,6 +300,7 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem, private 
   std::atomic<uint32_t> callback_{0};
   std::atomic<uint32_t> callback_data_{0};
   std::atomic<uint32_t> read_writeback_{0};
+  std::atomic<uint32_t> publish_step_{kDefaultPublishStep};
   std::atomic<bool> ring_waiting_{false};
   std::mutex ring_mutex_;
   std::condition_variable ring_cv_;

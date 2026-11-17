@@ -53,6 +53,7 @@ class RingReader {
   void Skip(uint32_t words) { position_ = mask_ ? (position_ + words) & mask_ : position_ + words; }
 
   uint32_t position() const { return position_; }
+  uint32_t size_words() const { return mask_ ? mask_ + 1 : 0; }
 
  private:
   const uint32_t* words_;

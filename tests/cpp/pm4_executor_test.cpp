@@ -27,6 +27,7 @@ class FakeBus final : public GpuBus {
   std::unordered_map<uint32_t, std::vector<uint32_t>> buffers;
   std::vector<std::pair<uint32_t, uint32_t>> interrupts;
   std::vector<std::vector<uint32_t>> swaps;
+  std::vector<uint32_t> published;
   uint32_t yields = 0;
   uint32_t release_after = 0;
   uint32_t release_address = 0;
@@ -40,6 +41,7 @@ class FakeBus final : public GpuBus {
   void Swap(uint32_t frontbuffer, uint32_t width, uint32_t height) override {
     swaps.push_back({frontbuffer, width, height});
   }
+  void PublishReadPointer(uint32_t position) override { published.push_back(position); }
   bool Yield(uint32_t) override {
     ++yields;
     if (release_after && yields == release_after) memory[release_address] = release_raw;
@@ -163,10 +165,10 @@ int main() {
   {
     GpuRegisters regs;
     FakeBus bus;
-    regs.Set(XE_GPU_REG_COHER_STATUS_HOST, 0x80000000u);
     Pm4Executor exec(regs, bus);
     Stream s;
-    s << Type3(xenos::PM4_WAIT_REG_MEM, 5) << 0x3 << uint32_t(XE_GPU_REG_COHER_STATUS_HOST) << 0 << 0x80000000u
+    s << uint32_t(XE_GPU_REG_COHER_STATUS_HOST) << 0x03000000u;
+    s << Type3(xenos::PM4_WAIT_REG_MEM, 5) << 0x3 << uint32_t(XE_GPU_REG_COHER_STATUS_HOST) << 0 << 0xFFFFFFFFu
       << 0x100;
     auto reader = s.Reader();
     Check(exec.Execute(reader) == Pm4Executor::Result::kDone && bus.yields == 0 &&
@@ -238,6 +240,52 @@ int main() {
     exec.Execute(reader);
     Check(bus.memory[0x9000] == 1000 && bus.memory[0x9000 + 16] == 1000 && bus.memory[0x9000 + 4] == 0,
           "zpd_fake_sample_count");
+  }
+  {
+    GpuRegisters regs;
+    FakeBus bus;
+    Pm4Executor exec(regs, bus);
+    Stream s;
+    s << uint32_t(XE_GPU_REG_COHER_STATUS_HOST) << 0x03000000u;
+    auto reader = s.Reader();
+    exec.Execute(reader);
+    Check(regs.Get(XE_GPU_REG_COHER_STATUS_HOST) == 0x83000000u, "ring_write_marks_coher_status_dirty");
+  }
+  {
+    GpuRegisters regs;
+    FakeBus bus;
+    Pm4Executor exec(regs, bus);
+    std::vector<uint32_t> ring(64);
+    uint32_t w = 0;
+    for (uint32_t i = 0; i < 12; ++i) {
+      ring[w++] = Be(Type3(xenos::PM4_NOP, 3));
+      w += 3;
+    }
+    RingReader reader(ring.data(), 64, 0, w);
+    exec.Execute(reader, 0x20);
+    Check(bus.published == std::vector<uint32_t>{32}, "read_pointer_published_while_executing");
+  }
+  {
+    GpuRegisters regs;
+    FakeBus bus;
+    Pm4Executor exec(regs, bus);
+    std::vector<uint32_t> ring(8);
+    ring[0] = Be(Type3(xenos::PM4_NOP, 100));
+    RingReader reader(ring.data(), 8, 0, 4);
+    Check(exec.Execute(reader) == Pm4Executor::Result::kDone && reader.position() == 4 && exec.stats().overflows == 1,
+          "packet_larger_than_ring_is_dropped");
+  }
+  {
+    GpuRegisters regs;
+    FakeBus bus;
+    Pm4Executor exec(regs, bus);
+    std::vector<uint32_t> ring(8);
+    ring[6] = Be(Type3(xenos::PM4_MEM_WRITE, 2));
+    ring[7] = Be(0x4000 | 2);
+    ring[0] = Be(55);
+    RingReader reader(ring.data(), 8, 6, 1);
+    exec.Execute(reader);
+    Check(bus.memory[0x4000] == Be(55) && reader.position() == 1, "packet_wrapping_across_ring_end");
   }
   return failures ? 1 : 0;
 }

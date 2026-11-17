@@ -16,6 +16,7 @@ class GpuBus {
   virtual const uint32_t* Words(uint32_t physical) = 0;
   virtual void Interrupt(uint32_t source, uint32_t cpu) = 0;
   virtual void Swap(uint32_t frontbuffer, uint32_t width, uint32_t height) = 0;
+  virtual void PublishReadPointer(uint32_t position) = 0;
   virtual bool Yield(uint32_t wait) = 0;
 };
 
@@ -27,6 +28,7 @@ struct Pm4Stats {
   uint64_t interrupts = 0;
   uint64_t shader_loads = 0;
   uint64_t waits = 0;
+  uint64_t overflows = 0;
 };
 
 class Pm4Executor {
@@ -35,7 +37,7 @@ class Pm4Executor {
 
   Pm4Executor(GpuRegisters& registers, GpuBus& bus);
 
-  Result Execute(RingReader& reader);
+  Result Execute(RingReader& reader, uint32_t publish_step = 0);
   void IncrementCounter() { counter_.fetch_add(1, std::memory_order_relaxed); }
   const Pm4Stats& stats() const { return stats_; }
 

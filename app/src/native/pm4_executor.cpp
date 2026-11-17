@@ -34,9 +34,16 @@ uint32_t ConstantBase(uint32_t type) {
 
 Pm4Executor::Pm4Executor(GpuRegisters& registers, GpuBus& bus) : registers_(registers), bus_(bus) {}
 
-Pm4Executor::Result Pm4Executor::Execute(RingReader& reader) {
+Pm4Executor::Result Pm4Executor::Execute(RingReader& reader, uint32_t publish_step) {
+  const uint32_t size = reader.size_words();
+  uint32_t published = reader.position();
   while (reader.Pending()) {
     const Pm4Header header = DecodePm4(reader.Peek());
+    if (size && header.count + 1 > size) {
+      ++stats_.overflows;
+      reader.Skip(reader.Pending());
+      break;
+    }
     if (reader.Pending() < header.count + 1) {
       return Result::kPartial;
     }
@@ -61,6 +68,10 @@ Pm4Executor::Result Pm4Executor::Execute(RingReader& reader) {
           return Result::kAborted;
         }
         break;
+    }
+    if (publish_step && ((reader.position() - published) & (size - 1)) >= publish_step) {
+      published = reader.position();
+      bus_.PublishReadPointer(published);
     }
   }
   return Result::kDone;
@@ -173,6 +184,9 @@ bool Pm4Executor::Type3(RingReader& data, uint32_t opcode, uint32_t count) {
 }
 
 void Pm4Executor::SetRegister(uint32_t index, uint32_t value) {
+  if (index == XE_GPU_REG_COHER_STATUS_HOST) {
+    value |= 0x80000000u;
+  }
   if (const auto store = registers_.Set(index, value)) {
     bus_.StoreWord(store->address & ~3u, __builtin_bswap32(store->value));
   }
@@ -221,7 +235,7 @@ bool Pm4Executor::WaitRegMem(RingReader& data) {
       value = LoadSwapped(poll);
     } else {
       if (poll == XE_GPU_REG_COHER_STATUS_HOST && (registers_.Get(poll) & 0x80000000u)) {
-        SetRegister(poll, 0);
+        registers_.Set(poll, 0);
       }
       value = registers_.Get(poll);
     }

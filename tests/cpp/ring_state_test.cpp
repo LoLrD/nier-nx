@@ -33,5 +33,13 @@ int main() {
     ring.Initialize(0x2000, 2);
     Check(ring.generation() == 2 && ring.base() == 0x2000, "ring_generation_resets_read");
   }
+  {
+    RingState ring;
+    ring.Initialize(0x1000, 2);
+    ring.SetWritePointer(5);
+    Check(!ring.HasNewWork(0, 5), "partial_packet_waits_for_next_wptr");
+    ring.SetWritePointer(6);
+    Check(ring.HasNewWork(0, 5), "next_wptr_wakes_ring");
+  }
   return failures ? 1 : 0;
 }

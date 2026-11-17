@@ -20,6 +20,10 @@ class RingState {
     return size && (write_pointer() & (size - 1)) != read;
   }
 
+  bool HasNewWork(uint32_t read, uint32_t seen_write_pointer) const {
+    return HasWork(read) && write_pointer() != seen_write_pointer;
+  }
+
   uint32_t base() const { return base_.load(std::memory_order_acquire); }
   uint32_t size_words() const { return size_words_.load(std::memory_order_acquire); }
   uint32_t generation() const { return generation_.load(std::memory_order_acquire); }
