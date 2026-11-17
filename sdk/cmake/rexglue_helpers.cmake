@@ -8,11 +8,13 @@
 #==========================================================
 include_guard(GLOBAL)
 
+set(_REXGLUE_HELPERS_DIR "${CMAKE_CURRENT_LIST_DIR}" CACHE INTERNAL "")
+
 function(_rexglue_stage_macos_vulkan_runtime target_name)
     if(TARGET Vulkan::Loader AND TARGET MoltenVK::MoltenVK)
         set(_rexglue_vulkan_loader Vulkan::Loader)
         set(_rexglue_moltenvk MoltenVK::MoltenVK)
-        set(_rexglue_moltenvk_icd "${REXGLUE_ROOT}/cmake/MoltenVK_icd.json")
+        set(_rexglue_moltenvk_icd "${_REXGLUE_HELPERS_DIR}/MoltenVK_icd.json")
     elseif(TARGET rex::vulkan-loader AND TARGET rex::moltenvk)
         set(_rexglue_vulkan_loader rex::vulkan-loader)
         set(_rexglue_moltenvk rex::moltenvk)
@@ -89,6 +91,9 @@ function(rexglue_configure_target target_name)
 
     target_compile_definitions(${target_name} PRIVATE
         REXGLUE_BUILD_CONFIG="$<CONFIG>")
+
+    target_include_directories(${target_name} PRIVATE
+        $<TARGET_PROPERTY:imgui,INTERFACE_INCLUDE_DIRECTORIES>)
 
     if(UNIX AND NOT APPLE)
         set_target_properties(${target_name} PROPERTIES

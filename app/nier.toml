@@ -1,0 +1,4 @@
+game_data_root = "assets/game_root"
+log_file = "out/mac/nier.log"
+log_level = "debug"
+gpu_plugin = ""
