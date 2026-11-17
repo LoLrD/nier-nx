@@ -1,6 +1,6 @@
 log_file = "out/mac/nier.log"
 log_level = "debug"
-log_max_file_size_mb = 512
+log_max_file_size_mb = 100
 gpu_plugin = "xenos"
 vulkan_allow_present_mode_immediate = false
 dlc_enable = true
