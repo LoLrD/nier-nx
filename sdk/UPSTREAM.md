@@ -13,3 +13,6 @@ code generator and runtime changes of masseffect-nx. The third-party sources are
 - `cmake/rexglue_helpers.cmake` (`_rexglue_stage_macos_vulkan_runtime`): locate `MoltenVK_icd.json` next to the
   helper file instead of `${REXGLUE_ROOT}/cmake`. `REXGLUE_ROOT` is a directory-scoped variable of the SDK, empty in
   the title's directory where the post-build copy is configured, so macOS links failed copying `/cmake/MoltenVK_icd.json`.
+- `src/kernel/xam/xam_ui.cpp` (`XamShowKeyboardUI`): cvar `keyboard_ui_auto_text`. When set, keyboard prompts are
+  answered with that text at once, without the ImGui dialog, so automated runs can pass name entry (NieR asks for the
+  hero's name after the difficulty menu; `headless` answers with the empty default text).

@@ -19,6 +19,8 @@
 
 REXCVAR_DEFINE_BOOL(headless, false, "Kernel",
                     "Don't display any UI, using defaults for prompts as needed");
+REXCVAR_DEFINE_STRING(keyboard_ui_auto_text, "", "Kernel",
+                      "Answer keyboard prompts with this text at once, without a dialog (automated runs)");
 #include <rex/kernel/xam/private.h>
 #include <rex/hook.h>
 #include <rex/types.h>
@@ -434,7 +436,14 @@ u32 XamShowKeyboardUI_entry(u32 user_index, u32 flags, mapped_wstring default_te
   auto buffer_size = static_cast<size_t>(buffer_length) * 2;
 
   X_RESULT result;
-  if (REXCVAR_GET(headless)) {
+  const std::string auto_text = REXCVAR_GET(keyboard_ui_auto_text);
+  if (!auto_text.empty()) {
+    auto run = [auto_text, buffer, buffer_length]() -> X_RESULT {
+      rex::string::copy_and_swap_truncating(buffer, rex::string::to_utf16(auto_text), buffer_length);
+      return X_ERROR_SUCCESS;
+    };
+    result = xeXamDispatchHeadless(run, overlapped.guest_address());
+  } else if (REXCVAR_GET(headless)) {
     auto run = [default_text, buffer, buffer_length, buffer_size]() -> X_RESULT {
       // Redirect default_text back into the buffer.
       if (!default_text) {
