@@ -57,3 +57,8 @@ code generator and runtime changes of masseffect-nx. The third-party sources are
   constants are sums of shifts, products with the pitch are float products (exact below 2^24), and divisions by a
   constant tile size or the pitch are `uint((float(x) + 0.5) * (1 / d))`, exact for x < 2^16 even with a reciprocal
   off by 2 ulp.
+- `readback_resolve_max_kb` (`src/graphics/command_processor.cpp`, Vulkan path): reads back only resolves up to that
+  size; `gpu_debug_describe_frame` logs every readback (`[readback]`). With `readback_resolve = "fast"` every resolve
+  was copied back to guest memory: in NieR's gameplay 28 per frame, about 56 MB, all `memcpy` on the GPU command thread
+  (plus the cache invalidation of the readback buffer and the texture reloads the CPU writes cause). NieR only reads
+  its exposure chain (4-256 KB); `readback_resolve_max_kb = 256` keeps the image right.

@@ -54,6 +54,10 @@ REXCVAR_DEFINE_STRING(readback_resolve, "none", "GPU",
     .allowed({"none", "fast", "some", "full"})
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
 
+REXCVAR_DEFINE_INT32(readback_resolve_max_kb, 0, "GPU",
+                     "Read back only resolves of at most this many KB (0 = all of them)")
+    .lifecycle(rex::cvar::Lifecycle::kHotReload);
+
 REXCVAR_DEFINE_BOOL(readback_resolve_half_pixel_offset, false, "GPU",
                     "When draw resolution scaling is active, sample from the center of each "
                     "scaled block during resolve readback downscale")

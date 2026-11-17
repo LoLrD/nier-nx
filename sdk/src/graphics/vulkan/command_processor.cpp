@@ -4562,6 +4562,14 @@ bool VulkanCommandProcessor::IssueCopy_ReadbackResolvePath() {
   if (readback_mode == ReadbackResolveMode::kDisabled) {
     return true;
   }
+  const int32_t readback_max_kb = REXCVAR_GET(readback_resolve_max_kb);
+  if (g_debug_describe_this_frame) {
+    REXGPU_INFO("[readback] {:08X} {} bytes{}", written_address, written_length,
+                readback_max_kb > 0 && written_length > uint32_t(readback_max_kb) << 10 ? " skipped" : "");
+  }
+  if (readback_max_kb > 0 && written_length > uint32_t(readback_max_kb) << 10) {
+    return true;
+  }
 
   auto ensure_readback_slot = [&](ReadbackBuffer& readback, uint32_t index, uint32_t size) -> bool {
     if (readback.buffers[index] != VK_NULL_HANDLE && size <= readback.sizes[index] &&
