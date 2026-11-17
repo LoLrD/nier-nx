@@ -25,6 +25,8 @@ constexpr VkSamplerAddressMode kAddressModes[8] = {
     VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,   VK_SAMPLER_ADDRESS_MODE_MIRROR_CLAMP_TO_EDGE,
     VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER, VK_SAMPLER_ADDRESS_MODE_MIRROR_CLAMP_TO_EDGE};
 
+uint64_t ResolveKey(uint32_t address, VkFormat format) { return uint64_t(address) << 32 | uint32_t(format); }
+
 uint64_t TextureKey(const xenos::xe_gpu_texture_fetch_t& fetch) {
   const std::array<uint32_t, 11> fields = {
       fetch.base_address, fetch.mip_address,   uint32_t(fetch.format), uint32_t(fetch.endianness),
@@ -149,11 +151,12 @@ Textures::Binding Textures::View(VkCommandBuffer upload, const xenos::xe_gpu_tex
   const uint32_t height = fetch.size_2d.height + 1;
   if (binding.dimension != xenos::FetchOpDimension::kCube &&
       binding.dimension != xenos::FetchOpDimension::k3DOrStacked) {
-    if (auto it = resolve_images_.find(fetch.base_address << 12); it != resolve_images_.end()) {
+    const uint32_t address = fetch.base_address << 12;
+    if (auto it = resolve_images_.find(ResolveKey(address, host->format)); it != resolve_images_.end()) {
       ResolveImage& resolved = it->second;
       if (NeedsRehash(resolved.guest_bytes, frame_, resolved.checked_frame, resolved.checked_frame == frame_)) {
         resolved.checked_frame = frame_;
-        if (XXH3_64bits(physical_base_ + it->first, resolved.guest_bytes) != resolved.guest_hash) {
+        if (XXH3_64bits(physical_base_ + address, resolved.guest_bytes) != resolved.guest_hash) {
           resolve_images_.erase(it);
           it = resolve_images_.end();
         }
@@ -364,7 +367,7 @@ VkSampler Textures::Sampler(const xenos::xe_gpu_texture_fetch_t& fetch, const Sp
 
 void Textures::AddResolveImage(uint32_t address, VkFormat format, uint32_t width, uint32_t height, VkImageView view,
                                uint32_t guest_bytes) {
-  auto [it, inserted] = resolve_images_.try_emplace(address);
+  auto [it, inserted] = resolve_images_.try_emplace(ResolveKey(address, format));
   ResolveImage& resolved = it->second;
   if (!inserted && resolved.view == view && resolved.guest_bytes == guest_bytes) {
     return;
@@ -373,14 +376,17 @@ void Textures::AddResolveImage(uint32_t address, VkFormat format, uint32_t width
 }
 
 void Textures::RefreshResolveHash(uint32_t address) {
-  if (auto it = resolve_images_.find(address); it != resolve_images_.end()) {
-    it->second.guest_hash = XXH3_64bits(physical_base_ + address, it->second.guest_bytes);
-    it->second.checked_frame = frame_;
+  for (auto& [key, resolved] : resolve_images_) {
+    if (uint32_t(key >> 32) == address) {
+      resolved.guest_hash = XXH3_64bits(physical_base_ + address, resolved.guest_bytes);
+      resolved.checked_frame = frame_;
+    }
   }
 }
 
-void Textures::RemoveResolveImage(uint32_t address, VkImageView view) {
-  if (auto it = resolve_images_.find(address); it != resolve_images_.end() && it->second.view == view) {
+void Textures::RemoveResolveImage(uint32_t address, VkFormat format, VkImageView view) {
+  if (auto it = resolve_images_.find(ResolveKey(address, format));
+      it != resolve_images_.end() && it->second.view == view) {
     resolve_images_.erase(it);
   }
 }

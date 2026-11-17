@@ -73,10 +73,11 @@ class Resolves {
   void CopyColor(VkCommandBuffer command_buffer, const ResolvePlan& plan, const RenderTargets::Target& source,
                  const DestImage& dest);
   void CopyDepth(VkCommandBuffer command_buffer, const ResolvePlan& plan, const RenderTargets::Target& source,
-                 const DestImage& dest);
+                 const DestImage& dest, const DestImage& raw);
   void Readback(VkCommandBuffer command_buffer, const ResolvePlan& plan, const DestImage& dest, uint64_t submission);
   ReadbackBuffer AcquireReadbackBuffer();
-  VkDescriptorSet DepthDescriptorSet(VkImageView source, VkImageView dest);
+  VkDescriptorSet DepthDescriptorSet(VkImageView source, VkImageView dest, VkImageView raw);
+  void Publish(const ResolvePlan& plan, DestImage& dest, uint64_t submission);
   void Destroy(DestImage& image);
 
   const rex::ui::vulkan::VulkanDevice* device_;
@@ -92,7 +93,12 @@ class Resolves {
   VkPipeline depth_pipeline_ = VK_NULL_HANDLE;
   VkDescriptorPool depth_pool_ = VK_NULL_HANDLE;
   VkSampler depth_sampler_ = VK_NULL_HANDLE;
-  std::unordered_map<uint64_t, std::pair<VkImageView, VkDescriptorSet>> depth_sets_;
+  struct DepthSet {
+    VkImageView dest;
+    VkImageView raw;
+    VkDescriptorSet set;
+  };
+  std::unordered_map<uint64_t, DepthSet> depth_sets_;
   std::vector<RetiredImage> retired_;
   uint64_t frame_ = 0;
   Stats stats_;

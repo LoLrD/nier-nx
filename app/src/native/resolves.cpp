@@ -40,9 +40,10 @@ Resolves::Resolves(const vk::VulkanDevice* device, RenderTargets& targets, Textu
     : device_(device), targets_(targets), textures_(textures), physical_base_(physical_base) {
   const auto& dfn = device_->functions();
   const VkDevice d = device_->device();
-  const std::array<VkDescriptorSetLayoutBinding, 2> bindings = {{
+  const std::array<VkDescriptorSetLayoutBinding, 3> bindings = {{
       {0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr},
       {1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr},
+      {2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr},
   }};
   VkDescriptorSetLayoutCreateInfo set_info{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
   set_info.bindingCount = uint32_t(bindings.size());
@@ -64,7 +65,7 @@ Resolves::Resolves(const vk::VulkanDevice* device, RenderTargets& targets, Textu
   dfn.vkDestroyShaderModule(d, module, nullptr);
   const std::array<VkDescriptorPoolSize, 2> sizes = {{
       {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kMaxDepthSets},
-      {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, kMaxDepthSets},
+      {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, kMaxDepthSets * 2},
   }};
   VkDescriptorPoolCreateInfo pool_info{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
   pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
@@ -112,20 +113,17 @@ void Resolves::Resolve(VkCommandBuffer command_buffer, const ResolvePlan& plan, 
     if (source) {
       DestImage& dest = Dest(command_buffer, plan, host->format);
       if (plan.depth) {
-        CopyDepth(command_buffer, plan, *source, dest);
+        DestImage& raw = Dest(command_buffer, plan, VK_FORMAT_R8G8B8A8_UNORM);
+        CopyDepth(command_buffer, plan, *source, dest, raw);
+        FullBarrier(device_, command_buffer);
+        Publish(plan, raw, submission);
         ++stats_.depth_copies;
       } else {
         CopyColor(command_buffer, plan, *source, dest);
+        FullBarrier(device_, command_buffer);
         ++stats_.copies;
       }
-      FullBarrier(device_, command_buffer);
-      dest.last_frame = frame_;
-      dest.last_submission = submission;
-      const uint32_t bytes_per_pixel = rex::graphics::FormatInfo::Get(plan.dest_format)->bits_per_pixel / 8;
-      const uint32_t guest_bytes = std::min<uint32_t>(
-          rex::align(dest.width, 32u) * rex::align(dest.height, 32u) * bytes_per_pixel,
-          0x20000000u - std::min(plan.dest_address, 0x20000000u));
-      textures_.AddResolveImage(plan.dest_address, dest.format, dest.width, dest.height, dest.view, guest_bytes);
+      Publish(plan, dest, submission);
       if (plan.readback) {
         Readback(command_buffer, plan, dest, submission);
       }
@@ -180,7 +178,7 @@ Resolves::DestImage& Resolves::Dest(VkCommandBuffer command_buffer, const Resolv
   dest.width = width;
   dest.height = height;
   dest.address = plan.dest_address;
-  const bool storage = format == VK_FORMAT_R32_SFLOAT;
+  const bool storage = format == VK_FORMAT_R32_SFLOAT || format == VK_FORMAT_R8G8B8A8_UNORM;
   VkImageCreateInfo info{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
   info.imageType = VK_IMAGE_TYPE_2D;
   info.format = format;
@@ -242,10 +240,18 @@ void Resolves::CopyColor(VkCommandBuffer command_buffer, const ResolvePlan& plan
                                       scaled ? VK_FILTER_LINEAR : VK_FILTER_NEAREST);
 }
 
+void Resolves::Publish(const ResolvePlan& plan, DestImage& dest, uint64_t submission) {
+  dest.last_frame = frame_;
+  dest.last_submission = submission;
+  const uint32_t guest_bytes = std::min<uint32_t>(rex::align(dest.width, 32u) * rex::align(dest.height, 32u) * 4,
+                                                  0x20000000u - std::min(plan.dest_address, 0x20000000u));
+  textures_.AddResolveImage(plan.dest_address, dest.format, dest.width, dest.height, dest.view, guest_bytes);
+}
+
 void Resolves::CopyDepth(VkCommandBuffer command_buffer, const ResolvePlan& plan, const RenderTargets::Target& source,
-                         const DestImage& dest) {
+                         const DestImage& dest, const DestImage& raw) {
   const auto& dfn = device_->functions();
-  const VkDescriptorSet set = DepthDescriptorSet(source.sampled_view, dest.storage_view);
+  const VkDescriptorSet set = DepthDescriptorSet(source.sampled_view, dest.storage_view, raw.storage_view);
   if (set == VK_NULL_HANDLE) {
     return;
   }
@@ -260,31 +266,35 @@ void Resolves::CopyDepth(VkCommandBuffer command_buffer, const ResolvePlan& plan
   dfn.vkCmdDispatch(command_buffer, (plan.dest_width + 7) / 8, (plan.dest_height + 7) / 8, 1);
 }
 
-VkDescriptorSet Resolves::DepthDescriptorSet(VkImageView source, VkImageView dest) {
-  const uint64_t key = XXH3_64bits_withSeed(&source, sizeof(source), uint64_t(dest));
-  auto [it, inserted] = depth_sets_.try_emplace(key, dest, VK_NULL_HANDLE);
+VkDescriptorSet Resolves::DepthDescriptorSet(VkImageView source, VkImageView dest, VkImageView raw) {
+  const std::array<VkImageView, 3> views = {source, dest, raw};
+  const uint64_t key = XXH3_64bits(views.data(), sizeof(views));
+  auto [it, inserted] = depth_sets_.try_emplace(key, DepthSet{dest, raw, VK_NULL_HANDLE});
   if (!inserted) {
-    return it->second.second;
+    return it->second.set;
   }
   const auto& dfn = device_->functions();
   VkDescriptorSetAllocateInfo allocate{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
   allocate.descriptorPool = depth_pool_;
   allocate.descriptorSetCount = 1;
   allocate.pSetLayouts = &depth_set_layout_;
-  if (dfn.vkAllocateDescriptorSets(device_->device(), &allocate, &it->second.second) != VK_SUCCESS) {
+  if (dfn.vkAllocateDescriptorSets(device_->device(), &allocate, &it->second.set) != VK_SUCCESS) {
     REXLOG_ERROR("[native] out of depth resolve descriptor sets");
     depth_sets_.erase(it);
     return VK_NULL_HANDLE;
   }
   const VkDescriptorImageInfo source_info{depth_sampler_, source, VK_IMAGE_LAYOUT_GENERAL};
   const VkDescriptorImageInfo dest_info{VK_NULL_HANDLE, dest, VK_IMAGE_LAYOUT_GENERAL};
-  std::array<VkWriteDescriptorSet, 2> writes{};
-  writes[0] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, it->second.second, 0, 0, 1,
+  const VkDescriptorImageInfo raw_info{VK_NULL_HANDLE, raw, VK_IMAGE_LAYOUT_GENERAL};
+  std::array<VkWriteDescriptorSet, 3> writes{};
+  writes[0] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, it->second.set, 0, 0, 1,
                VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &source_info, nullptr, nullptr};
-  writes[1] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, it->second.second, 1, 0, 1,
+  writes[1] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, it->second.set, 1, 0, 1,
                VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, &dest_info, nullptr, nullptr};
+  writes[2] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, it->second.set, 2, 0, 1,
+               VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, &raw_info, nullptr, nullptr};
   dfn.vkUpdateDescriptorSets(device_->device(), uint32_t(writes.size()), writes.data(), 0, nullptr);
-  return it->second.second;
+  return it->second.set;
 }
 
 void Resolves::Readback(VkCommandBuffer command_buffer, const ResolvePlan& plan, const DestImage& dest,
@@ -357,16 +367,16 @@ void Resolves::Evict(uint64_t unused_frames, uint64_t submission) {
     if (image.last_frame + unused_frames >= frame_) {
       return false;
     }
-    textures_.RemoveResolveImage(image.address, image.view);
+    textures_.RemoveResolveImage(image.address, image.format, image.view);
     if (auto latest = latest_by_address_.find(image.address);
         latest != latest_by_address_.end() && latest->second == entry.first) {
       latest_by_address_.erase(latest);
     }
     std::erase_if(depth_sets_, [&](auto& set) {
-      if (set.second.first != image.storage_view) {
+      if (set.second.dest != image.storage_view && set.second.raw != image.storage_view) {
         return false;
       }
-      dfn.vkFreeDescriptorSets(device_->device(), depth_pool_, 1, &set.second.second);
+      dfn.vkFreeDescriptorSets(device_->device(), depth_pool_, 1, &set.second.set);
       return true;
     });
     retired_.push_back({image, std::max(image.last_submission, submission)});

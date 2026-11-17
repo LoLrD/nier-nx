@@ -46,7 +46,7 @@ class Textures {
   void AddResolveImage(uint32_t address, VkFormat format, uint32_t width, uint32_t height, VkImageView view,
                        uint32_t guest_bytes);
   void RefreshResolveHash(uint32_t address);
-  void RemoveResolveImage(uint32_t address, VkImageView view);
+  void RemoveResolveImage(uint32_t address, VkFormat format, VkImageView view);
   void Evict(uint64_t unused_frames);
   void Completed(uint64_t submission);
   const Stats& stats() const { return stats_; }
@@ -99,7 +99,7 @@ class Textures {
   Image null_3d_;
   std::unordered_map<uint64_t, Texture> textures_;
   std::vector<Retired> retired_;
-  std::unordered_map<uint32_t, ResolveImage> resolve_images_;
+  std::unordered_map<uint64_t, ResolveImage> resolve_images_;
   std::unordered_map<uint64_t, VkSampler> samplers_;
   Stats stats_;
 };
