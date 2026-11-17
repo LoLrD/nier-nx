@@ -241,3 +241,15 @@ mode (zero scissor for guest draws) to split draws into vertex and pixel work.
   full-screen, 4 MB, 2 × 1 MB, then 4–256 KB for the exposure chain; sizes from `[readback]` on macOS).
 - Fix: `readback_resolve_max_kb = 256`. macOS prologue captures keep the exposure (mean brightness 75.5 vs 77.0, no
   white pixels).
+- Console (run `game3`, `readback_resolve_max_kb = 256`): "nothing" 54.6 → 35.2 ms (the CPU floor dropped), but
+  normal gameplay stays at 145–188 ms: GPU-bound. Lap: no draws saves ~68 ms (no draw pixels ~55 ms), no resolves
+  ~29 ms, no texture loads ~27 ms, no transfers ~21 ms (noisy).
+
+## 2026-11-17 — internal resolution experiment
+
+- `sub_82496830` (graphics init) fills a config block before calling `sub_82597120`: +80/+84 = 1280/720, +128/+132 =
+  640/360, +136/+140 = 1280/720 (+120 = 720), plus pool sizes. The 3D scene itself is drawn at 640x360 with 4xMSAA and
+  read back as 1280x720 1x (the game's own trick), the post chain runs at 1280x720.
+- Experiment (generated code edited by hand, not committed): 960/540 and 480/270 in that block. On macOS the whole
+  frame (scene, post, HUD) comes out at 960x540 and the presenter scales it; only the dialogue text is still laid out
+  for 1280x720 (shifted right and down; its icons are placed right). Being measured on the console.
