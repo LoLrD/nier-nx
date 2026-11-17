@@ -10,7 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_COMMAND = [str(ROOT / "out" / "mac" / "nier")]
-DEFAULT_LOG_FILE = ROOT / "out" / "mac" / "nier.log"
+DEFAULT_LOG_FILE = ROOT / "out" / "logs" / "nier.log"
 UNREGISTERED = re.compile(r"Call to invalid or unregistered function at guest address (?:0x)?([0-9A-Fa-f]{8})")
 FRAME = "XELOG_GPU PRESENT:"
 IO_STATS = re.compile(r"\[io\] \d+ s: (\d+) opens \((\d+) failed\)")
