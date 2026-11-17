@@ -13,3 +13,15 @@ Each entry: symptom → cause → fix, with the evidence. Newest last.
 - Result: 22,348 functions, 97 generated `.cpp` files (109 MB), 0 warnings. Remaining 11,297 gaps / 74,776 bytes are
   mostly 4-byte padding between functions; the rest were rejected by `gap_classify.py` (stack/LR use or registers
   read before written) and are left for the runtime resolver.
+
+## 2026-11-17 — first macOS runs (Tasks 4–5)
+
+- `--game_data_root` from `nier.toml` is read before the config is loaded → `NierApp::OnConfigurePaths` defaults to
+  `<exe_dir>/game_root` (same layout as the Switch build); `tools/build_mac.sh` links `out/mac/game_root` to the disc tree.
+- Smoke run `first` (30 s, `gpu_plugin = ""`): no crash. Boot, XAudio, XMA, XAM notifications run; the game probes
+  loose files before its CPK archives (`MEDIA\2D\SYSTEM_US.2DP`, `MEDIA\MYSETTING\STAGE_SELECT.INI` — absent on the
+  disc, expected). Data lives in `media/layer1.cpk`, `media/layer2.cpk`.
+- After 14:28:58.176 only the audio thread logs: the game waits. `VdInitializeRingBuffer` and
+  `VdSetGraphicsInterruptCallback` were ignored (no GPU plugin), so no VSync interrupt ever reaches it → Task 6.
+- Hang detection does not fire while `[apu]` keeps logging; a game-thread stall looks like `timeout_ok` with no
+  progress. Judge progress by the game threads, not by log volume.
