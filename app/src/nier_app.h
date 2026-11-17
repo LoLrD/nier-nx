@@ -9,6 +9,8 @@
 
 #include <rex/cvar.h>
 #include <rex/filesystem.h>
+#include <rex/filesystem/devices/stfs_container_device.h>
+#include <rex/filesystem/entry.h>
 #include <rex/input/input_system.h>
 #include <rex/memory.h>
 #include <rex/rex_app.h>
@@ -39,14 +41,41 @@ class NierApp : public rex::ReXApp {
   }
 
   void OnPostLoadXexImage() override {
+    DumpImage();
+    ProbeDlc();
+  }
+
+  void DumpImage() {
     const char* path = std::getenv("NIER_DUMP_IMAGE");
     if (!path) {
       return;
     }
-    const auto* image = runtime()->memory()->TranslateVirtual<const uint8_t*>(PPCImageConfig.image_base);
     std::FILE* file = std::fopen(path, "wb");
+    if (!file) {
+      std::fprintf(stderr, "cannot write NIER_DUMP_IMAGE %s\n", path);
+      std::exit(2);
+    }
+    const auto* image = runtime()->memory()->TranslateVirtual<const uint8_t*>(PPCImageConfig.image_base);
     std::fwrite(image, 1, PPCImageConfig.image_size, file);
     std::fclose(file);
+  }
+
+  void ProbeDlc() {
+    const char* path = std::getenv("NIER_PROBE_DLC");
+    if (!path) {
+      return;
+    }
+    rex::filesystem::StfsContainerDevice device("\\Device\\NierProbe\\", path);
+    if (!device.Initialize()) {
+      std::fprintf(stderr, "[dlc-probe] cannot mount %s\n", path);
+      return;
+    }
+    const auto* root = device.ResolvePath("");
+    std::fprintf(stderr, "[dlc-probe] mounted %s: %zu root entries\n", path, root->child_count());
+    for (const auto& child : root->children()) {
+      std::fprintf(stderr, "[dlc-probe]   %s (%zu bytes, %zu children)\n", child->name().c_str(), child->size(),
+                   child->child_count());
+    }
   }
 
   void OnPostSetup() override {
