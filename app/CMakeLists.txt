@@ -23,6 +23,8 @@ set(NIER_SOURCES
     src/native/primitive_setup.cpp
     src/native/shader_dump.cpp
     src/native/target_keys.cpp
+    src/native/texture_loader.cpp
+    src/native/textures.cpp
 )
 add_executable(nier ${NIER_SOURCES})
 target_include_directories(nier PRIVATE src ${REXSDK_DIR}/thirdparty/glslang ${REXSDK_DIR}/thirdparty/xxHash)

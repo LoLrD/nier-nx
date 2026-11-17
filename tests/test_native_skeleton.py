@@ -76,6 +76,9 @@ class NativeSkeletonTest(unittest.TestCase):
     def test_pipeline_state(self) -> None:
         self.check("pipeline_state", ["pipeline_state.cpp"], link_sdk=True)
 
+    def test_texture_loader(self) -> None:
+        self.check("texture_loader", ["texture_loader.cpp"], link_sdk=True)
+
     def test_sdk_link(self) -> None:
         self.check("sdk_link", [], link_sdk=True)
 
