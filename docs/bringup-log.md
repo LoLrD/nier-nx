@@ -217,3 +217,7 @@ Fixes:
   SM50 for every 32-bit multiply, including `x / 80` (umul_high) and `x / pitch`; the generated shaders had 8-10 of
   them per sample. Rewritten without integer multiplies (`sdk/UPSTREAM.md`); menu and prologue captures on macOS look
   the same.
+- Console (run `menu2`, IMUL-free dump and transfer shaders): menu 15.0 → 41.2 fps (66.7 → 24.3 ms). Resolve dumps
+  31.4 → 3.1 ms, transfers 16.9 → 1.3 ms: each pass about 10x faster, so the microcoded `IMUL` was the cost. What is
+  left: resolve copies 5.5 ms and texture loads 3.2 ms (both are prebuilt compute shaders with integer addressing),
+  draws 2.4 ms. Menu summary: 6.3 → 41.2 fps at the same clocks.
