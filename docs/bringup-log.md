@@ -230,3 +230,14 @@ texture loads. The lap is noisy in gameplay (the scene changes), but: no draws 1
 ~150 ms, nothing 54.6 ms (18.3 fps). In "nothing" the GPU command thread is at 84 % of a core: about 46 ms of CPU per
 frame for ~170 draws, so the command processor itself is the second limit. Next run: stack samples and a vertices-only
 mode (zero scissor for guest draws) to split draws into vertex and pixel work.
+
+## 2026-11-17 — Switch: vertices vs pixels, and the CPU floor (run `game2`)
+
+- Lap with the vertices-only mode (zero scissor for guest draws), gameplay noisy (normal 131–185 ms): no draws
+  105 ms, no draw pixels 118 ms → guest vertex work ~12 ms, pixel work ~35–45 ms; nothing 54.6 ms.
+- Stack samples of the GPU command thread in the "nothing" blocks: 70 % `memcpy` called from
+  `IssueCopy_ReadbackResolvePath`, 12 % `nvk_InvalidateMappedMemoryRanges` on the same path. `readback_resolve =
+  "fast"` copied every resolve back to guest memory: per gameplay frame 28 readbacks, about 56 MB (13 × 3.77 MB
+  full-screen, 4 MB, 2 × 1 MB, then 4–256 KB for the exposure chain; sizes from `[readback]` on macOS).
+- Fix: `readback_resolve_max_kb = 256`. macOS prologue captures keep the exposure (mean brightness 75.5 vs 77.0, no
+  white pixels).
