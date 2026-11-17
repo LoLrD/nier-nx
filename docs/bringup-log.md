@@ -89,3 +89,14 @@ Each entry: symptom → cause → fix, with the evidence. Newest last.
   `'B5849AE068830A162D28A72C2E07667A19BCD61853' (displayed as '15 Nightmares')`.
 - Not verified yet: mounting (`[dlc] mount ...`). The game did not open the package in the first 2 minutes; it
   likely mounts it when the player reaches the DLC's entry point. Check during phase 3 playthrough.
+
+## 2026-11-17 — manual play feedback
+
+- Audio "choppy, like 5 fps": in `audio_dump_output_s` dumps of the menu, exactly every 4th 256-sample frame was all
+  zeros (1406 of 5624, always frame index ≡ 0 mod 4), independent of the SDL device buffer size and of
+  `audio_xma_in_worker`. The SDL driver released the game's audio semaphore as fast as SDL consumed frames, so NieR's
+  audio callback ran in bursts and its XMA voices starved every 4th frame. `audio_sdl_pump = true` (one game frame
+  every 5.333 ms, as on the console) → 0 zero frames.
+- F3 overlay had no FPS: the title must feed `SetGuestFrameStats`. The SDK now counts `VdSwap` calls
+  (`GuestSwapCount()`), `NierFpsMeter` turns them into FPS over 0.5 s windows.
+- Logs moved to `out/logs/` (`tools/build_mac.sh` wipes `out/mac`, which deleted the log of the first manual session).
