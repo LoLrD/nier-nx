@@ -16,4 +16,5 @@ if ! ( cd "$APP" && REX_MAX_JUMP_TABLE_ENTRIES=1024 "$REXGLUE" codegen "$MANIFES
   exit 1
 fi
 [[ -f "$APP/generated/default/sources.cmake" ]] || { echo "error: the generator produced no $APP/generated/default/sources.cmake" >&2; exit 1; }
+python3 "$ROOT/tools/check_generated.py"
 echo "ok: $APP/generated/default"

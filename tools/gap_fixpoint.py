@@ -30,6 +30,10 @@ gen = os.path.join(app, "generated", "default")
 evidence_path = os.path.join(scratch, "gapscan-accepted.txt")
 tools = os.path.join(root, "tools")
 
+subprocess.run([sys.executable, os.path.join(tools, "check_game.py")], check=True)
+def fatal_count(tree):
+    return sum(open(os.path.join(tree, f), errors="replace").read().count("REX_FATAL(")
+               for f in os.listdir(tree) if f.endswith(".cpp"))
 ns = {"__name__": "gc"}
 exec(compile(open(os.path.join(tools, "gap_classify.py")).read(), "gc", "exec"), ns)
 examined = set()
@@ -65,6 +69,9 @@ for n in range(1, 20):
     open(f"{d}/codegen.log", "w").write(r.stdout + r.stderr)
     if r.returncode:
         print(f"pass {n}: scratch codegen failed (see {d}/codegen.log)")
+        break
+    if fatal_count(f"{d}/generated") > fatal_count(gen):
+        print(f"pass {n}: the candidates add REX_FATAL paths to the generated code; pass rejected")
         break
     subprocess.run([sys.executable, os.path.join(tools, "gap_classify.py"), f"{d}/generated", f"{d}/selected.txt",
                     f"{d}/codegen.log", f"{d}/acc.txt"], capture_output=True)
