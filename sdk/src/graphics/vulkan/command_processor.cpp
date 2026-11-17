@@ -55,6 +55,17 @@ extern "C" void RexNativeVideoShutdown() __attribute__((weak));
 #endif
 
 // Legacy backend compatibility aliases for shared readback controls.
+REXCVAR_DEFINE_INT32(gpu_debug_skip_draw_first, -1, "GPU/Debug",
+                     "Skip draws with this index within each frame and the next gpu_debug_skip_draw_count ones "
+                     "(-1 = off). Changeable at run time to bisect which draw produces a wrong image");
+REXCVAR_DEFINE_INT32(gpu_debug_skip_draw_count, 1, "GPU/Debug", "Number of draws gpu_debug_skip_draw_first skips");
+REXCVAR_DEFINE_BOOL(gpu_debug_describe_frame, false, "GPU/Debug",
+                    "Log every draw and resolve of the next frame, then switch itself off");
+REXCVAR_DEFINE_STRING(gpu_debug_skip_ps, "", "GPU/Debug",
+                      "Comma-separated pixel shader ucode hashes (16 hex digits); draws using them are skipped");
+REXCVAR_DEFINE_INT32(gpu_debug_describe_draw, -1, "GPU/Debug",
+                     "Log the shaders, primitive and render target state of the draw with this index in the next "
+                     "frame (-1 = off); also logs the number of draws of that frame");
 REXCVAR_DEFINE_BOOL(vulkan_readback_resolve, false, "GPU/Vulkan",
                     "Read render-to-texture results on the CPU")
     .lifecycle(rex::cvar::Lifecycle::kHotReload);
@@ -2287,9 +2298,41 @@ extern "C" void RexSwitchPerfAdd(unsigned id, uint64_t value);
 extern "C" bool RexSwitchPerfSkip(unsigned bit);
 #endif
 
+namespace {
+uint32_t g_debug_draw_index = 0;
+bool g_debug_describe_this_frame = false;
+
+bool DebugSkipsPixelShader(uint64_t hash) {
+  static std::string cached_list;
+  static std::vector<uint64_t> cached_hashes;
+  const std::string list = REXCVAR_GET(gpu_debug_skip_ps);
+  if (list != cached_list) {
+    cached_list = list;
+    cached_hashes.clear();
+    for (size_t start = 0; start < list.size();) {
+      const size_t comma = std::min(list.find(',', start), list.size());
+      if (comma > start) {
+        cached_hashes.push_back(std::stoull(list.substr(start, comma - start), nullptr, 16));
+      }
+      start = comma + 1;
+    }
+  }
+  return std::find(cached_hashes.begin(), cached_hashes.end(), hash) != cached_hashes.end();
+}
+}  // namespace
+
 void VulkanCommandProcessor::IssueSwap(uint32_t frontbuffer_ptr, uint32_t frontbuffer_width,
                                        uint32_t frontbuffer_height) {
   SCOPE_profile_cpu_f("gpu");
+  if (REXCVAR_GET(gpu_debug_describe_draw) >= 0 || g_debug_describe_this_frame) {
+    REXGPU_INFO("[draw] frame had {} draws", g_debug_draw_index);
+    rex::cvar::SetFlagByName("gpu_debug_describe_draw", "-1");
+  }
+  g_debug_describe_this_frame = REXCVAR_GET(gpu_debug_describe_frame);
+  if (g_debug_describe_this_frame) {
+    rex::cvar::SetFlagByName("gpu_debug_describe_frame", "false");
+  }
+  g_debug_draw_index = 0;
 #if REX_PLATFORM_SWITCH
   RexSwitchPerfCount(0);
   const bool has_video_native = RexNativeVideoBeginSwap && RexNativeVideoBeginSwap();
@@ -3656,6 +3699,27 @@ bool VulkanCommandProcessor::IssueDraw(xenos::PrimitiveType prim_type, uint32_t 
     return IssueCopy();
   }
 
+  const uint32_t debug_draw_index = g_debug_draw_index++;
+  if (g_debug_describe_this_frame || REXCVAR_GET(gpu_debug_describe_draw) == int32_t(debug_draw_index)) {
+    auto* vs = active_vertex_shader();
+    auto* ps = active_pixel_shader();
+    REXGPU_INFO(
+        "[draw {}] prim={} indices={} vs={:016X} ps={:016X} edram_mode={} color_info0={:08X} depth_info={:08X} "
+        "blend0={:08X} color_mask={:08X} depth_control={:08X}",
+        debug_draw_index, uint32_t(prim_type), index_count, vs ? vs->ucode_data_hash() : 0,
+        ps ? ps->ucode_data_hash() : 0, uint32_t(edram_mode), regs[XE_GPU_REG_RB_COLOR_INFO],
+        regs[XE_GPU_REG_RB_DEPTH_INFO], regs[XE_GPU_REG_RB_BLENDCONTROL0], regs[XE_GPU_REG_RB_COLOR_MASK],
+        regs[XE_GPU_REG_RB_DEPTHCONTROL]);
+  }
+  const int32_t skip_first = REXCVAR_GET(gpu_debug_skip_draw_first);
+  if (skip_first >= 0 && int64_t(debug_draw_index) >= skip_first &&
+      int64_t(debug_draw_index) < int64_t(skip_first) + REXCVAR_GET(gpu_debug_skip_draw_count)) {
+    return true;
+  }
+  if (active_pixel_shader() && DebugSkipsPixelShader(active_pixel_shader()->ucode_data_hash())) {
+    return true;
+  }
+
   bool surface_pitch_is_zero = regs.Get<reg::RB_SURFACE_INFO>().surface_pitch == 0;
 
   const ui::vulkan::VulkanDevice::Properties& device_properties = GetVulkanDevice()->properties();
@@ -4447,6 +4511,15 @@ bool VulkanCommandProcessor::IssueDraw_MemexportReadbackFastPath(uint32_t total_
 }
 
 bool VulkanCommandProcessor::IssueCopy() {
+  if (g_debug_describe_this_frame) {
+    const RegisterFile& debug_regs = *register_file_;
+    REXGPU_INFO("[copy after draw {}] copy_control={:08X} dest_base={:08X} dest_pitch={:08X} dest_info={:08X} "
+                "surface_info={:08X} color_info0={:08X} depth_info={:08X}",
+                g_debug_draw_index, debug_regs[XE_GPU_REG_RB_COPY_CONTROL], debug_regs[XE_GPU_REG_RB_COPY_DEST_BASE],
+                debug_regs[XE_GPU_REG_RB_COPY_DEST_PITCH], debug_regs[XE_GPU_REG_RB_COPY_DEST_INFO],
+                debug_regs[XE_GPU_REG_RB_SURFACE_INFO], debug_regs[XE_GPU_REG_RB_COLOR_INFO],
+                debug_regs[XE_GPU_REG_RB_DEPTH_INFO]);
+  }
 #if XE_GPU_FINE_GRAINED_DRAW_SCOPES
   SCOPE_profile_cpu_f("gpu");
 #endif  // XE_GPU_FINE_GRAINED_DRAW_SCOPES

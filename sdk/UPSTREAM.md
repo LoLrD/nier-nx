@@ -29,3 +29,7 @@ code generator and runtime changes of masseffect-nx. The third-party sources are
 - `include/rex/kernel/xboxkrnl/video.h`, `src/kernel/xboxkrnl/xboxkrnl_video.cpp`: `GuestSwapCount()`, the number of
   `VdSwap` calls (one per guest frame), so a title can feed the F3 debug overlay's FPS line
   (`ReXApp::SetGuestFrameStats`); the SDK had no public frame counter.
+- `src/graphics/vulkan/command_processor.cpp`: run-time GPU debugging cvars for bisecting wrong images —
+  `gpu_debug_skip_draw_first`/`gpu_debug_skip_draw_count` (skip draws by index within a frame), `gpu_debug_skip_ps`
+  (skip draws by pixel shader hash), `gpu_debug_describe_draw`/`gpu_debug_describe_frame` (log shaders, primitive, render
+  target, blend and resolve registers of one draw or a whole frame). All off by default.
