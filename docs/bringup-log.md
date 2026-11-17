@@ -326,3 +326,10 @@ Temporary counters in the native path (reverted), route title → menu → prolo
 - Not right yet (input for N3b): many frames of the prologue cinematic are washed out white or show blocky 8×8
   patterns, and large flat triangles flash over the scene; no EDRAM ownership transfers between aliased targets, no
   gamma ramp, depth resolves take sample 0.
+- `tools/compare_paths.py` runs the Xenos and native paths at once on the same input route and captures frames through
+  the control file's `capture` command at the same seconds (sheet `compare.png`). The prologue cinematic on the native
+  path flashed white with large flat triangles and 8×8 garbage while Xenos was right; serializing every draw with the
+  GPU did not help, copying every vertex range on every draw did. Cause: when a mirror range was copied, other keys
+  overlapping it kept their hashes, so a range whose guest bytes went back to an earlier content was never copied
+  again while the mirror held the other key's bytes. Overlapping keys are now marked stale on every copy; the cinematic
+  matches Xenos frame for frame (16 captures between 102 and 147 s).
