@@ -289,3 +289,19 @@ mode (zero scissor for guest draws) to split draws into vertex and pixel work.
   targets, no float24 in the pixel shader). The app links `rexgpu-xenos` directly (exported on macOS).
 - Acceptance on the M4: menu route 10 translations, prologue route 98 unique shaders loaded and 100 translations, 0
   failures, 34 ms in total, at most 1 ms for one shader (NAK on the console will be slower: measure in N2.5/N4).
+
+## 2026-11-18 — native renderer: what NieR's frames use (input for N3a)
+
+Temporary counters in the native path (reverted), route title → menu → prologue on the M4, cumulative over 300 s:
+- Prologue frame: ~80–110 draws and ~14 resolves. Draws: indexed triangle strips with 16-bit indices (752k), auto-indexed
+  quad lists (402k: sprites, UI, particles), auto-indexed rectangle lists (74k: full-screen passes), auto-indexed
+  triangle lists and strips (20k), point lists (24). No 32-bit indices, triangle fans, lines or memexport.
+- Render targets: colour only `k_8_8_8_8`, depth only `kD24S8`. MSAA 1x or 4x; the 4x surfaces (640 pitch at tile 720,
+  320 at 184, 520 at 0) are read back as 1x surfaces of twice the size at the same base. Depth-only passes (mode 5)
+  render the 1024×1024 shadow map (pitch 520 4x).
+- Resolves: colour to `k_8_8_8_8` (1280×720 ×~10 per frame, then 512, 256, 128, 64, 32×32 … 32×2: the exposure chain),
+  one `k_8` 640×360, depth (raw copy) 1280×720 and 1024×1024. No resolve has MSAA at copy time.
+- Textures: `k_24_8` 1024×1024 and 1280×720 (sampled depth from the depth resolves, the most used), DXT1/DXT2_3/DXT4_5
+  up to 2048×2048 (some with gamma signs), `k_8_8_8_8`, `k_CTX1`, a signed `k_16_16_16_16_EXPAND` 64×64 cube map, and a
+  linear `k_32_32_32_32_FLOAT` 1024×1 vertex texture in most vertex shaders (bones); `k_8` linear 1280×720 / 640×360 on
+  the title.
