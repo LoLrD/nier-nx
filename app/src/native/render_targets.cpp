@@ -174,6 +174,7 @@ void RenderTargets::BeginRendering(VkCommandBuffer command_buffer, const Bound& 
   device_->functions().vkCmdBeginRendering(command_buffer, &info);
   rendering_ = true;
   bound_ = bound;
+  render_area_ = {width, height};
 }
 
 void RenderTargets::End(VkCommandBuffer command_buffer) {

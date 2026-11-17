@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <unordered_map>
 
 #include <rex/graphics/pipeline/shader/spirv_translator.h>
@@ -24,10 +25,18 @@ class NativeShaders {
     uint64_t max_translate_us = 0;
   };
 
+  struct PreparedDraw {
+    rex::graphics::vulkan::VulkanShader* vertex_shader;
+    rex::graphics::vulkan::VulkanShader::VulkanTranslation* vertex;
+    rex::graphics::vulkan::VulkanShader* pixel_shader;
+    rex::graphics::vulkan::VulkanShader::VulkanTranslation* pixel;
+  };
+
   explicit NativeShaders(const rex::ui::vulkan::VulkanDevice* device);
 
   void Load(uint32_t type, const uint32_t* words_big_endian, uint32_t size_words);
-  void PrepareDraw(const rex::graphics::RegisterFile& regs);
+  std::optional<PreparedDraw> PrepareDraw(const rex::graphics::RegisterFile& regs,
+                                          rex::graphics::Shader::HostVertexShaderType host_type);
   const Stats& stats() const { return stats_; }
 
  private:
@@ -40,7 +49,8 @@ class NativeShaders {
   Modification PixelModification(const rex::graphics::Shader& shader, uint32_t interpolator_mask,
                                  uint32_t param_gen_pos, const rex::graphics::RegisterFile& regs) const;
   void Analyze(rex::graphics::vulkan::VulkanShader& shader);
-  void Translate(rex::graphics::vulkan::VulkanShader& shader, Modification modification);
+  rex::graphics::vulkan::VulkanShader::VulkanTranslation* Translate(rex::graphics::vulkan::VulkanShader& shader,
+                                                                    Modification modification);
 
   const rex::ui::vulkan::VulkanDevice* device_;
   rex::graphics::SpirvShaderTranslator translator_;

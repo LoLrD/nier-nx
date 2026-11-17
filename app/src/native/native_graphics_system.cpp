@@ -28,11 +28,17 @@
 #include "pm4_executor.h"
 #include "pm4_reader.h"
 #include "ring_state.h"
+#include "native_renderer.h"
 #include "native_shaders.h"
 #include "shader_dump.h"
 
 REXCVAR_DEFINE_STRING(nier_renderer, "xenos", "NieR", "Graphics: xenos (SDK emulation) or native")
     .allowed({"xenos", "native"})
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+REXCVAR_DEFINE_STRING(nier_frame_dump_dir, "", "NieR",
+                      "Native renderer: write every nier_frame_dump_interval-th frame to this folder as PPM")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+REXCVAR_DEFINE_INT32(nier_frame_dump_interval, 120, "NieR", "Native renderer: frames between dumped frames")
     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
 REXCVAR_DEFINE_STRING(nier_shader_dump_dir, "", "NieR",
                       "Native renderer: write each new shader microcode the game loads to this folder")
@@ -91,8 +97,12 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem, private 
       return X_STATUS_UNSUCCESSFUL;
     }
     if (provider_) {
-      shaders_ = std::make_unique<NativeShaders>(
-          static_cast<rex::ui::vulkan::VulkanProvider*>(provider_.get())->vulkan_device());
+      const auto* device = static_cast<rex::ui::vulkan::VulkanProvider*>(provider_.get())->vulkan_device();
+      shaders_ = std::make_unique<NativeShaders>(device);
+      renderer_ = std::make_unique<NativeRenderer>(device, memory_, *shaders_);
+      if (const std::string dir = REXCVAR_GET(nier_frame_dump_dir); !dir.empty()) {
+        renderer_->SetFrameDump(dir, uint32_t(std::max(1, REXCVAR_GET(nier_frame_dump_interval))));
+      }
     }
     if (const std::string dir = REXCVAR_GET(nier_shader_dump_dir); !dir.empty()) {
       shader_dump_ = std::make_unique<ShaderDump>(dir);
@@ -146,6 +156,7 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem, private 
         vblank_thread_.reset();
       }
     }
+    renderer_.reset();
     shaders_.reset();
     if (presenter_) {
       if (app_context_) {
@@ -211,8 +222,11 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem, private 
     dispatcher_->ExecuteInterrupt(thread->thread_state(), callback, args, 2);
   }
 
-  void Swap(uint32_t, uint32_t width, uint32_t height) override {
+  void Swap(uint32_t frontbuffer, uint32_t width, uint32_t height) override {
     REXLOG_DEBUG("[native] present {} {}x{}", executor_.stats().swaps, width, height);
+    if (renderer_) {
+      renderer_->Swap(presenter_.get(), frontbuffer, width, height);
+    }
   }
 
   void PublishReadPointer(uint32_t position) override {
@@ -231,8 +245,13 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem, private 
   }
 
   void Draw(bool resolve) override {
-    if (shaders_ && !resolve) {
-      shaders_->PrepareDraw(registers_.file());
+    if (!renderer_) {
+      return;
+    }
+    if (resolve) {
+      renderer_->Resolve(registers_.file());
+    } else {
+      renderer_->Draw(registers_.file());
     }
   }
 
@@ -318,6 +337,9 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem, private 
         s.overflows - last_.overflows, shader_dump_ ? shader_dump_->unique() : 0, t.translations,
         t.failures, t.translate_us / 1000, t.max_translate_us / 1000);
     last_ = s;
+    if (renderer_) {
+      REXLOG_INFO("{}", renderer_->Report());
+    }
   }
 
   rex::ui::WindowedAppContext* app_context_ = nullptr;
@@ -330,6 +352,7 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem, private 
   Pm4Executor executor_{registers_, *this};
   std::unique_ptr<ShaderDump> shader_dump_;
   std::unique_ptr<NativeShaders> shaders_;
+  std::unique_ptr<NativeRenderer> renderer_;
   RingState ring_;
   std::atomic<bool> active_{false};
   std::atomic<uint32_t> callback_{0};

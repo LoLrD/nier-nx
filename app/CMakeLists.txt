@@ -14,8 +14,10 @@ set(NIER_SOURCES
     src/nier_input_script.cpp
     src/native/draw_constants.cpp
     src/native/gpu_registers.cpp
+    src/native/guest_mirror.cpp
     src/native/mirror_sync.cpp
     src/native/native_graphics_system.cpp
+    src/native/native_renderer.cpp
     src/native/native_shaders.cpp
     src/native/pipeline_state.cpp
     src/native/pipelines.cpp
@@ -25,6 +27,7 @@ set(NIER_SOURCES
     src/native/resolve_plan.cpp
     src/native/resolves.cpp
     src/native/shader_dump.cpp
+    src/native/submissions.cpp
     src/native/target_keys.cpp
     src/native/texture_loader.cpp
     src/native/textures.cpp

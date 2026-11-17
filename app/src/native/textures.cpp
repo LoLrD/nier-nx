@@ -151,7 +151,7 @@ Textures::Binding Textures::View(VkCommandBuffer upload, const xenos::xe_gpu_tex
       binding.dimension != xenos::FetchOpDimension::k3DOrStacked) {
     if (auto it = resolve_images_.find(fetch.base_address << 12); it != resolve_images_.end()) {
       const ResolveImage& resolved = it->second;
-      if (ResolveImageMatches(resolved.format, resolved.width, resolved.height, wanted, width, height)) {
+      if (ResolveImageMatches(resolved.format, resolved.width, resolved.height, host->format, width, height)) {
         ++stats_.resolve_hits;
         result.view = resolved.view;
         return result;

@@ -9,7 +9,6 @@
 #include <rex/ui/vulkan/device.h>
 #include <rex/graphics/util/draw.h>
 
-#include "host_vertex_type.h"
 
 namespace nier::native {
 
@@ -38,9 +37,10 @@ void NativeShaders::Load(uint32_t type, const uint32_t* words_big_endian, uint32
   (type == uint32_t(xenos::ShaderType::kVertex) ? vertex_shader_ : pixel_shader_) = shader.get();
 }
 
-void NativeShaders::PrepareDraw(const RegisterFile& regs) {
+std::optional<NativeShaders::PreparedDraw> NativeShaders::PrepareDraw(const RegisterFile& regs,
+                                                                       Shader::HostVertexShaderType host_type) {
   if (!vertex_shader_) {
-    return;
+    return std::nullopt;
   }
   Analyze(*vertex_shader_);
   VulkanShader* pixel_shader =
@@ -54,12 +54,19 @@ void NativeShaders::PrepareDraw(const RegisterFile& regs) {
                          pixel_shader->GetInterpolatorInputMask(regs.Get<reg::SQ_PROGRAM_CNTL>(),
                                                                 regs.Get<reg::SQ_CONTEXT_MISC>(), param_gen_pos)
                    : 0;
-  const auto host_type = HostVertexShaderTypeFor(regs.Get<reg::VGT_DRAW_INITIATOR>().prim_type);
-  Translate(*vertex_shader_,
-            VertexModification(*vertex_shader_, host_type, interpolator_mask, param_gen_pos != UINT32_MAX, regs));
-  if (pixel_shader) {
-    Translate(*pixel_shader, PixelModification(*pixel_shader, interpolator_mask, param_gen_pos, regs));
+  PreparedDraw prepared{vertex_shader_, nullptr, pixel_shader, nullptr};
+  prepared.vertex = Translate(
+      *vertex_shader_, VertexModification(*vertex_shader_, host_type, interpolator_mask, param_gen_pos != UINT32_MAX, regs));
+  if (!prepared.vertex) {
+    return std::nullopt;
   }
+  if (pixel_shader) {
+    prepared.pixel = Translate(*pixel_shader, PixelModification(*pixel_shader, interpolator_mask, param_gen_pos, regs));
+    if (!prepared.pixel) {
+      return std::nullopt;
+    }
+  }
+  return prepared;
 }
 
 NativeShaders::Modification NativeShaders::VertexModification(const Shader& shader,
@@ -128,12 +135,12 @@ void NativeShaders::Analyze(VulkanShader& shader) {
   }
 }
 
-void NativeShaders::Translate(VulkanShader& shader, Modification modification) {
+VulkanShader::VulkanTranslation* NativeShaders::Translate(VulkanShader& shader, Modification modification) {
   bool is_new = false;
   auto* translation =
       static_cast<VulkanShader::VulkanTranslation*>(shader.GetOrCreateTranslation(modification.value, &is_new));
   if (!is_new) {
-    return;
+    return translation->shader_module() != VK_NULL_HANDLE ? translation : nullptr;
   }
   const auto start = std::chrono::steady_clock::now();
   const bool ok = translator_.TranslateAnalyzedShader(*translation) &&
@@ -147,7 +154,9 @@ void NativeShaders::Translate(VulkanShader& shader, Modification modification) {
     ++stats_.failures;
     REXLOG_ERROR("[native] shader {:016X} modification {:016X} failed to translate", shader.ucode_data_hash(),
                  modification.value);
+    return nullptr;
   }
+  return translation;
 }
 
 }  // namespace nier::native

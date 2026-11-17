@@ -1,0 +1,109 @@
+#pragma once
+
+#include <cstdint>
+#include <memory>
+#include <string>
+
+#include <rex/graphics/register_file.h>
+#include <rex/ui/vulkan/api.h>
+
+#include "draw_constants.h"
+#include "guest_mirror.h"
+#include "mirror_sync.h"
+#include "native_shaders.h"
+#include "pipelines.h"
+#include "render_targets.h"
+#include "resolves.h"
+#include "submissions.h"
+#include "textures.h"
+
+namespace rex::memory {
+class Memory;
+}
+
+namespace rex::ui {
+class Presenter;
+namespace vulkan {
+class VulkanDevice;
+class VulkanUploadBufferPool;
+}  // namespace vulkan
+}  // namespace rex::ui
+
+namespace nier::native {
+
+class NativeRenderer {
+ public:
+  static constexpr uint32_t kMirrorRehashBytes = 2 << 20;
+
+  struct Stats {
+    uint64_t draws = 0;
+    uint64_t drawn = 0;
+    uint64_t skipped_raster = 0;
+    uint64_t skipped_primitive = 0;
+    uint64_t skipped_target = 0;
+    uint64_t skipped_shader = 0;
+    uint64_t skipped_empty = 0;
+    uint64_t resolves = 0;
+    uint64_t swaps = 0;
+    uint64_t black_frames = 0;
+    uint64_t mirror_copies = 0;
+    uint64_t mirror_bytes = 0;
+    uint64_t mirror_waits = 0;
+  };
+
+  NativeRenderer(const rex::ui::vulkan::VulkanDevice* device, rex::memory::Memory* memory, NativeShaders& shaders);
+  ~NativeRenderer();
+  NativeRenderer(const NativeRenderer&) = delete;
+  NativeRenderer& operator=(const NativeRenderer&) = delete;
+
+  bool valid() const { return valid_; }
+  void SetFrameDump(std::string directory, uint32_t interval);
+  void Draw(const rex::graphics::RegisterFile& regs);
+  void Resolve(const rex::graphics::RegisterFile& regs);
+  void Swap(rex::ui::Presenter* presenter, uint32_t frontbuffer, uint32_t width, uint32_t height);
+  std::string Report();
+
+ private:
+  void BeginSubmission();
+  void Flush();
+  void WaitFor(uint64_t submission);
+  void ProcessCompleted();
+  void SyncMirror(uint32_t address, uint32_t size);
+  VkDescriptorSet BindTextures(const rex::graphics::RegisterFile& regs, const rex::graphics::SpirvShader& shader,
+                               bool pixel, TextureConstantInfo& info, uint32_t& textures, uint32_t& samplers);
+  void SetDynamicState(const rex::graphics::RegisterFile& regs, const rex::graphics::draw_util::ViewportInfo& viewport,
+                       const SampleScale& scale, bool polygonal);
+  void DumpFrame(uint32_t frontbuffer, uint32_t width, uint32_t height);
+  void PresentInto(VkCommandBuffer command_buffer, VkImage output, bool written_before, uint32_t frontbuffer,
+                   uint32_t width, uint32_t height);
+
+  const rex::ui::vulkan::VulkanDevice* device_;
+  rex::memory::Memory* memory_;
+  uint8_t* physical_base_;
+  NativeShaders& shaders_;
+  bool valid_ = false;
+  std::unique_ptr<Pipelines> pipelines_;
+  std::unique_ptr<Submissions> submissions_;
+  std::unique_ptr<GuestMirror> mirror_;
+  std::unique_ptr<RenderTargets> targets_;
+  std::unique_ptr<rex::ui::vulkan::VulkanUploadBufferPool> staging_;
+  std::unique_ptr<Textures> textures_;
+  std::unique_ptr<Resolves> resolves_;
+  MirrorSync mirror_sync_{kMirrorRehashBytes};
+  VkBuffer builtin_indices_ = VK_NULL_HANDLE;
+  VkDeviceMemory builtin_memory_ = VK_NULL_HANDLE;
+  VkDeviceSize quad_indices_offset_ = 0;
+  VkDescriptorPool shared_pool_ = VK_NULL_HANDLE;
+  VkDescriptorSet shared_set_ = VK_NULL_HANDLE;
+  bool output_blit_ = false;
+  std::string dump_directory_;
+  uint32_t dump_interval_ = 0;
+  uint64_t processed_ = 0;
+  Stats stats_;
+  Stats reported_;
+  Textures::Stats reported_textures_;
+  Resolves::Stats reported_resolves_;
+  uint64_t reported_submissions_ = 0;
+};
+
+}  // namespace nier::native

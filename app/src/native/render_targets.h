@@ -35,6 +35,7 @@ class RenderTargets {
   VkFormat depth_format() const { return depth_format_; }
   size_t count() const { return targets_.size(); }
   bool rendering() const { return rendering_; }
+  VkExtent2D render_area() const { return render_area_; }
 
   Target* Get(VkCommandBuffer command_buffer, const TargetKey& key);
   void Begin(VkCommandBuffer command_buffer, const TargetSet& set);
@@ -56,6 +57,7 @@ class RenderTargets {
   VkFormat depth_format_;
   std::unordered_map<TargetKey, Target, TargetKeyHash> targets_;
   bool rendering_ = false;
+  VkExtent2D render_area_{};
   Bound bound_;
 };
 
