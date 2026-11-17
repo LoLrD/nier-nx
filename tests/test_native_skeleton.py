@@ -59,6 +59,9 @@ class NativeSkeletonTest(unittest.TestCase):
     def test_shader_dump(self) -> None:
         self.check("shader_dump", ["shader_dump.cpp"])
 
+    def test_mirror_sync(self) -> None:
+        self.check("mirror_sync", ["mirror_sync.cpp"], link_sdk=True)
+
     def test_sdk_link(self) -> None:
         self.check("sdk_link", [], link_sdk=True)
 
