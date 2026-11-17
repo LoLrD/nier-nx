@@ -2,6 +2,7 @@ log_file = "out/logs/nier.log"
 log_level = "debug"
 log_max_file_size_mb = 100
 gpu_plugin = "xenos"
+readback_resolve = "fast"
 audio_sdl_pump = true
 vulkan_allow_present_mode_immediate = false
 present_own_thread = true
