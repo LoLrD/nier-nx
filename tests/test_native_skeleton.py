@@ -36,6 +36,9 @@ class NativeSkeletonTest(unittest.TestCase):
     def test_pm4_reader(self) -> None:
         self.check("pm4_reader", [])
 
+    def test_gpu_registers(self) -> None:
+        self.check("gpu_registers", ["gpu_registers.cpp"])
+
 
 if __name__ == "__main__":
     unittest.main()
