@@ -56,3 +56,24 @@ Each entry: symptom → cause → fix, with the evidence. Newest last.
   an unresolved branch.
 - Reached: opening credits, prologue cutscene ("Go on... Take my power..."), first tutorial prompt
   ("Press X to attack and LT to defend"). The scene behind the prompt is white — snowstorm or a render bug, to check.
+- Pointer scan (`NIER_DUMP_IMAGE` + `tools/pointer_scan.py`): 15 data pointers start unclaimed gaps; 14 (>= 8 bytes)
+  declared at once instead of one crash per 15-minute run. One more runtime-resolved function: 0x8214DA18.
+- **Acceptance (Task 7):** generated tree deleted and regenerated with `tools/codegen.sh` (0 unresolved branches),
+  `tools/build_mac.sh`, then `mac_smoke.py --seconds 600 --name accept` with `app/input/prologue.tsv`: `timeout_ok`,
+  20,131 presents (last one 3 s before the end), 194 file requests, 0 unregistered calls, 0 critical log lines. The
+  first playable area is the 2053 prologue; the scripted route plays its fights (level up, combos, the Grimoire's
+  magic bar) for 10 minutes.
+
+### Open issues found during bring-up (not blocking phase 1)
+
+- **White gameplay on macOS.** Cutscenes, menus, HUD and minimap render correctly; the 3D scene during gameplay is
+  white. Ruled out: depth format conversion (`depth_float24_convert_in_pixel_shader=true`), MSAA
+  (`native_2x_msaa=false`), HDR render-target formats (gameplay renders to k_8_8_8_8 only). Next: capture one frame
+  and find the full-screen pass that writes white (likely a resolve or a texture fetch in post-processing). Unknown
+  whether it reproduces on the Switch (NVK) — check first thing in phase 2.
+- **Audio crackle from the main menu on** (user report; the title screen is clean). The signal the game hands to SDL
+  is clean in `audio_dump_output_s` dumps of the title (30–50 s) and the menu (55–80 s): no clipping, no gaps, no
+  kinks at 256-sample frame boundaries, and the SDL callback never ran out of frames. So the crackle is between SDL
+  and CoreAudio (device buffer). Trying `SDL_AUDIO_DEVICE_SAMPLE_FRAMES=2048`; awaiting the user's listening test.
+- **Tearing** (user report): the SDK allows `IMMEDIATE` present mode on desktop → `vulkan_allow_present_mode_immediate
+  = false` in `nier.toml`.
