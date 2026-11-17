@@ -22,6 +22,9 @@ sdk/thirdparty/ffmpeg-overlay/*
 *.iso
 *.7z
 *.mesp
+*.bin
+*.cpk
+*.zip
 prod.keys
 credentials.env
 __pycache__/

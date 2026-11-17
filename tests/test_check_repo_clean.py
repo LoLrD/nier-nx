@@ -49,6 +49,22 @@ class CheckRepoCleanTest(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("app/generated/default/nier_recomp.0.cpp", result.stdout)
 
+    def test_tracked_stfs_package_without_extension_fails(self) -> None:
+        package = self.repo / "B5849AE068830A162D28A72C2E07667A19BCD61853"
+        package.write_bytes(b"LIVE" + bytes(64))
+        git(self.repo, "add", "-f", str(package))
+        result = run_check(self.repo)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("B5849AE068830A162D28A72C2E07667A19BCD61853", result.stdout)
+
+    def test_tracked_image_dump_fails(self) -> None:
+        dump = self.repo / "nier_image.bin"
+        dump.write_bytes(bytes(16))
+        git(self.repo, "add", "-f", str(dump))
+        result = run_check(self.repo)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("nier_image.bin", result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

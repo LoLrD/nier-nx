@@ -2,6 +2,7 @@
 import fnmatch
 import subprocess
 import sys
+from pathlib import Path
 
 FORBIDDEN = [
     "*.xex",
@@ -9,11 +10,16 @@ FORBIDDEN = [
     "*.iso",
     "*.7z",
     "*.mesp",
+    "*.bin",
+    "*.cpk",
+    "*.zip",
     "prod.keys",
     "*/prod.keys",
+    "assets",
     "assets/*",
     "app/generated/*",
 ]
+GAME_MAGICS = (b"XEX2", b"CON ", b"LIVE", b"PIRS", b"CPK ")
 
 
 def tracked_files() -> list[str]:
@@ -21,8 +27,17 @@ def tracked_files() -> list[str]:
     return [path for path in output.decode().split("\0") if path]
 
 
+def has_game_magic(path: str) -> bool:
+    file = Path(path)
+    if not file.is_file() or file.is_symlink():
+        return False
+    with file.open("rb") as fh:
+        return fh.read(4) in GAME_MAGICS
+
+
 def forbidden(paths: list[str]) -> list[str]:
-    return [path for path in paths if any(fnmatch.fnmatch(path, pattern) for pattern in FORBIDDEN)]
+    return [path for path in paths
+            if any(fnmatch.fnmatch(path, pattern) for pattern in FORBIDDEN) or has_game_magic(path)]
 
 
 def main(argv: list[str] | None = None) -> int:
