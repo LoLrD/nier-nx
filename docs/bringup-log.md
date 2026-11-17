@@ -187,3 +187,26 @@ The SDK's A/B lap (L+R+ZL, `sdk/src/ui/switch_perf.cpp`) drops one part of the G
   at 133 ms per frame. 1 depth + 8 stencil bits + 2 colour = 11 draws would match.
 - The gameplay lap did not start: at 1.4 fps the combo has to be held until the game polls input.
 - Next: the lap now also splits transfers (stencil bits, host depth store) and resolves (dumps, clears, copies).
+
+## 2026-11-17 — Switch: the menu's EDRAM work (run `ab2`, macOS frame descriptions)
+
+Finer A/B lap in the menu (normal frame 158.7 ms): stencil bit transfer draws 65.3 ms, resolve dumps 51.2 ms, all
+transfers 86.8 ms, all resolves 53.5 ms, resolve copies 7.2 ms, host depth store 2.5 ms, resolve clears 0.
+
+The frame, from `gpu_debug_describe_frame` on macOS (same render target cache, `[transfer]` / `[dump]` lines):
+
+1. The menu UI is drawn into a 1280x720 1x colour target at tile 720; the next frame draws a 640x360 4xMSAA scene into
+   the same tiles → transfer 1x → 4x colour.
+2. Four resolves from the 4x targets, each preceded by a dump of the whole target; the colour target is dumped three
+   times with no draw in between.
+3. Two stencil-only rectangle draws on the 4x depth target at tile 0. Without a viewport their height was taken from
+   the 1280x720 scissor, so the depth target was assumed to reach tile 1440 → transfer colour → depth over
+   [720, 1440) (+ 8 stencil bit draws on NVK), then depth → 1x colour before the UI.
+
+Fixes:
+- `execute_unclipped_draw_vs_on_cpu = true` and `..._with_scissor = true` (upstream Xenia has the first one on by
+  default for exactly this): the rectangles' vertex shader runs on the CPU, the depth target stays within [0, 720), and
+  the colour → depth → colour round trip is gone (4x → 1x colour remains). Menu capture identical on macOS (mean
+  difference 0.003).
+- Redundant dumps skipped (`sdk/UPSTREAM.md`): 3 dumps per menu frame instead of 5. Menu capture against the original
+  build: 0.1 % of pixels differ (the animated emblem).
