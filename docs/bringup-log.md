@@ -139,8 +139,10 @@ Each entry: symptom → cause → fix, with the evidence. Newest last.
 
 ### Switch baseline
 
-Handheld, stock clocks (CPU 1020 MHz, GPU 460.8 MHz, memory 1600 MHz from the profiler), `readback_resolve = "fast"`,
-manual play, 10 s blocks of `logs/rex/rex_profile.log`:
+Handheld, `readback_resolve = "fast"`, manual play, 10 s blocks of `logs/rex/rex_profile.log`. The profiler read CPU
+1020 MHz, GPU 460.8 MHz, memory 1600 MHz: the official configuration 0x92220007, +50 % GPU over the 307.2 MHz handheld
+default. The NRO does not request it (`RexSwitchApmApply` is never called), so it was set outside the game; check the
+console's clock tools before the next baseline. `collect.sh` now records the clocks in `summary.json`.
 
 | Where | fps | frame | per frame |
 |---|---|---|---|
