@@ -456,3 +456,21 @@
 # Runtime auto-resolve candidate, accepted from an observed indirect-call failure.
 # Exact start the 232-byte gap 0x8214DA18-0x8214DB00; only this address is declared.
 "0x8214DA18" = { }
+
+# Data pointer scan (tools/pointer_scan.py over a NIER_DUMP_IMAGE dump of default.xex 0.0.0.1): code addresses
+# stored in data (vtables, callback tables) that start an unclaimed gap of >= 8 bytes. Same shape as the
+# runtime-resolved entries (mostly 232-byte gaps). 0x822667CC (4-byte gap) and interior pointers are left out.
+"0x8210D408" = { }  # 88 bytes, refs=1, first_ref=0x8200C148
+"0x8214B620" = { }  # 232 bytes, refs=3, first_ref=0x8200EF20
+"0x8214C810" = { }  # 232 bytes, refs=2, first_ref=0x8200EF78
+"0x8214EDE0" = { }  # 232 bytes, refs=3, first_ref=0x8200EFF8
+"0x8214FFA0" = { }  # 232 bytes, refs=3, first_ref=0x8200F038
+"0x82151160" = { }  # 232 bytes, refs=3, first_ref=0x8200F078
+"0x82157058" = { }  # 232 bytes, refs=2, first_ref=0x8200F0F8
+"0x82158740" = { }  # 232 bytes, refs=2, first_ref=0x8200F138
+"0x82159938" = { }  # 232 bytes, refs=1, first_ref=0x8200F520
+"0x8215AAA8" = { }  # 232 bytes, refs=1, first_ref=0x8200F560
+"0x82167FA0" = { }  # 248 bytes, refs=2, first_ref=0x8200F660
+"0x82169248" = { }  # 232 bytes, refs=2, first_ref=0x8200F6A0
+"0x8216A440" = { }  # 232 bytes, refs=2, first_ref=0x8200F6E0
+"0x8235F388" = { }  # 120 bytes, refs=10, first_ref=0x8203B358
