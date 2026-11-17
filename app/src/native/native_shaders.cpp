@@ -25,43 +25,69 @@ SpirvShaderTranslator::Features TranslatorFeatures(const rex::ui::vulkan::Vulkan
 
 }  // namespace
 
-NativeShaders::NativeShaders(const rex::ui::vulkan::VulkanDevice* device)
-    : device_(device), translator_(TranslatorFeatures(device), false, false, false) {}
+NativeShaders::NativeShaders(const rex::ui::vulkan::VulkanDevice* device) : device_(device) {
+  const std::array<std::pair<uint32_t, uint32_t>, kScales> scales = {{{1, 1}, {1, 2}, {2, 2}}};
+  for (uint32_t i = 0; i < kScales; ++i) {
+    translators_[i] = std::make_unique<SpirvShaderTranslator>(TranslatorFeatures(device), false, false, false,
+                                                              scales[i].first, scales[i].second);
+  }
+}
+
+uint32_t NativeShaders::ScaleIndex(uint32_t scale_x, uint32_t scale_y) {
+  return scale_x > 1 ? 2 : (scale_y > 1 ? 1 : 0);
+}
 
 void NativeShaders::Load(uint32_t type, const uint32_t* words_big_endian, uint32_t size_words) {
   const uint64_t hash = XXH3_64bits(words_big_endian, size_t(size_words) * sizeof(uint32_t));
-  auto& shader = shaders_[hash];
-  if (!shader) {
-    shader = std::make_unique<VulkanShader>(device_, xenos::ShaderType(type), hash, words_big_endian, size_words);
+  auto& entry = microcode_[hash];
+  if (entry.second.empty()) {
+    entry = {type, std::vector<uint32_t>(words_big_endian, words_big_endian + size_words)};
   }
-  (type == uint32_t(xenos::ShaderType::kVertex) ? vertex_shader_ : pixel_shader_) = shader.get();
+  (type == uint32_t(xenos::ShaderType::kVertex) ? vertex_hash_ : pixel_hash_) = hash;
+}
+
+VulkanShader* NativeShaders::ShaderFor(uint64_t hash, uint32_t scale) {
+  auto& shader = shaders_[scale][hash];
+  if (!shader) {
+    const auto& [type, words] = microcode_.at(hash);
+    shader = std::make_unique<VulkanShader>(device_, xenos::ShaderType(type), hash, words.data(),
+                                            uint32_t(words.size()));
+  }
+  return shader.get();
 }
 
 std::optional<NativeShaders::PreparedDraw> NativeShaders::PrepareDraw(const RegisterFile& regs,
-                                                                       Shader::HostVertexShaderType host_type) {
-  if (!vertex_shader_) {
+                                                                       Shader::HostVertexShaderType host_type,
+                                                                       uint32_t scale_x, uint32_t scale_y) {
+  if (!vertex_hash_) {
     return std::nullopt;
   }
-  Analyze(*vertex_shader_);
+  VulkanShader* vertex_shader = ShaderFor(vertex_hash_, 0);
+  Analyze(*vertex_shader);
+  const uint32_t scale = ScaleIndex(scale_x, scale_y);
   VulkanShader* pixel_shader =
-      regs.Get<reg::RB_MODECONTROL>().edram_mode == xenos::EdramMode::kColorDepth ? pixel_shader_ : nullptr;
+      pixel_hash_ && regs.Get<reg::RB_MODECONTROL>().edram_mode == xenos::EdramMode::kColorDepth
+          ? ShaderFor(pixel_hash_, scale)
+          : nullptr;
   if (pixel_shader) {
     Analyze(*pixel_shader);
   }
   uint32_t param_gen_pos = UINT32_MAX;
   const uint32_t interpolator_mask =
-      pixel_shader ? vertex_shader_->writes_interpolators() &
+      pixel_shader ? vertex_shader->writes_interpolators() &
                          pixel_shader->GetInterpolatorInputMask(regs.Get<reg::SQ_PROGRAM_CNTL>(),
                                                                 regs.Get<reg::SQ_CONTEXT_MISC>(), param_gen_pos)
                    : 0;
-  PreparedDraw prepared{vertex_shader_, nullptr, pixel_shader, nullptr};
-  prepared.vertex = Translate(
-      *vertex_shader_, VertexModification(*vertex_shader_, host_type, interpolator_mask, param_gen_pos != UINT32_MAX, regs));
+  PreparedDraw prepared{vertex_shader, nullptr, pixel_shader, nullptr};
+  prepared.vertex =
+      Translate(*translators_[0], *vertex_shader,
+                VertexModification(*vertex_shader, host_type, interpolator_mask, param_gen_pos != UINT32_MAX, regs));
   if (!prepared.vertex) {
     return std::nullopt;
   }
   if (pixel_shader) {
-    prepared.pixel = Translate(*pixel_shader, PixelModification(*pixel_shader, interpolator_mask, param_gen_pos, regs));
+    prepared.pixel = Translate(*translators_[scale], *pixel_shader,
+                               PixelModification(*pixel_shader, interpolator_mask, param_gen_pos, regs));
     if (!prepared.pixel) {
       return std::nullopt;
     }
@@ -74,7 +100,7 @@ NativeShaders::Modification NativeShaders::VertexModification(const Shader& shad
                                                               uint32_t interpolator_mask, bool param_gen_used,
                                                               const RegisterFile& regs) const {
   const auto& properties = device_->properties();
-  Modification modification(translator_.GetDefaultVertexShaderModification(
+  Modification modification(translators_[0]->GetDefaultVertexShaderModification(
       shader.GetDynamicAddressableRegisterCount(regs.Get<reg::SQ_PROGRAM_CNTL>().vs_num_reg), host_type));
   modification.vertex.interpolator_mask = interpolator_mask;
   modification.vertex.tessellation_mode =
@@ -107,7 +133,7 @@ NativeShaders::Modification NativeShaders::PixelModification(const Shader& shade
                                                              uint32_t param_gen_pos,
                                                              const RegisterFile& regs) const {
   using DepthStencilMode = Modification::DepthStencilMode;
-  Modification modification(translator_.GetDefaultPixelShaderModification(
+  Modification modification(translators_[0]->GetDefaultPixelShaderModification(
       shader.GetDynamicAddressableRegisterCount(regs.Get<reg::SQ_PROGRAM_CNTL>().ps_num_reg)));
   modification.pixel.interpolator_mask = interpolator_mask;
   modification.pixel.interpolators_centroid =
@@ -135,7 +161,8 @@ void NativeShaders::Analyze(VulkanShader& shader) {
   }
 }
 
-VulkanShader::VulkanTranslation* NativeShaders::Translate(VulkanShader& shader, Modification modification) {
+VulkanShader::VulkanTranslation* NativeShaders::Translate(SpirvShaderTranslator& translator, VulkanShader& shader,
+                                                          Modification modification) {
   bool is_new = false;
   auto* translation =
       static_cast<VulkanShader::VulkanTranslation*>(shader.GetOrCreateTranslation(modification.value, &is_new));
@@ -143,7 +170,7 @@ VulkanShader::VulkanTranslation* NativeShaders::Translate(VulkanShader& shader, 
     return translation->shader_module() != VK_NULL_HANDLE ? translation : nullptr;
   }
   const auto start = std::chrono::steady_clock::now();
-  const bool ok = translator_.TranslateAnalyzedShader(*translation) &&
+  const bool ok = translator.TranslateAnalyzedShader(*translation) &&
                   translation->GetOrCreateShaderModule() != VK_NULL_HANDLE;
   const auto us = uint64_t(
       std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start).count());
