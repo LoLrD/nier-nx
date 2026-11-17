@@ -18,6 +18,7 @@
 #include <unordered_map>
 
 #include <rex/graphics/flags.h>
+#include <rex/graphics/vulkan/edram_dump_records.h>
 #include <rex/graphics/pipeline/render_target/cache.h>
 #include <rex/graphics/vulkan/shared_memory.h>
 #include <rex/graphics/vulkan/texture_cache.h>
@@ -808,6 +809,8 @@ class VulkanRenderTargetCache final : public RenderTargetCache {
 
   // Writes contents of host render targets within rectangles from
   // ResolveInfo::GetCopyEdramTileSpan to edram_buffer_.
+  static EdramDumpSpan DumpSpan(const ResolveCopyDumpRectangle& rectangle, uint32_t dump_base,
+                                uint32_t dump_row_length_used, uint32_t dump_pitch);
   bool DumpRenderTargets(uint32_t dump_base, uint32_t dump_row_length_used, uint32_t dump_rows,
                          uint32_t dump_pitch);
 
@@ -866,6 +869,7 @@ class VulkanRenderTargetCache final : public RenderTargetCache {
   // Temporary storage for DumpRenderTargets.
   std::vector<ResolveCopyDumpRectangle> dump_rectangles_;
   std::vector<DumpInvocation> dump_invocations_;
+  EdramDumpRecords dumped_spans_;
   std::vector<ResolveCopyDispatch> direct_resolve_dispatches_;
   uint64_t direct_resolve_attempt_count_ = 0;
   uint64_t direct_resolve_success_count_ = 0;

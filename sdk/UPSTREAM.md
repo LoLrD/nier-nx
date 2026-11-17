@@ -46,3 +46,7 @@ code generator and runtime changes of masseffect-nx. The third-party sources are
 - `src/graphics/vulkan/render_target_cache.cpp`, `command_processor.cpp`: `gpu_debug_describe_frame` also logs EDRAM
   ownership transfers (`[transfer]`, with the 8 stencil bit draws of a depth destination when the device has no
   `VK_EXT_shader_stencil_export`) and render target dumps for resolves (`[dump]`).
+- `include/rex/graphics/vulkan/edram_dump_records.h`, `render_target_cache.cpp`: a resolve does not dump a render target
+  again if the same rectangle of it was already dumped to the EDRAM buffer for the same resolve span and nothing has
+  changed since (any draw, transfer, resolve clear or cache clear forgets the records; a dump drops the records of the
+  EDRAM range it overwrites). NieR resolves the same 640x360 4xMSAA target three times in a row in the menu.

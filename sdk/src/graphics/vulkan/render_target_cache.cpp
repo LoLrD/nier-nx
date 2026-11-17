@@ -74,6 +74,8 @@ namespace rex::graphics::vulkan {
 
 extern bool g_debug_describe_this_frame;
 
+static_assert(kEdramDumpRecordTiles == xenos::kEdramTileCount);
+
 // Generated with `xb buildshaders`.
 namespace shaders {
 #include "../shaders/vulkan_spirv/host_depth_store_1xmsaa_cs.h"
@@ -1101,6 +1103,7 @@ void VulkanRenderTargetCache::Shutdown(bool from_destructor) {
 }
 
 void VulkanRenderTargetCache::ClearCache() {
+  dumped_spans_.Clear();
   const ui::vulkan::VulkanDevice* const vulkan_device = command_processor_.GetVulkanDevice();
   const ui::vulkan::VulkanDevice::Functions& dfn = vulkan_device->functions();
   const VkDevice device = vulkan_device->device();
@@ -1404,6 +1407,7 @@ bool VulkanRenderTargetCache::Resolve(const memory::Memory& memory,
 bool VulkanRenderTargetCache::Update(bool is_rasterization_done,
                                      reg::RB_DEPTHCONTROL normalized_depth_control,
                                      uint32_t normalized_color_mask, const Shader& vertex_shader) {
+  dumped_spans_.Clear();
   if (!RenderTargetCache::Update(is_rasterization_done, normalized_depth_control,
                                  normalized_color_mask, vertex_shader)) {
     return false;
@@ -4576,6 +4580,7 @@ void VulkanRenderTargetCache::PerformTransfersAndResolveClears(
     const uint64_t* render_target_resolve_clear_values,
     const Transfer::Rectangle* resolve_clear_rectangle) {
   assert_true(GetPath() == Path::kHostRenderTargets);
+  dumped_spans_.Clear();
   if (g_debug_describe_this_frame && render_target_transfers) {
     const bool stencil_export =
         command_processor_.GetVulkanDevice()->extensions().ext_EXT_shader_stencil_export;
@@ -6084,6 +6089,9 @@ bool VulkanRenderTargetCache::DumpRenderTargets(uint32_t dump_base, uint32_t dum
 
   GetResolveCopyRectanglesToDump(dump_base, dump_row_length_used, dump_rows, dump_pitch,
                                  dump_rectangles_);
+  std::erase_if(dump_rectangles_, [&](const ResolveCopyDumpRectangle& rectangle) {
+    return dumped_spans_.Contains(DumpSpan(rectangle, dump_base, dump_row_length_used, dump_pitch));
+  });
   if (dump_rectangles_.empty()) {
     return true;
   }
@@ -6214,8 +6222,24 @@ bool VulkanRenderTargetCache::DumpRenderTargets(uint32_t dump_base, uint32_t dum
           1);
     }
     MarkEdramBufferModified();
+    dumped_spans_.Add(DumpSpan(rectangle, dump_base, dump_row_length_used, dump_pitch));
   }
   return all_pipelines_available;
+}
+
+EdramDumpSpan VulkanRenderTargetCache::DumpSpan(const ResolveCopyDumpRectangle& rectangle,
+                                                uint32_t dump_base, uint32_t dump_row_length_used,
+                                                uint32_t dump_pitch) {
+  const uint32_t row_first_tiles = dump_base + rectangle.row_first * dump_pitch;
+  return EdramDumpSpan{rectangle.render_target,
+                       dump_pitch,
+                       dump_row_length_used,
+                       rectangle.row_first,
+                       rectangle.rows,
+                       rectangle.row_first_start,
+                       rectangle.row_last_end,
+                       row_first_tiles + rectangle.row_first_start,
+                       row_first_tiles + (rectangle.rows - 1) * dump_pitch + rectangle.row_last_end};
 }
 
 }  // namespace rex::graphics::vulkan
