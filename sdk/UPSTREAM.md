@@ -65,3 +65,5 @@ code generator and runtime changes of masseffect-nx. The third-party sources are
 - `src/graphics/CMakeLists.txt`: on Apple the `rexgpu-xenos` dylib keeps default symbol visibility, so an app can link
   it (NieR's native renderer uses the SDK's shader translator and register file); the plugin loader still opens the
   same image. Other platforms keep hidden visibility; the Switch build is a static archive.
+- `include/rex/ui/vulkan/functions/device_1_0.inc`: the device function table also loads `vkCmdBlitImage` and
+  `vkCmdClearDepthStencilImage` (core 1.0), used by NieR's native renderer for resolves and new depth targets.

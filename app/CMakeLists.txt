@@ -21,6 +21,9 @@ set(NIER_SOURCES
     src/native/pipelines.cpp
     src/native/pm4_executor.cpp
     src/native/primitive_setup.cpp
+    src/native/render_targets.cpp
+    src/native/resolve_plan.cpp
+    src/native/resolves.cpp
     src/native/shader_dump.cpp
     src/native/target_keys.cpp
     src/native/texture_loader.cpp

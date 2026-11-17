@@ -1,0 +1,22 @@
+#version 450
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0) uniform sampler2D depth_source;
+layout(set = 0, binding = 1, r32f) uniform writeonly image2D destination;
+
+layout(push_constant) uniform Constants {
+  ivec2 source_offset;
+  ivec2 dest_offset;
+  ivec2 size;
+  ivec2 scale;
+} constants;
+
+void main() {
+  ivec2 position = ivec2(gl_GlobalInvocationID.xy);
+  if (any(greaterThanEqual(position, constants.size))) {
+    return;
+  }
+  float depth = texelFetch(depth_source, constants.source_offset + position * constants.scale, 0).r;
+  imageStore(destination, constants.dest_offset + position, vec4(depth));
+}
