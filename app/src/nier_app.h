@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -12,10 +13,12 @@
 #include <rex/filesystem/devices/stfs_container_device.h>
 #include <rex/filesystem/entry.h>
 #include <rex/input/input_system.h>
+#include <rex/kernel/xboxkrnl/video.h>
 #include <rex/memory.h>
 #include <rex/rex_app.h>
 #include <rex/runtime.h>
 
+#include "nier_fps_meter.h"
 #include "nier_input_driver.h"
 #include "nier_input_script.h"
 
@@ -79,6 +82,10 @@ class NierApp : public rex::ReXApp {
   }
 
   void OnPostSetup() override {
+    SetGuestFrameStats([this] {
+      const auto sample = fps_meter_.Update(rex::kernel::xboxkrnl::GuestSwapCount(), std::chrono::steady_clock::now());
+      return rex::ui::FrameStats{sample.frame_time_ms, sample.fps, sample.frames};
+    });
     const std::string path = REXCVAR_GET(nier_input_script);
     if (path.empty()) {
       return;
@@ -91,4 +98,6 @@ class NierApp : public rex::ReXApp {
     auto* input = static_cast<rex::input::InputSystem*>(runtime()->input_system());
     input->AddDriver(std::make_unique<NierScriptInputDriver>(std::move(*script)));
   }
+ private:
+  NierFpsMeter fps_meter_;
 };

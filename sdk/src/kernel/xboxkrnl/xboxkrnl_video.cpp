@@ -86,6 +86,14 @@ void WarnNoGpuEmulation(const char* export_name, std::atomic<bool>& warned) {
 }  // namespace
 
 namespace rex::kernel::xboxkrnl {
+
+namespace {
+std::atomic<uint64_t> g_guest_swap_count{0};
+}  // namespace
+
+uint64_t GuestSwapCount() {
+  return g_guest_swap_count.load(std::memory_order_relaxed);
+}
 using namespace rex::system;
 
 REX_EXPORT_STUB(__imp__VdBlockUntilGUIIdle);
@@ -445,6 +453,7 @@ void VdSwap_entry(mapped_void buffer_ptr,      // ptr into primary ringbuffer
                   mapped_u32 frontbuffer_ptr,  // ptr to frontbuffer address
                   mapped_u32 texture_format_ptr, mapped_u32 color_space_ptr, mapped_u32 width,
                   mapped_u32 height) {
+  g_guest_swap_count.fetch_add(1, std::memory_order_relaxed);
   // All of these parameters are REQUIRED.
   assert(buffer_ptr);
   assert(fetch_ptr);

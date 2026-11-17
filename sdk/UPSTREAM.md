@@ -26,3 +26,6 @@ code generator and runtime changes of masseffect-nx. The third-party sources are
   codes: `X_ERROR_FILE_NOT_FOUND` is 2) was tested with `XFAILED`/`XSUCCEEDED`, which check NTSTATUS severity bits, so a
   missing `.header` counted as success and the game got an uninitialized entry (NieR's 15 Nightmares DLC listed as
   `'@0p'`; save folders without a header the same). Now compared with `X_ERROR_SUCCESS`.
+- `include/rex/kernel/xboxkrnl/video.h`, `src/kernel/xboxkrnl/xboxkrnl_video.cpp`: `GuestSwapCount()`, the number of
+  `VdSwap` calls (one per guest frame), so a title can feed the F3 debug overlay's FPS line
+  (`ReXApp::SetGuestFrameStats`); the SDK had no public frame counter.
