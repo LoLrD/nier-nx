@@ -19,6 +19,8 @@ namespace vk = rex::ui::vulkan;
 
 namespace {
 
+constexpr uint64_t kTextureBudgetBytes = 256ull << 20;
+
 constexpr VkSamplerAddressMode kAddressModes[8] = {
     VK_SAMPLER_ADDRESS_MODE_REPEAT,          VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT,
     VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,   VK_SAMPLER_ADDRESS_MODE_MIRROR_CLAMP_TO_EDGE,
@@ -182,7 +184,7 @@ Textures::Binding Textures::View(VkCommandBuffer upload, const xenos::xe_gpu_tex
       texture.checked_frame = frame_;
       const uint64_t hash = DataHash(fetch);
       if (hash != texture.data_hash) {
-        retired_.push_back({texture.image, texture.last_submission});
+        Retire(texture);
         textures_.erase(it);
         reload = true;
       }
@@ -204,7 +206,11 @@ Textures::Binding Textures::View(VkCommandBuffer upload, const xenos::xe_gpu_tex
       return result;
     }
     Upload(upload, texture.image, *loaded, submission);
+    live_bytes_ += texture.bytes;
     it = textures_.emplace(key, texture).first;
+    it->second.used_frame = frame_;
+    EnforceBudget();
+    it = textures_.find(key);
   }
   Texture& texture = it->second;
   texture.used_frame = frame_;
@@ -391,13 +397,33 @@ void Textures::RemoveResolveImage(uint32_t address, VkFormat format, VkImageView
   }
 }
 
+void Textures::Retire(Texture& texture) {
+  retired_.push_back({texture.image, texture.last_submission, texture.bytes});
+}
+
+void Textures::EnforceBudget() {
+  while (live_bytes_ > kTextureBudgetBytes) {
+    auto oldest = textures_.end();
+    for (auto it = textures_.begin(); it != textures_.end(); ++it) {
+      if (it->second.used_frame < frame_ && (oldest == textures_.end() || it->second.used_frame < oldest->second.used_frame)) {
+        oldest = it;
+      }
+    }
+    if (oldest == textures_.end()) {
+      return;
+    }
+    Retire(oldest->second);
+    textures_.erase(oldest);
+  }
+}
+
 void Textures::Evict(uint64_t unused_frames) {
   std::erase_if(textures_, [&](auto& entry) {
     Texture& texture = entry.second;
     if (texture.used_frame + unused_frames >= frame_) {
       return false;
     }
-    retired_.push_back({texture.image, texture.last_submission});
+    Retire(texture);
     return true;
   });
 }
@@ -408,6 +434,7 @@ void Textures::Completed(uint64_t submission) {
       return false;
     }
     Destroy(retired.image);
+    live_bytes_ -= retired.bytes;
     return true;
   });
 }

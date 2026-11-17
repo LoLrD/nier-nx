@@ -20,9 +20,9 @@ namespace nier::native {
 class Textures {
  public:
   struct Binding {
-    VkImageView view;
-    uint16_t host_swizzle;
-    uint8_t swizzled_signs;
+    VkImageView view = VK_NULL_HANDLE;
+    uint16_t host_swizzle = 0;
+    uint8_t swizzled_signs = 0;
   };
   struct Stats {
     uint64_t uploads = 0;
@@ -51,6 +51,7 @@ class Textures {
   void Completed(uint64_t submission);
   const Stats& stats() const { return stats_; }
   size_t live_images() const { return textures_.size() + retired_.size(); }
+  uint64_t live_bytes() const { return live_bytes_; }
 
  private:
   struct Image {
@@ -73,6 +74,7 @@ class Textures {
   struct Retired {
     Image image;
     uint64_t last_submission;
+    uint32_t bytes;
   };
   struct ResolveImage {
     VkFormat format;
@@ -87,6 +89,8 @@ class Textures {
   Image CreateImage(const LoadedTexture& loaded);
   void Upload(VkCommandBuffer upload, const Image& image, const LoadedTexture& loaded, uint64_t submission);
   void Destroy(Image& image);
+  void Retire(Texture& texture);
+  void EnforceBudget();
   VkImageView NullView(rex::graphics::xenos::FetchOpDimension dimension) const;
   uint64_t DataHash(const rex::graphics::xenos::xe_gpu_texture_fetch_t& fetch) const;
 
@@ -101,6 +105,7 @@ class Textures {
   std::vector<Retired> retired_;
   std::unordered_map<uint64_t, ResolveImage> resolve_images_;
   std::unordered_map<uint64_t, VkSampler> samplers_;
+  uint64_t live_bytes_ = 0;
   Stats stats_;
 };
 
