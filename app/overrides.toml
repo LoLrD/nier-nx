@@ -452,3 +452,7 @@
 # to 0x823FE884 inside it ("Unresolved branch from 0x823FE910 to 0x823FE884" in the generated code). The next function
 # starts at 0x823FE928.
 "0x823FE7C0" = { end = 0x823FE928 }
+
+# Runtime auto-resolve candidate, accepted from an observed indirect-call failure.
+# Exact start the 232-byte gap 0x8214DA18-0x8214DB00; only this address is declared.
+"0x8214DA18" = { }
