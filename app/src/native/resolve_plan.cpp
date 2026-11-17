@@ -65,7 +65,8 @@ ResolvePlan PlanResolve(const draw_util::ResolveInfo& info, const RegisterFile& 
   plan.copy = HostFormatFor(plan.dest_format).has_value() && plan.dest_width && plan.dest_height;
   const uint32_t bytes_per_pixel = FormatInfo::Get(plan.dest_format)->bits_per_pixel / 8;
   plan.readback = plan.copy && !plan.depth && bytes_per_pixel == 4 &&
-                  plan.dest_pitch * plan.dest_texture_height * bytes_per_pixel <= kReadbackLimitBytes;
+                  plan.dest_pitch * plan.dest_texture_height * bytes_per_pixel <= kReadbackLimitBytes &&
+                  plan.dest_width * plan.dest_height * bytes_per_pixel <= kReadbackLimitBytes;
   plan.clear_color = info.IsClearingColor();
   plan.clear_depth = info.IsClearingDepth();
   if (plan.clear_depth) {

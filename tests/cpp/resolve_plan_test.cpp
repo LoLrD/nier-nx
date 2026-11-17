@@ -67,6 +67,11 @@ int main() {
     Check(plan.copy && plan.readback && plan.dest_width == 32 && plan.dest_height == 8, "exposure_32x8_is_read_back");
   }
   {
+    Dest(r, 0x0B100000, 32, 8);
+    ResolvePlan plan = PlanResolve(ColorResolve(512, 256), r);
+    Check(!plan.readback, "readback_needs_rectangle_within_limit");
+  }
+  {
     draw_util::ResolveInfo info = ColorResolve(64, 64);
     info.color_edram_info.base_tiles = 720 + 16 * 2 + 1;
     info.coordinate_info.edram_offset_x_div_8 = 2;
