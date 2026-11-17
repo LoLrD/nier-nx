@@ -25,3 +25,14 @@ Each entry: symptom → cause → fix, with the evidence. Newest last.
   `VdSetGraphicsInterruptCallback` were ignored (no GPU plugin), so no VSync interrupt ever reaches it → Task 6.
 - Hang detection does not fire while `[apu]` keeps logging; a game-thread stall looks like `timeout_ok` with no
   progress. Judge progress by the game threads, not by log volume.
+
+## 2026-11-17 — macOS graphics backend (Task 6)
+
+- `gpu_plugin = "xenos"` (Vulkan through the MoltenVK bundled with the SDK, Apple M4): device created, 3 swapchain
+  images, no validation errors except "Metal does not support disabling primitive restart" and the missing geometry
+  shader (fallback paths used). → **Vulkan branch chosen**; no null driver port needed.
+- Smoke run `vulkan2` (50 s): 3045 presents at 1280×720, 92 file requests, 0 unregistered calls, no crash.
+  Screenshots: CRIWARE logo (8 s), SQUARE ENIX logo (25 s), title-screen ember animation (40 s).
+- Open: at 25 s a dialogue subtitle line is drawn over the SQUARE ENIX logo. Not expected on a logo screen; check
+  whether the original shows it (subtitle state/string index or timing).
+- `tools/mac_smoke.py --shots 8,15,25` captures the game window (`tools/window_id.swift` finds it by PID).

@@ -1,3 +1,3 @@
 log_file = "out/mac/nier.log"
 log_level = "debug"
-gpu_plugin = ""
+gpu_plugin = "xenos"

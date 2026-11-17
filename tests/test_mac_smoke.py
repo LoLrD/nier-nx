@@ -34,6 +34,17 @@ class SummarizeLogTest(unittest.TestCase):
         summary = mac_smoke.summarize_log(lines)
         self.assertEqual(summary["unregistered_calls"], ["82123450", "8234ABC0"])
 
+    def test_summarize_counts_gpu_presents_and_file_opens(self) -> None:
+        lines = [
+            "[2026-11-17 14:31:16.178] [debug] [gpu] [t1] XELOG_GPU PRESENT: swap_texture_view=0x7b0eb94b40 packet_size=1280x720",
+            "[2026-11-17 14:31:16.195] [debug] [gpu] [t1] XELOG_GPU PRESENT: swap_texture_view=0x7b0eb94900 packet_size=1280x720",
+            "[2026-11-17 14:31:16.199] [debug] [apu] [t2] SDLCallback: no frames queued (silence)",
+            "[2026-11-17 14:31:16.200] [debug] [krnl] [t3] NtCreateFile(GAME:\\MEDIA\\LAYER1.CPK) -> 00000000",
+        ]
+        summary = mac_smoke.summarize_log(lines)
+        self.assertEqual(summary["frames"], 2)
+        self.assertEqual(summary["files_opened"], 1)
+
 
 class SmokeRunTest(unittest.TestCase):
     def setUp(self) -> None:
@@ -86,6 +97,19 @@ class SmokeRunTest(unittest.TestCase):
         self.assertEqual(summary["result"], "timeout_ok", result.stdout + result.stderr)
         self.assertEqual(summary["unregistered_calls"], ["82000010"])
         self.assertTrue((self.out / "t" / "game.log").exists())
+
+    def test_shots_without_window_are_skipped(self) -> None:
+        result = subprocess.run(
+            [sys.executable, str(SMOKE), "--seconds", "2", "--name", "t", "--silence-seconds", "5",
+             "--out-root", str(self.out), "--shots", "1",
+             "--command", sys.executable, "-c", "import time\nwhile True:\n print('tick', flush=True)\n time.sleep(0.2)"],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        summary = json.loads((self.out / "t" / "summary.json").read_text())
+        self.assertEqual(summary["result"], "timeout_ok", result.stdout + result.stderr)
+        self.assertEqual(summary["shots"], [])
 
     def test_survives_until_timeout(self) -> None:
         code, summary, _ = run_smoke(
