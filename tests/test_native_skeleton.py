@@ -73,6 +73,9 @@ class NativeSkeletonTest(unittest.TestCase):
     def test_draw_constants(self) -> None:
         self.check("draw_constants", ["draw_constants.cpp"], link_sdk=True)
 
+    def test_pipeline_state(self) -> None:
+        self.check("pipeline_state", ["pipeline_state.cpp"], link_sdk=True)
+
     def test_sdk_link(self) -> None:
         self.check("sdk_link", [], link_sdk=True)
 

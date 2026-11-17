@@ -12,11 +12,17 @@ set(NIER_SOURCES
     src/main.cpp
     src/nier_input_driver.cpp
     src/nier_input_script.cpp
+    src/native/draw_constants.cpp
     src/native/gpu_registers.cpp
+    src/native/mirror_sync.cpp
     src/native/native_graphics_system.cpp
     src/native/native_shaders.cpp
+    src/native/pipeline_state.cpp
+    src/native/pipelines.cpp
     src/native/pm4_executor.cpp
+    src/native/primitive_setup.cpp
     src/native/shader_dump.cpp
+    src/native/target_keys.cpp
 )
 add_executable(nier ${NIER_SOURCES})
 target_include_directories(nier PRIVATE src ${REXSDK_DIR}/thirdparty/glslang ${REXSDK_DIR}/thirdparty/xxHash)
