@@ -4,6 +4,7 @@ log_max_file_size_mb = 100
 gpu_plugin = "xenos"
 audio_sdl_pump = true
 vulkan_allow_present_mode_immediate = false
+present_own_thread = true
 dlc_enable = true
 content_marketplace_root = "assets/marketplace"
 
