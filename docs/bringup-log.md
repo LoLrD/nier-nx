@@ -36,3 +36,23 @@ Each entry: symptom → cause → fix, with the evidence. Newest last.
 - Open: at 25 s a dialogue subtitle line is drawn over the SQUARE ENIX logo. Not expected on a logo screen; check
   whether the original shows it (subtitle state/string index or timing).
 - `tools/mac_smoke.py --shots 8,15,25` captures the game window (`tools/window_id.swift` finds it by PID).
+
+## 2026-11-17 — boot to the prologue (Task 7)
+
+- Scripted input (`app/input/new_game.tsv`): START on the title, DPAD_LEFT+A pairs through the menus. NieR asks for
+  the hero's name (`XamShowKeyboardUI`) → SDK cvar `keyboard_ui_auto_text=Nier`; the "Set your name as Nier?"
+  prompt starts on *No*, hence DPAD_LEFT before every A.
+- Freeze on the first loading screen: the fork's SPIR-V translator aliased `xe_var_tfetch_lod` to the int
+  `xe_var_vfetch_bound` → invalid `OpFAdd(int, float)` in every pixel shader with a LOD bias → MoltenVK rejected the
+  pipelines and then faulted in `writeDescriptorSetBinding` on the GPU command thread (found with `--stacks-at` +
+  lldb). Fixed in `sdk/src/graphics/pipeline/shader/spirv_translator.cpp` (see `sdk/UPSTREAM.md`). This bug is not
+  macOS-specific: the Switch build uses the same translator.
+- Runtime-resolved functions (indirect calls into unclaimed gaps): 0x82154BA8, 0x82155DD0, 0x82153A08, 0x82152740,
+  0x82269DA8 — one `runtime_gap_resolver.py --apply` each.
+- Crash in the prologue: "Unresolved branch from 0x8226045C to 0x82260468". The structural gap scan had declared
+  0x8226044C (a lone `blr` inside the jump-table switch sub_82260360) as a function, cutting the switch short. Same
+  pattern at 0x823FE8F8 (loop tail of sub_823FE7C0). Both removed and the owners given explicit `end`s; the generated
+  code now has 0 `Unresolved branch` fatals. `tools/gap_fixpoint.py` now rejects candidates whose scratch listing has
+  an unresolved branch.
+- Reached: opening credits, prologue cutscene ("Go on... Take my power..."), first tutorial prompt
+  ("Press X to attack and LT to defend"). The scene behind the prompt is white — snowstorm or a render bug, to check.

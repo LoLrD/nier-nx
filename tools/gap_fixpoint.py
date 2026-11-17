@@ -76,7 +76,7 @@ for n in range(1, 20):
         a, s, rest = l.split(" ", 2)
         ins = [i.strip() for i in rest.lstrip("| ").strip().split(" ; ")]
         ops = [i.split()[0] for i in ins]
-        if (a in have or any(re.search(r"\br1\b", i) for i in ins)
+        if (a in have or any("ERROR" in i for i in ins) or any(re.search(r"\br1\b", i) for i in ins)
                 or any(o in ("mtlr", "mflr", "ld", "std", "stwu", "lfd", "stfd") for o in ops)
                 or ns["reads_undefined_at_entry"](ins)):
             continue

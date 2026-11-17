@@ -293,7 +293,6 @@
 "0x8225C320" = { }
 "0x8225C338" = { }
 "0x8225F2C0" = { }
-"0x8226044C" = { }
 "0x82269DE0" = { }
 "0x822873C4" = { }
 "0x8228F38C" = { }
@@ -356,7 +355,6 @@
 "0x823FDF78" = { }
 "0x823FE0E4" = { }
 "0x823FE180" = { }
-"0x823FE8F8" = { }
 "0x82404270" = { }
 "0x82404330" = { }
 "0x824047E0" = { }
@@ -443,3 +441,14 @@
 # Runtime auto-resolve candidate, accepted from an observed indirect-call failure.
 # Exact start the 44-byte gap 0x82269DA8-0x82269DD4; only this address is declared.
 "0x82269DA8" = { }
+
+# sub_82260360 is a jump-table switch whose cases reach 0x82260488. The structural gap scan had declared the lone
+# `blr` at 0x8226044C as a function, which cut the switch short: its branches to 0x82260468/0x82260474 became
+# unresolved and crashed the prologue ("Unresolved branch from 0x8226045C to 0x82260468"). The next function starts
+# at 0x82260490.
+"0x82260360" = { end = 0x82260490 }
+
+# The structural gap scan declared 0x823FE8F8 as a function, but it is the loop tail of sub_823FE7C0: it branches back
+# to 0x823FE884 inside it ("Unresolved branch from 0x823FE910 to 0x823FE884" in the generated code). The next function
+# starts at 0x823FE928.
+"0x823FE7C0" = { end = 0x823FE928 }
