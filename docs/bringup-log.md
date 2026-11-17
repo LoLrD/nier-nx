@@ -100,3 +100,7 @@ Each entry: symptom → cause → fix, with the evidence. Newest last.
 - F3 overlay had no FPS: the title must feed `SetGuestFrameStats`. The SDK now counts `VdSwap` calls
   (`GuestSwapCount()`), `NierFpsMeter` turns them into FPS over 0.5 s windows.
 - Logs moved to `out/logs/` (`tools/build_mac.sh` wipes `out/mac`, which deleted the log of the first manual session).
+- Menu frame time jumping between 16 and 33 ms (user report; gameplay at 30 FPS was steady): with FIFO, the only
+  vsync mode MoltenVK offers here, presenting inside the GPU command thread blocks it until the display refresh, and
+  the 60 FPS menu missed every fourth vblank. Menu idle 60–95 s (`app/input/menu_idle.tsv`): p90 34 ms, 26 % of frames
+  ≥ 20 ms, max 234 ms → with `present_own_thread = true` p90 18 ms, max 19 ms, still FIFO (no tearing).
