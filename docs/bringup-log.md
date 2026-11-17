@@ -253,3 +253,8 @@ mode (zero scissor for guest draws) to split draws into vertex and pixel work.
 - Experiment (generated code edited by hand, not committed): 960/540 and 480/270 in that block. On macOS the whole
   frame (scene, post, HUD) comes out at 960x540 and the presenter scales it; only the dialogue text is still laid out
   for 1280x720 (shifted right and down; its icons are placed right). Being measured on the console.
+- Console (run `game4`, 960x540 config block): gameplay still ~6 fps. The smaller targets moved the EDRAM layout, and
+  transfers went from 126 to ~209 draws per frame (57 render targets instead of 22); the image was broken too (dialogue
+  text, camera framing). Reverted (the generated code is regenerated, nothing was committed).
+- Guest video mode 960x544 (`video_mode_width/height`, the lever that gave Mass Effect +35 %): NieR calls
+  `VdQueryVideoMode` but its render targets stay 1280x720, so it does not size them from the video mode.
