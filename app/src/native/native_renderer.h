@@ -50,6 +50,12 @@ class NativeRenderer {
     uint64_t mirror_copies = 0;
     uint64_t mirror_bytes = 0;
     uint64_t mirror_waits = 0;
+    uint64_t us_draws = 0;
+    uint64_t us_mirror = 0;
+    uint64_t us_textures = 0;
+    uint64_t us_gpu_wait = 0;
+    uint64_t us_resolves = 0;
+    uint64_t us_present = 0;
   };
 
   NativeRenderer(const rex::ui::vulkan::VulkanDevice* device, rex::memory::Memory* memory, NativeShaders& shaders,

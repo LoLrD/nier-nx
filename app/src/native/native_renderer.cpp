@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstring>
 #include <fstream>
 #include <vector>
@@ -30,6 +31,19 @@ namespace vk = rex::ui::vulkan;
 using Translator = SpirvShaderTranslator;
 
 namespace {
+
+class ScopedMicros {
+ public:
+  explicit ScopedMicros(uint64_t& total) : total_(total), start_(std::chrono::steady_clock::now()) {}
+  ~ScopedMicros() {
+    total_ += uint64_t(
+        std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start_).count());
+  }
+
+ private:
+  uint64_t& total_;
+  std::chrono::steady_clock::time_point start_;
+};
 
 constexpr size_t kStagingPageBytes = 16 << 20;
 constexpr VkDeviceSize kDrawUniformBytes = 16384;
@@ -168,7 +182,10 @@ void NativeRenderer::BeginSubmission() {
   if (submissions_->open()) {
     return;
   }
-  submissions_->Begin();
+  {
+    ScopedMicros timer(stats_.us_gpu_wait);
+    submissions_->Begin();
+  }
   textures_->Prepare(submissions_->upload());
   ProcessCompleted();
 }
@@ -186,7 +203,10 @@ void NativeRenderer::WaitFor(uint64_t submission) {
   if (submissions_->open() && submission >= submissions_->current()) {
     Flush();
   }
-  submissions_->Wait(submission);
+  {
+    ScopedMicros timer(stats_.us_gpu_wait);
+    submissions_->Wait(submission);
+  }
   ProcessCompleted();
 }
 
@@ -208,6 +228,7 @@ void NativeRenderer::SyncMirror(uint32_t address, uint32_t size) {
     return;
   }
   size = std::min(size, GuestMirror::kSize - address);
+  ScopedMicros timer(stats_.us_mirror);
   const MirrorDecision decision = mirror_sync_.Use(address, size, physical_base_, submissions_->current());
   if (decision.wait_submission) {
     ++stats_.mirror_waits;
@@ -237,7 +258,11 @@ VkDescriptorSet NativeRenderer::BindTextures(const RegisterFile& regs, const Spi
   for (uint32_t i = 0; i < textures; ++i) {
     const auto& binding = texture_bindings[i];
     const auto fetch = regs.GetTextureFetch(binding.fetch_constant);
-    const Textures::Binding bound = textures_->View(submissions_->upload(), fetch, binding, submissions_->current());
+    Textures::Binding bound;
+    {
+      ScopedMicros timer(stats_.us_textures);
+      bound = textures_->View(submissions_->upload(), fetch, binding, submissions_->current());
+    }
     images[i] = {VK_NULL_HANDLE, bound.view, VK_IMAGE_LAYOUT_GENERAL};
     writes[i] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, set, i, 0, 1, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
                  &images[i], nullptr, nullptr};
@@ -306,6 +331,7 @@ void NativeRenderer::SetDynamicState(const RegisterFile& regs, const draw_util::
 
 void NativeRenderer::Draw(const RegisterFile& regs) {
   ++stats_.draws;
+  ScopedMicros timer(stats_.us_draws);
   if (!valid_) {
     return;
   }
@@ -453,6 +479,7 @@ void NativeRenderer::Resolve(const RegisterFile& regs) {
     return;
   }
   BeginSubmission();
+  ScopedMicros timer(stats_.us_resolves);
   resolves_->Resolve(submissions_->main(), PlanResolve(info, regs), submissions_->current());
 }
 
@@ -568,6 +595,7 @@ void NativeRenderer::Swap(rex::ui::Presenter* presenter, uint32_t frontbuffer, u
     return;
   }
   BeginSubmission();
+  ScopedMicros timer(stats_.us_present);
   targets_->End(submissions_->main());
   if (dump_interval_ && stats_.swaps % dump_interval_ == 0) {
     DumpFrame(frontbuffer, width, height);
@@ -605,7 +633,7 @@ std::string NativeRenderer::Report() {
   std::string line = fmt::format(
       "[native] render: {}/{} draws drawn, skipped raster {} primitive {} target {} shader {} empty {}; {} resolves ({} colour, "
       "{} depth, {} clears, {} readbacks, {} skipped); mirror {} copies {} MB {} waits; textures {} uploads {} MB {} "
-      "unsupported {} resolve hits, {} live; {} resolve images, {} mirror keys; {} targets, {} pipelines, {} submissions, {} black frames",
+      "unsupported {} resolve hits, {} live {} MB; {} resolve images, {} mirror keys; {} targets, {} pipelines, {} submissions, {} black frames",
       s.drawn - r.drawn, s.draws - r.draws, s.skipped_raster - r.skipped_raster,
       s.skipped_primitive - r.skipped_primitive, s.skipped_target - r.skipped_target,
       s.skipped_shader - r.skipped_shader, s.skipped_empty - r.skipped_empty, s.resolves - r.resolves, v.copies - reported_resolves_.copies,
@@ -614,8 +642,12 @@ std::string NativeRenderer::Report() {
       s.mirror_copies - r.mirror_copies, (s.mirror_bytes - r.mirror_bytes) >> 20, s.mirror_waits - r.mirror_waits,
       t.uploads - reported_textures_.uploads, (t.upload_bytes - reported_textures_.upload_bytes) >> 20,
       t.unsupported - reported_textures_.unsupported, t.resolve_hits - reported_textures_.resolve_hits,
-      textures_->live_images(), resolves_->image_count(), mirror_sync_.key_count(), targets_->count(), pipelines_->pipeline_count(), submissions - reported_submissions_,
+      textures_->live_images(), textures_->live_bytes() >> 20, resolves_->image_count(), mirror_sync_.key_count(), targets_->count(), pipelines_->pipeline_count(), submissions - reported_submissions_,
       s.black_frames - r.black_frames);
+  line += fmt::format("; ms draws {} (mirror {}, textures {}), resolves {}, present {}, gpu wait {}",
+                      (s.us_draws - r.us_draws) / 1000, (s.us_mirror - r.us_mirror) / 1000,
+                      (s.us_textures - r.us_textures) / 1000, (s.us_resolves - r.us_resolves) / 1000,
+                      (s.us_present - r.us_present) / 1000, (s.us_gpu_wait - r.us_gpu_wait) / 1000);
   reported_ = s;
   reported_textures_ = t;
   reported_resolves_ = v;
