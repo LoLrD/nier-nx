@@ -1,0 +1,8 @@
+title_id = "535107E8"
+media_id = "507D2720"
+xex_sha256 = "f375d506413f52bd12fc9fd34df03250bbc4f3e7f98730332179f88777ea653b"
+xex_version = "0.0.0.1"
+image_base = "0x82000000"
+entry_point = "0x8255CEA0"
+iso_sha256 = "3e1c0fcaa8795dfbe7757fb587fcd83a9eff1871dc6939ac83dd378aace84f08"
+dlc_15_nightmares_sha256 = "026b14ccbb85704ed797845fc73a2908484d8af6401fce9e3e6832af08ea41a4"
