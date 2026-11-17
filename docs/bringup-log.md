@@ -333,3 +333,22 @@ Temporary counters in the native path (reverted), route title → menu → prolo
   overlapping it kept their hashes, so a range whose guest bytes went back to an earlier content was never copied
   again while the mirror held the other key's bytes. Overlapping keys are now marked stale on every copy; the cinematic
   matches Xenos frame for frame (16 captures between 102 and 147 s).
+
+## 2026-11-18 — native renderer N3b: the prologue matches Xenos on macOS
+
+- Review fixes of N3a (opus reviewer): the presenter's guest output images get TRANSFER_DST (the validation layer
+  reported `VUID-vkCmdBlitImage-dstImage-00224` every frame), a draw re-syncs its ranges after a mid-draw flush,
+  resolve images go stale when guest memory at their address changes, unused textures / resolve images / mirror keys
+  are evicted after 600 frames, pixel shaders are translated per sample scale (VPOS on 4x targets), readbacks are
+  limited to rectangles that fit the 256 KB buffer.
+- Depth of field read the depth resolve as `k_8_8_8_8` (raw D24S8 bytes); depth resolves now publish an `R32_SFLOAT`
+  image for `k_24_8` fetches and an RGBA8 image with the packed bits (R = stencil, G..A = depth low..high).
+- Shadows of the native frame were brighter than Xenos (Xenos ≈ native^1.2): NieR writes a non-linear gamma ramp
+  through `DC_LUT_30_COLOR` (one entry per `DC_LUT_RW_INDEX`), which the register mirror now keeps (and
+  `DC_LUT_SEQ_COLOR`); VdSwap presents through a compute pass that applies the 256-entry ramp. Mean colours of the
+  captures at 160–220 s now match Xenos within ±2.
+- `tools/compare_paths.py` over the whole prologue route (300–600 s): the native path plays the whole prologue (snow
+  fight, Grimoire Noir, the crowd of Shades, the red Shade) without crashes, hangs or visible artefacts; it runs
+  ~80 s ahead of Xenos on the same script because loading is faster. Validation layer: no errors from the renderer.
+- Not done: EDRAM ownership transfers between aliased targets, depth resolves take sample 0, no FXAA; areas after the
+  prologue are not checked yet.
