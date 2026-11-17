@@ -283,3 +283,9 @@ mode (zero scissor for guest draws) to split draws into vertex and pixel work.
   without a declared element (2306), conditional EXEC on an undeclared boolean constant (568), DXC errors (359).
 - Raw microcode wrapped as a register-linked container (masseffect-nx `wrap_raw_shader.py`): 1 of 6 samples reaches
   valid SPIR-V (undeclared vertex fetches rejected, depth export not declared).
+- Decision (user, 2026-11-18): the native renderer translates shaders at run time with the SDK's `SpirvShaderTranslator`
+  (design decision 3 revised). `NativeShaders` keeps `VulkanShader`s by XXH3 of the loaded microcode and translates
+  each new (shader, modification) pair at the draw; modifications are ported from `VulkanPipelineCache` (host render
+  targets, no float24 in the pixel shader). The app links `rexgpu-xenos` directly (exported on macOS).
+- Acceptance on the M4: menu route 10 translations, prologue route 98 unique shaders loaded and 100 translations, 0
+  failures, 34 ms in total, at most 1 ms for one shader (NAK on the console will be slower: measure in N2.5/N4).
