@@ -29,6 +29,7 @@ class Textures {
     uint64_t upload_bytes = 0;
     uint64_t unsupported = 0;
     uint64_t resolve_hits = 0;
+    uint64_t reused = 0;
   };
 
   Textures(const rex::ui::vulkan::VulkanDevice* device, const uint8_t* physical_base,
@@ -52,6 +53,8 @@ class Textures {
   const Stats& stats() const { return stats_; }
   size_t live_images() const { return textures_.size() + retired_.size(); }
   uint64_t live_bytes() const { return live_bytes_; }
+  uint64_t staged_bytes() const { return staged_bytes_; }
+  void ResetStaged() { staged_bytes_ = 0; }
 
  private:
   struct Image {
@@ -70,10 +73,16 @@ class Textures {
     uint64_t checked_frame;
     uint64_t used_frame;
     uint64_t last_submission;
+    uint64_t shape = 0;
   };
   struct Retired {
     Image image;
     uint64_t last_submission;
+    uint32_t bytes;
+    uint64_t shape;
+  };
+  struct FreeImage {
+    Image image;
     uint32_t bytes;
   };
   struct ResolveImage {
@@ -87,6 +96,8 @@ class Textures {
   };
 
   Image CreateImage(const LoadedTexture& loaded);
+  Image AcquireImage(const LoadedTexture& loaded);
+  static uint64_t ShapeKey(const LoadedTexture& loaded);
   void Upload(VkCommandBuffer upload, const Image& image, const LoadedTexture& loaded, uint64_t submission);
   void Destroy(Image& image);
   void Retire(Texture& texture);
@@ -106,6 +117,9 @@ class Textures {
   std::unordered_map<uint64_t, ResolveImage> resolve_images_;
   std::unordered_map<uint64_t, VkSampler> samplers_;
   uint64_t live_bytes_ = 0;
+  uint64_t free_bytes_ = 0;
+  uint64_t staged_bytes_ = 0;
+  std::unordered_multimap<uint64_t, FreeImage> free_images_;
   Stats stats_;
 };
 

@@ -20,6 +20,7 @@ namespace vk = rex::ui::vulkan;
 namespace {
 
 constexpr uint64_t kTextureBudgetBytes = 256ull << 20;
+constexpr uint64_t kFreeImageBytes = 48ull << 20;
 
 constexpr VkSamplerAddressMode kAddressModes[8] = {
     VK_SAMPLER_ADDRESS_MODE_REPEAT,          VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT,
@@ -93,6 +94,9 @@ Textures::~Textures() {
   }
   for (Retired& retired : retired_) {
     Destroy(retired.image);
+  }
+  for (auto& [shape, free] : free_images_) {
+    Destroy(free.image);
   }
   for (auto& [key, sampler] : samplers_) {
     device_->functions().vkDestroySampler(device_->device(), sampler, nullptr);
@@ -178,17 +182,20 @@ Textures::Binding Textures::View(VkCommandBuffer upload, const xenos::xe_gpu_tex
   const uint64_t key = TextureKey(fetch);
   auto it = textures_.find(key);
   bool reload = it == textures_.end();
+  uint64_t hash = 0;
   if (!reload) {
     Texture& texture = it->second;
     if (NeedsRehash(texture.bytes, frame_, texture.checked_frame, texture.used_frame == frame_)) {
       texture.checked_frame = frame_;
-      const uint64_t hash = DataHash(fetch);
+      hash = DataHash(fetch);
       if (hash != texture.data_hash) {
         Retire(texture);
         textures_.erase(it);
         reload = true;
       }
     }
+  } else {
+    hash = DataHash(fetch);
   }
   if (reload) {
     auto loaded = LoadTexture(fetch, physical_base_);
@@ -196,8 +203,8 @@ Textures::Binding Textures::View(VkCommandBuffer upload, const xenos::xe_gpu_tex
       ++stats_.unsupported;
       return result;
     }
-    Texture texture{CreateImage(*loaded), loaded->host, loaded->width, loaded->height, loaded->cube, 0,
-                    DataHash(fetch), frame_, 0, 0};
+    Texture texture{AcquireImage(*loaded), loaded->host, loaded->width, loaded->height, loaded->cube, 0,
+                    hash, frame_, 0, 0};
     for (const auto& level : loaded->levels) {
       texture.bytes += uint32_t(level.size());
     }
@@ -205,6 +212,7 @@ Textures::Binding Textures::View(VkCommandBuffer upload, const xenos::xe_gpu_tex
       ++stats_.unsupported;
       return result;
     }
+    texture.shape = ShapeKey(*loaded);
     Upload(upload, texture.image, *loaded, submission);
     live_bytes_ += texture.bytes;
     it = textures_.emplace(key, texture).first;
@@ -283,6 +291,7 @@ void Textures::Upload(VkCommandBuffer upload, const Image& image, const LoadedTe
       continue;
     }
     std::memcpy(mapping, data.data(), data.size());
+    staged_bytes_ += data.size();
     VkBufferImageCopy region{};
     region.bufferOffset = offset;
     region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, level, 0, loaded.layers};
@@ -398,10 +407,37 @@ void Textures::RemoveResolveImage(uint32_t address, VkFormat format, VkImageView
 }
 
 void Textures::Retire(Texture& texture) {
-  retired_.push_back({texture.image, texture.last_submission, texture.bytes});
+  retired_.push_back({texture.image, texture.last_submission, texture.bytes, texture.shape});
+}
+
+uint64_t Textures::ShapeKey(const LoadedTexture& loaded) {
+  const std::array<uint32_t, 7> fields = {uint32_t(loaded.host.format), uint32_t(loaded.host.signed_format),
+                                          loaded.width, loaded.height, loaded.mips, loaded.layers,
+                                          uint32_t(loaded.cube)};
+  return XXH3_64bits(fields.data(), sizeof(fields));
+}
+
+Textures::Image Textures::AcquireImage(const LoadedTexture& loaded) {
+  auto it = free_images_.find(ShapeKey(loaded));
+  if (it == free_images_.end()) {
+    return CreateImage(loaded);
+  }
+  Image image = it->second.image;
+  free_bytes_ -= it->second.bytes;
+  live_bytes_ -= it->second.bytes;
+  free_images_.erase(it);
+  ++stats_.reused;
+  return image;
 }
 
 void Textures::EnforceBudget() {
+  while (live_bytes_ > kTextureBudgetBytes && !free_images_.empty()) {
+    auto it = free_images_.begin();
+    Destroy(it->second.image);
+    free_bytes_ -= it->second.bytes;
+    live_bytes_ -= it->second.bytes;
+    free_images_.erase(it);
+  }
   while (live_bytes_ > kTextureBudgetBytes) {
     auto oldest = textures_.end();
     for (auto it = textures_.begin(); it != textures_.end(); ++it) {
@@ -433,8 +469,13 @@ void Textures::Completed(uint64_t submission) {
     if (retired.last_submission > submission) {
       return false;
     }
-    Destroy(retired.image);
-    live_bytes_ -= retired.bytes;
+    if (free_bytes_ + retired.bytes <= kFreeImageBytes) {
+      free_images_.emplace(retired.shape, FreeImage{retired.image, retired.bytes});
+      free_bytes_ += retired.bytes;
+    } else {
+      Destroy(retired.image);
+      live_bytes_ -= retired.bytes;
+    }
     return true;
   });
 }
