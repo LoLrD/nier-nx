@@ -163,10 +163,6 @@ void RenderTargets::BeginRendering(VkCommandBuffer command_buffer, const Bound& 
             std::min(target->extent.height, AssumedHeight(target->extent.width)), false);
     }
   }
-  if (depth) {
-    Claim(command_buffer, *bound.depth, 0, 0, depth->extent.width,
-          std::min(depth->extent.height, AssumedHeight(depth->extent.width)), false);
-  }
   for (uint32_t i = 0; i < 4; ++i) {
     colors[i] = {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR};
     colors[i].imageLayout = VK_IMAGE_LAYOUT_GENERAL;
@@ -236,7 +232,6 @@ void RenderTargets::ClearDepth(VkCommandBuffer command_buffer, const TargetKey& 
     return;
   }
   End(command_buffer);
-  Discard(key, rect);
   Bound bound{};
   bound.depth = key;
   BeginRendering(command_buffer, bound);
@@ -249,19 +244,17 @@ void RenderTargets::ClearDepth(VkCommandBuffer command_buffer, const TargetKey& 
 
 void RenderTargets::Claim(VkCommandBuffer command_buffer, const TargetKey& key, uint32_t x0, uint32_t y0, uint32_t x1,
                           uint32_t y1, bool newer_than_rendering) {
-  Target* target = Get(command_buffer, key);
+  Target* target = key.is_depth ? nullptr : Get(command_buffer, key);
   if (!target) {
     return;
   }
-  const VkImageAspectFlags aspects =
-      key.is_depth ? VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
   std::unordered_map<uint32_t, std::vector<VkImageCopy>> copies;
   for (const ForeignTile& foreign : edram_.ForeignTiles(key, x0, y0, x1, y1, target->owner)) {
     if (newer_than_rendering && foreign.sequence < target->rendered) {
       continue;
     }
     const TargetKey& source_key = owner_keys_[foreign.owner];
-    if (source_key.is_depth != key.is_depth || source_key.format != key.format) {
+    if (source_key.format != key.format) {
       ++stats_.incompatible_tiles;
       NoteIncompatible(target->owner, foreign.owner);
       continue;
@@ -288,8 +281,8 @@ void RenderTargets::Claim(VkCommandBuffer command_buffer, const TargetKey& key, 
       }
     }
     VkImageCopy region{};
-    region.srcSubresource = {aspects, 0, 0, 1};
-    region.dstSubresource = {aspects, 0, 0, 1};
+    region.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    region.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
     region.srcOffset = {int32_t(from.x), int32_t(from.y), 0};
     region.dstOffset = {int32_t(to.x), int32_t(to.y), 0};
     region.extent = {xenos::kEdramTileWidthSamples, xenos::kEdramTileHeightSamples, 1};
