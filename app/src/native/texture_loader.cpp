@@ -16,6 +16,7 @@ namespace {
 
 constexpr uint32_t kSmallTextureBytes = 65536;
 constexpr uint64_t kRehashFrames = 4;
+constexpr uint64_t kVolatileFrames = 120;
 
 struct Storage {
   std::vector<uint8_t> data;
@@ -224,11 +225,16 @@ std::optional<LoadedTexture> LoadTexture(const xenos::xe_gpu_texture_fetch_t& fe
   return loaded;
 }
 
-bool NeedsRehash(uint32_t bytes, uint64_t frame, uint64_t last_checked_frame, bool used_this_frame) {
-  if (bytes <= kSmallTextureBytes) {
-    return true;
+bool NeedsRehash(uint32_t bytes, uint64_t frame, uint64_t last_checked_frame, bool checked_this_frame,
+                 bool is_volatile) {
+  if (is_volatile) {
+    return bytes <= kSmallTextureBytes || !checked_this_frame;
   }
-  return !used_this_frame && frame >= last_checked_frame + kRehashFrames;
+  return !checked_this_frame && frame >= last_checked_frame + kRehashFrames;
+}
+
+bool IsVolatile(uint64_t frame, uint64_t changed_frame) {
+  return changed_frame && frame < changed_frame + kVolatileFrames;
 }
 
 bool ResolveImageMatches(VkFormat image_format, uint32_t image_width, uint32_t image_height, VkFormat wanted_format,

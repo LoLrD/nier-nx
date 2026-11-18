@@ -30,6 +30,7 @@ class Textures {
     uint64_t unsupported = 0;
     uint64_t resolve_hits = 0;
     uint64_t reused = 0;
+    uint64_t resolve_drops = 0;
   };
 
   Textures(const rex::ui::vulkan::VulkanDevice* device, const uint8_t* physical_base,
@@ -74,6 +75,8 @@ class Textures {
     uint64_t used_frame;
     uint64_t last_submission;
     uint64_t shape = 0;
+    uint64_t changed_frame = 0;
+    TextureFootprint footprint{};
   };
   struct Retired {
     Image image;
@@ -103,7 +106,7 @@ class Textures {
   void Retire(Texture& texture);
   void EnforceBudget();
   VkImageView NullView(rex::graphics::xenos::FetchOpDimension dimension) const;
-  uint64_t DataHash(const rex::graphics::xenos::xe_gpu_texture_fetch_t& fetch) const;
+  uint64_t DataHash(const TextureFootprint& footprint) const;
 
   const rex::ui::vulkan::VulkanDevice* device_;
   const uint8_t* physical_base_;
