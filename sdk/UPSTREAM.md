@@ -70,3 +70,6 @@ code generator and runtime changes of masseffect-nx. The third-party sources are
   new depth targets and evicted resolve images.
 - `src/ui/vulkan/vulkan_presenter.cpp`: guest output images also have `VK_IMAGE_USAGE_TRANSFER_DST_BIT`, so a graphics system
   can blit or clear its frontbuffer into them (NieR's native renderer).
+- `include/rex/ui/vulkan/upload_buffer_pool.h`, `src/ui/vulkan/vulkan_upload_buffer_pool.cpp`: an upload buffer pool can
+  ask for host-cached memory (flushed explicitly when not coherent). On the Switch, CPU writes to the uncached
+  upload memory NVK exposes ran at ~100-180 MB/s in NieR's native renderer.
