@@ -251,7 +251,7 @@ std::optional<LoadedTexture> LoadTexture(const xenos::xe_gpu_texture_fetch_t& fe
 
 bool NeedsRehash(uint32_t bytes, uint64_t frame, uint64_t last_checked_frame, bool used_this_frame) {
   if (bytes <= kSmallTextureBytes) {
-    return true;
+    return !used_this_frame;
   }
   return !used_this_frame && frame >= last_checked_frame + kRehashFrames;
 }

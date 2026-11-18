@@ -175,7 +175,9 @@ int main() {
           "footprint_of_base_level");
   }
   {
-    Check(NeedsRehash(4096, 10, 10, true) && NeedsRehash(65536, 10, 10, true), "small_texture_rehashed_every_use");
+    Check(NeedsRehash(4096, 10, 9, false) && NeedsRehash(65536, 10, 9, false) && !NeedsRehash(4096, 10, 10, true) &&
+              !NeedsRehash(65536, 10, 10, true),
+          "small_texture_rehashed_once_per_frame");
     Check(!NeedsRehash(1 << 20, 10, 10, false) && !NeedsRehash(1 << 20, 13, 10, false) &&
               NeedsRehash(1 << 20, 14, 10, false) && !NeedsRehash(1 << 20, 14, 10, true),
           "large_texture_rehashed_every_fourth_frame");
