@@ -45,6 +45,11 @@ std::optional<LoadedTexture> LoadTexture(const rex::graphics::xenos::xe_gpu_text
 bool NeedsRehash(uint32_t bytes, uint64_t frame, uint64_t last_checked_frame, bool checked_this_frame,
                  bool is_volatile);
 bool IsVolatile(uint64_t frame, uint64_t changed_frame);
+
+enum class RehashKind { kNone, kSampled, kFull };
+
+RehashKind CheckKind(uint32_t bytes, uint64_t frame, bool checked_this_frame, bool is_volatile, uint32_t phase);
+uint64_t SampledHash(const uint8_t* physical_base, const TextureFootprint& footprint);
 bool ResolveImageMatches(VkFormat image_format, uint32_t image_width, uint32_t image_height, VkFormat wanted_format,
                          uint32_t width, uint32_t height);
 

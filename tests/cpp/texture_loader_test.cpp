@@ -187,6 +187,26 @@ int main() {
     Check(IsVolatile(100, 50) && !IsVolatile(100, 0) && !IsVolatile(500, 100), "volatile_after_recent_change");
   }
   {
+    Check(CheckKind(4096, 10, false, false, 0) == RehashKind::kFull &&
+              CheckKind(4096, 10, true, false, 0) == RehashKind::kNone &&
+              CheckKind(4096, 10, true, true, 0) == RehashKind::kFull,
+          "small_textures_full_hash_first_use_or_every_use_when_volatile");
+    Check(CheckKind(1 << 20, 16, false, false, 0) == RehashKind::kFull &&
+              CheckKind(1 << 20, 17, false, false, 0) == RehashKind::kSampled &&
+              CheckKind(1 << 20, 17, false, false, 15) == RehashKind::kFull &&
+              CheckKind(1 << 20, 17, true, true, 0) == RehashKind::kNone,
+          "large_textures_sampled_every_frame_full_every_sixteenth");
+    std::vector<uint8_t> data(1 << 20, 0x11);
+    TextureFootprint footprint{0x1000, 0x80000, 0, 0};
+    const uint64_t before = SampledHash(data.data(), footprint);
+    data[0x1000 + 1] = 0x22;
+    const uint64_t changed = SampledHash(data.data(), footprint);
+    data[0x1000 + 1] = 0x11;
+    data[0x1000 + 0x300] = 0x33;
+    const uint64_t unsampled = SampledHash(data.data(), footprint);
+    Check(before != changed && before == unsampled, "sampled_hash_covers_chunk_starts_only");
+  }
+  {
     Check(ResolveImageMatches(VK_FORMAT_R8G8B8A8_UNORM, 1280, 720, VK_FORMAT_R8G8B8A8_UNORM, 1280, 720) &&
               !ResolveImageMatches(VK_FORMAT_R8G8B8A8_UNORM, 1280, 720, VK_FORMAT_R32_SFLOAT, 1280, 720) &&
               !ResolveImageMatches(VK_FORMAT_R8G8B8A8_UNORM, 1280, 720, VK_FORMAT_R8G8B8A8_UNORM, 640, 360),

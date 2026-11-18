@@ -190,16 +190,25 @@ Textures::Binding Textures::View(VkCommandBuffer upload, const xenos::xe_gpu_tex
   TextureFootprint footprint;
   if (!reload) {
     Texture& texture = it->second;
-    if (NeedsRehash(texture.bytes, frame_, texture.checked_frame, texture.checked_frame == frame_,
-                    IsVolatile(frame_, texture.changed_frame))) {
+    const RehashKind kind = CheckKind(texture.bytes, frame_, texture.checked_frame == frame_,
+                                      IsVolatile(frame_, texture.changed_frame), uint32_t(key & 15));
+    if (kind != RehashKind::kNone) {
       texture.checked_frame = frame_;
       footprint = texture.footprint;
-      hash = DataHash(footprint);
-      if (hash != texture.data_hash) {
-        Retire(texture);
-        textures_.erase(it);
-        reload = true;
-        changed_frame = frame_;
+      bool changed = true;
+      if (kind == RehashKind::kSampled) {
+        const uint64_t sample = SampledHash(physical_base_, footprint);
+        changed = sample != texture.sample_hash;
+        texture.sample_hash = sample;
+      }
+      if (changed) {
+        hash = DataHash(footprint);
+        if (hash != texture.data_hash) {
+          Retire(texture);
+          textures_.erase(it);
+          reload = true;
+          changed_frame = frame_;
+        }
       }
     }
   } else {
@@ -224,6 +233,7 @@ Textures::Binding Textures::View(VkCommandBuffer upload, const xenos::xe_gpu_tex
     texture.shape = ShapeKey(*loaded);
     texture.changed_frame = changed_frame;
     texture.footprint = footprint;
+    texture.sample_hash = SampledHash(physical_base_, footprint);
     Upload(upload, texture.image, *loaded, submission);
     live_bytes_ += texture.bytes;
     it = textures_.emplace(key, texture).first;
