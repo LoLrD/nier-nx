@@ -14,6 +14,7 @@ void GpuProgress::Advance() {
   if (waiters_.load(std::memory_order_seq_cst)) {
     { std::lock_guard<std::mutex> lock(mutex_); }
     cv_.notify_all();
+    notifies_.fetch_add(1, std::memory_order_relaxed);
   }
 }
 

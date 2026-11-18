@@ -47,6 +47,18 @@ int main() {
     Check(seen == 1 && Clock::now() - start < 1s, "advance_from_another_thread_wakes_the_waiter");
   }
   {
+    GpuProgress progress;
+    progress.Advance();
+    const uint64_t quiet = progress.notifies();
+    std::thread advancer([&] {
+      std::this_thread::sleep_for(30ms);
+      progress.Advance();
+    });
+    progress.WaitPast(1, 5s);
+    advancer.join();
+    Check(quiet == 0 && progress.notifies() == 1, "notifies_counted_only_with_waiters");
+  }
+  {
     Check(ActiveGpuProgress() == nullptr, "inactive_until_enabled");
     EnableGpuProgress(true);
     Check(ActiveGpuProgress() == &SharedGpuProgress(), "active_after_enable");

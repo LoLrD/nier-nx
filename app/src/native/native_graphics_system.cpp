@@ -334,13 +334,16 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem, private 
     const NativeShaders::Stats t = shaders_ ? shaders_->stats() : NativeShaders::Stats{};
     REXLOG_INFO(
         "[native] 10 s: {} packets, {} draws, {} resolves, {} swaps, {} interrupts, {} shader loads, {} waits, {} "
-        "overflows, {} coher events {} MB, {} unique shaders, {} shader translations, {} failed, {} ms translating (max {} ms)",
+        "overflows, {} coher events {} MB, {} progress wakes, {} unique shaders, {} shader translations, {} failed, {} ms "
+        "translating (max {} ms)",
         s.packets - last_.packets, s.draws - last_.draws, s.resolves - last_.resolves, s.swaps - last_.swaps,
         s.interrupts - last_.interrupts, s.shader_loads - last_.shader_loads, s.waits - last_.waits,
         s.overflows - last_.overflows, s.coher_events - last_.coher_events,
-        (s.coher_bytes - last_.coher_bytes) >> 20, shader_dump_ ? shader_dump_->unique() : 0, t.translations,
+        (s.coher_bytes - last_.coher_bytes) >> 20, SharedGpuProgress().notifies() - reported_notifies_,
+        shader_dump_ ? shader_dump_->unique() : 0, t.translations,
         t.failures, t.translate_us / 1000, t.max_translate_us / 1000);
     last_ = s;
+    reported_notifies_ = SharedGpuProgress().notifies();
     if (renderer_) {
       REXLOG_INFO("{}", renderer_->Report());
     }
@@ -362,6 +365,7 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem, private 
   std::atomic<uint32_t> callback_{0};
   std::atomic<uint32_t> callback_data_{0};
   std::atomic<uint32_t> read_writeback_{0};
+  uint64_t reported_notifies_ = 0;
   std::atomic<uint32_t> publish_step_{kDefaultPublishStep};
   std::atomic<bool> ring_waiting_{false};
   std::mutex ring_mutex_;
