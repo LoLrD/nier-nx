@@ -7,6 +7,8 @@
 #include <rex/graphics/pipeline/texture/conversion.h>
 #include <rex/graphics/pipeline/texture/util.h>
 
+#include "tiling.h"
+
 namespace nier::native {
 
 using namespace rex::graphics;
@@ -76,7 +78,7 @@ Storage Untile(const uint8_t* src, const texture_util::TextureGuestLayout::Level
         continue;
       }
       for (uint32_t x = 0; x < storage.pitch_blocks; ++x) {
-        const int32_t offset = texture_util::GetTiledOffset2D(int32_t(x), int32_t(y), guest_pitch_blocks, bytes_log2);
+        const int32_t offset = TiledOffset2D(int32_t(x), int32_t(y), guest_pitch_blocks, bytes_log2);
         texture_conversion::CopySwapBlock(endian, dst + size_t(x) * bytes_per_block, layer_src + offset,
                                           bytes_per_block);
       }

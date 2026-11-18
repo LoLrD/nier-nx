@@ -11,6 +11,7 @@
 #include <rex/math.h>
 
 #include "texture_loader.h"
+#include "tiling.h"
 
 namespace nier::native {
 
@@ -115,8 +116,7 @@ void WriteTiled(const uint8_t* host_rgba, uint32_t x, uint32_t y, uint32_t width
       uint32_t value;
       std::memcpy(&value, texel, 4);
       value = xenos::GpuSwap(value, swap);
-      std::memcpy(guest + texture_util::GetTiledOffset2D(int32_t(x + column), int32_t(y + row), pitch_aligned, 2),
-                  &value, 4);
+      std::memcpy(guest + TiledOffset2D(int32_t(x + column), int32_t(y + row), pitch_aligned, 2), &value, 4);
     }
   }
 }
