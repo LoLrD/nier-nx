@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cmath>
 #include <cstring>
 #include <fstream>
 #include <utility>
@@ -21,6 +22,7 @@
 #include <rex/ui/vulkan/upload_buffer_pool.h>
 #include <rex/ui/vulkan/util.h>
 
+#include "perf_modes.h"
 #include "primitive_setup.h"
 #include "shaders/apply_gamma_cs.h"
 #include "resolve_plan.h"
@@ -92,11 +94,27 @@ constexpr uint64_t kStagingFlushBytes = 16ull << 20;
 constexpr uint64_t kEvictionPeriodMs = 1000;
 constexpr uint64_t kUnusedSeconds = 10;
 constexpr size_t kReportedPasses = 8;
+constexpr size_t kReportedShaders = 10;
+constexpr size_t kLoggedForeignPairs = 40;
+constexpr uint32_t kTrackedRows = 720;
 
 uint64_t NowMs() {
   return uint64_t(std::chrono::duration_cast<std::chrono::milliseconds>(
                       std::chrono::steady_clock::now().time_since_epoch())
                       .count());
+}
+
+VkRect2D ClipToViewport(const VkRect2D& rect, const VkViewport& viewport) {
+  const float top = std::min(viewport.y, viewport.y + viewport.height);
+  const float bottom = std::max(viewport.y, viewport.y + viewport.height);
+  const int32_t x0 = std::max(rect.offset.x, int32_t(std::floor(viewport.x)));
+  const int32_t y0 = std::max(rect.offset.y, int32_t(std::floor(top)));
+  const int32_t x1 = std::min(rect.offset.x + int32_t(rect.extent.width), int32_t(std::ceil(viewport.x + viewport.width)));
+  const int32_t y1 = std::min(rect.offset.y + int32_t(rect.extent.height), int32_t(std::ceil(bottom)));
+  if (x1 <= x0 || y1 <= y0) {
+    return {{rect.offset.x, rect.offset.y}, {0, 0}};
+  }
+  return {{x0, y0}, {uint32_t(x1 - x0), uint32_t(y1 - y0)}};
 }
 
 }  // namespace
@@ -342,7 +360,7 @@ VkDescriptorSet NativeRenderer::BindTextures(const RegisterFile& regs, const Spi
   return set;
 }
 
-void NativeRenderer::SetDynamicState(const RegisterFile& regs, const draw_util::ViewportInfo& viewport_info,
+VkRect2D NativeRenderer::SetDynamicState(const RegisterFile& regs, const draw_util::ViewportInfo& viewport_info,
                                      const SampleScale& scale, bool polygonal) {
   const auto& dfn = device_->functions();
   const VkCommandBuffer cmd = submissions_->main();
@@ -362,7 +380,15 @@ void NativeRenderer::SetDynamicState(const RegisterFile& regs, const draw_util::
   const VkRect2D rect{{int32_t(left), int32_t(top)},
                       {std::min(scissor.extent[0] * scale.x, area.width - left),
                        std::min(scissor.extent[1] * scale.y, area.height - top)}};
-  dfn.vkCmdSetScissor(cmd, 0, 1, &rect);
+  VkRect2D host_rect = rect;
+  const bool has_viewport = viewport_info.xy_extent[0] && viewport_info.xy_extent[1];
+  const VkRect2D drawn = has_viewport ? ClipToViewport(rect, viewport) : rect;
+  if (PerfSkip(kSkipPixels)) {
+    host_rect.extent = {0, 0};
+  } else if (PerfSkip(kQuarterScreen)) {
+    host_rect.extent = {rect.extent.width / 2, rect.extent.height / 2};
+  }
+  dfn.vkCmdSetScissor(cmd, 0, 1, &host_rect);
   float slope = 0.0f, constant = 0.0f;
   draw_util::GetPreferredFacePolygonOffset(regs, polygonal, slope, constant);
   constant *= regs.Get<reg::RB_DEPTH_INFO>().depth_format == xenos::DepthRenderTargetFormat::kD24S8
@@ -385,6 +411,7 @@ void NativeRenderer::SetDynamicState(const RegisterFile& regs, const draw_util::
   dfn.vkCmdSetStencilWriteMask(cmd, VK_STENCIL_FACE_BACK_BIT, back.stencilwritemask);
   dfn.vkCmdSetStencilReference(cmd, VK_STENCIL_FACE_FRONT_BIT, front.stencilref);
   dfn.vkCmdSetStencilReference(cmd, VK_STENCIL_FACE_BACK_BIT, back.stencilref);
+  return drawn;
 }
 
 void NativeRenderer::Draw(const RegisterFile& regs) {
@@ -420,6 +447,9 @@ void NativeRenderer::ReleaseMemory() {
 }
 
 NativeRenderer::DrawResult NativeRenderer::RecordDraw(const RegisterFile& regs) {
+  if (PerfSkip(kSkipDraws)) {
+    return DrawResult::kDone;
+  }
   const bool polygonal = draw_util::IsPrimitivePolygonal(regs);
   if (!draw_util::IsRasterizationPotentiallyDone(regs, polygonal)) {
     ++stats_.skipped_raster;
@@ -496,6 +526,9 @@ NativeRenderer::DrawResult NativeRenderer::RecordDraw(const RegisterFile& regs) 
   PipelineState state = BuildPipelineState(regs, draw, targets, color_mask, targets_->depth_format());
   state.vertex_module = prepared->vertex->shader_module();
   state.pixel_module = prepared->pixel ? prepared->pixel->shader_module() : VK_NULL_HANDLE;
+  if (PerfSkip(kSkipPixelShaders)) {
+    state.pixel_module = VK_NULL_HANDLE;
+  }
   const VkPipelineLayout layout = pipelines_->Layout(vs_textures, vs_samplers, ps_textures, ps_samplers);
   const VkPipeline pipeline = pipelines_->Get(state, layout);
   if (pipeline == VK_NULL_HANDLE) {
@@ -528,7 +561,8 @@ NativeRenderer::DrawResult NativeRenderer::RecordDraw(const RegisterFile& regs) 
   const VkCommandBuffer cmd = submissions_->main();
   if (targets_->Begins(targets)) {
     targets_->End(cmd);
-    submissions_->Mark(GpuCategory::kDraws, PassId(targets));
+    current_pass_ = PassId(targets);
+    submissions_->Mark(GpuCategory::kDraws, LabelId(current_pass_, nullptr, nullptr));
   }
   targets_->Begin(cmd, targets);
   if (!targets_->rendering()) {
@@ -537,10 +571,11 @@ NativeRenderer::DrawResult NativeRenderer::RecordDraw(const RegisterFile& regs) 
   }
   const auto& dfn = device_->functions();
   dfn.vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+  submissions_->Mark(GpuCategory::kDraws, LabelId(current_pass_, prepared->pixel_shader, prepared->pixel));
   const std::array<VkDescriptorSet, 4> sets = {shared_set_, submissions_->constants_set(), vs_set, ps_set};
   dfn.vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0, uint32_t(sets.size()), sets.data(),
                               uint32_t(offsets.size()), offsets.data());
-  SetDynamicState(regs, viewport, targets.scale, polygonal);
+  TrackDrawTiles(targets, SetDynamicState(regs, viewport, targets.scale, polygonal));
   switch (draw.index_source) {
     case IndexSource::kGuestDma:
       dfn.vkCmdBindIndexBuffer(cmd, mirror_->buffer(), draw.guest_index_address,
@@ -580,7 +615,9 @@ void NativeRenderer::Resolve(const RegisterFile& regs) {
   ScopedMicros timer(stats_.us_resolves);
   targets_->End(submissions_->main());
   submissions_->Mark(GpuCategory::kResolves);
-  resolves_->Resolve(submissions_->main(), PlanResolve(info, regs), submissions_->current());
+  const ResolvePlan plan = PlanResolve(info, regs);
+  TrackResolveTiles(plan);
+  resolves_->Resolve(submissions_->main(), plan, submissions_->current());
 }
 
 void NativeRenderer::PresentInto(VkCommandBuffer cmd, VkImage output, VkImageView output_view, bool written_before,
@@ -765,6 +802,89 @@ uint16_t NativeRenderer::PassId(const TargetSet& set) {
   return it->second;
 }
 
+uint16_t NativeRenderer::LabelId(uint16_t pass, const vulkan::VulkanShader* pixel_shader,
+                                 const vulkan::VulkanShader::VulkanTranslation* pixel) {
+  const uint64_t hash = pixel_shader ? pixel_shader->ucode_data_hash() | 1 : 0;
+  const uint64_t key = (uint64_t(pass) << 48) ^ (hash & 0xFFFFFFFFFFFFull);
+  auto [it, inserted] = label_ids_.try_emplace(key, uint16_t(label_pass_.size()));
+  if (inserted) {
+    label_pass_.push_back(pass);
+    label_shader_.push_back(pixel_shader ? fmt::format("ps {:016X} ({} ucode dwords, {} spirv words)", hash,
+                                                       pixel_shader->ucode_dword_count(),
+                                                       pixel ? pixel->translated_binary().size() / 4 : 0)
+                                         : std::string());
+  }
+  return it->second;
+}
+
+uint32_t NativeRenderer::OwnerId(const TargetKey& key) {
+  auto [it, inserted] = owner_ids_.try_emplace(key, uint32_t(owner_names_.size()));
+  if (inserted) {
+    owner_names_.push_back(fmt::format("{} {:X} w{} f{}", key.is_depth ? "d" : "c", key.base_tiles,
+                                       ExtentFor(key).width, key.format));
+  }
+  return it->second;
+}
+
+void NativeRenderer::NoteForeignTiles(const char* what, uint32_t owner, uint32_t foreign, uint32_t x0, uint32_t y0,
+                                      uint32_t x1, uint32_t y1, uint64_t& counter) {
+  ++counter;
+  if (logged_foreign_.size() >= kLoggedForeignPairs || !logged_foreign_.insert({owner, foreign}).second) {
+    return;
+  }
+  REXLOG_INFO("[native] edram: {} [{}] at {},{}-{},{} touches tiles last written through [{}]", what,
+              owner_names_[owner], x0, y0, x1, y1, owner_names_[foreign]);
+}
+
+void NativeRenderer::TrackDrawTiles(const TargetSet& set, const VkRect2D& rect) {
+  if (current_pass_ == tracked_pass_ && rect.offset.x == tracked_rect_.offset.x &&
+      rect.offset.y == tracked_rect_.offset.y && rect.extent.width == tracked_rect_.extent.width &&
+      rect.extent.height == tracked_rect_.extent.height) {
+    return;
+  }
+  tracked_pass_ = current_pass_;
+  tracked_rect_ = rect;
+  const uint32_t x0 = uint32_t(rect.offset.x);
+  const uint32_t y0 = uint32_t(rect.offset.y);
+  const uint32_t x1 = x0 + rect.extent.width;
+  const uint32_t y1 = std::min(y0 + rect.extent.height, kTrackedRows);
+  auto track = [&](const TargetKey& key) {
+    const uint32_t owner = OwnerId(key);
+    if (const uint32_t foreign = edram_.ForeignOwner(key, x0, y0, x1, y1, owner)) {
+      NoteForeignTiles("draw into", owner, foreign, x0, y0, x1, y1, stats_.edram_foreign_draws);
+    }
+    edram_.Write(key, x0, y0, x1, y1, owner);
+  };
+  for (const auto& key : set.color) {
+    if (key) {
+      track(*key);
+    }
+  }
+  if (set.depth) {
+    track(*set.depth);
+  }
+}
+
+void NativeRenderer::TrackResolveTiles(const ResolvePlan& plan) {
+  tracked_pass_ = 0;
+  const uint32_t x0 = plan.source_x;
+  const uint32_t y0 = plan.source_y;
+  const uint32_t x1 = x0 + plan.source_width;
+  const uint32_t y1 = y0 + plan.source_height;
+  if (plan.copy) {
+    const uint32_t owner = OwnerId(plan.source);
+    if (const uint32_t foreign = edram_.ForeignOwner(plan.source, x0, y0, x1, y1, owner)) {
+      NoteForeignTiles("resolve from", owner, foreign, x0, y0, x1, y1, stats_.edram_foreign_resolves);
+    }
+  }
+  if (plan.clear_color) {
+    edram_.Write(plan.source, x0, y0, x1, y1, OwnerId(plan.source));
+  }
+  if (plan.clear_depth) {
+    edram_.Write(plan.depth_target, x0, y0, x1, y1, OwnerId(plan.depth_target));
+  }
+}
+
 std::string NativeRenderer::Report() {
   if (!valid_) {
     return "[native] renderer disabled";
@@ -801,12 +921,24 @@ std::string NativeRenderer::Report() {
   line += fmt::format("; gpu ms draws {}, resolves {}, uploads {}, present {}", gpu_ms(GpuCategory::kDraws),
                       gpu_ms(GpuCategory::kResolves), gpu_ms(GpuCategory::kUploads), gpu_ms(GpuCategory::kPresent));
   reported_gpu_ns_ = gpu;
-  const std::vector<uint64_t>& passes = submissions_->pass_ns();
-  reported_pass_ns_.resize(passes.size());
+  const std::vector<uint64_t>& labels = submissions_->pass_ns();
+  reported_pass_ns_.resize(labels.size());
+  std::vector<uint64_t> per_pass(pass_names_.size());
+  std::vector<std::pair<uint64_t, size_t>> shaders;
+  for (size_t i = 1; i < labels.size(); ++i) {
+    const uint64_t ns = labels[i] - reported_pass_ns_[i];
+    if (!ns) {
+      continue;
+    }
+    per_pass[label_pass_[i]] += ns;
+    if (!label_shader_[i].empty()) {
+      shaders.emplace_back(ns, i);
+    }
+  }
   std::vector<std::pair<uint64_t, size_t>> heaviest;
-  for (size_t i = 1; i < passes.size(); ++i) {
-    if (passes[i] > reported_pass_ns_[i]) {
-      heaviest.emplace_back(passes[i] - reported_pass_ns_[i], i);
+  for (size_t i = 1; i < per_pass.size(); ++i) {
+    if (per_pass[i]) {
+      heaviest.emplace_back(per_pass[i], i);
     }
   }
   std::sort(heaviest.rbegin(), heaviest.rend());
@@ -818,7 +950,16 @@ std::string NativeRenderer::Report() {
     }
     line.pop_back();
   }
-  reported_pass_ns_ = passes;
+  std::sort(shaders.rbegin(), shaders.rend());
+  shaders.resize(std::min(shaders.size(), kReportedShaders));
+  if (!shaders.empty()) {
+    line += "; gpu shaders:";
+    for (const auto& [ns, id] : shaders) {
+      line += fmt::format(" {} ms [{}] {},", ns / 1000000, pass_names_[label_pass_[id]], label_shader_[id]);
+    }
+    line.pop_back();
+  }
+  reported_pass_ns_ = labels;
   const Textures::Stats& rt = reported_textures_;
   line += fmt::format("; loads new {} ({} MB), changed {} ({} MB), evicted {} ({} MB), {} resolve misses",
                       t.loads[0] - rt.loads[0], (t.load_bytes[0] - rt.load_bytes[0]) >> 20, t.loads[1] - rt.loads[1],
@@ -837,6 +978,8 @@ std::string NativeRenderer::Report() {
     }
     line.pop_back();
   }
+  line += fmt::format("; edram: foreign draws {}, foreign resolves {}", s.edram_foreign_draws - r.edram_foreign_draws,
+                      s.edram_foreign_resolves - r.edram_foreign_resolves);
   line += fmt::format("; {} evictions, {} memory skips, {} releases, {} draw retries, {} skipped after retry, {} staging flushes",
                       t.evictions - rt.evictions, t.memory_failures - rt.memory_failures, t.releases - rt.releases,
                       s.draw_retries - r.draw_retries, s.skipped_retry - r.skipped_retry,

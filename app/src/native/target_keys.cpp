@@ -69,4 +69,38 @@ TargetSet TargetsFor(const RegisterFile& regs, uint32_t normalized_color_mask) {
   return set;
 }
 
+template <typename Visit>
+void EdramOwnership::ForTiles(const TargetKey& key, uint32_t x0, uint32_t y0, uint32_t x1, uint32_t y1, Visit visit) {
+  const uint32_t col_end =
+      std::min((x1 + xenos::kEdramTileWidthSamples - 1) / xenos::kEdramTileWidthSamples, key.pitch_tiles);
+  const uint32_t row_end = (y1 + xenos::kEdramTileHeightSamples - 1) / xenos::kEdramTileHeightSamples;
+  for (uint32_t row = y0 / xenos::kEdramTileHeightSamples; row < row_end; ++row) {
+    for (uint32_t col = x0 / xenos::kEdramTileWidthSamples; col < col_end; ++col) {
+      if (!visit((key.base_tiles + row * key.pitch_tiles + col) % xenos::kEdramTileCount)) {
+        return;
+      }
+    }
+  }
+}
+
+void EdramOwnership::Write(const TargetKey& key, uint32_t x0, uint32_t y0, uint32_t x1, uint32_t y1, uint32_t owner) {
+  ForTiles(key, x0, y0, x1, y1, [&](uint32_t tile) {
+    owners_[tile] = owner;
+    return true;
+  });
+}
+
+uint32_t EdramOwnership::ForeignOwner(const TargetKey& key, uint32_t x0, uint32_t y0, uint32_t x1, uint32_t y1,
+                                      uint32_t owner) const {
+  uint32_t foreign = 0;
+  ForTiles(key, x0, y0, x1, y1, [&](uint32_t tile) {
+    if (owners_[tile] && owners_[tile] != owner) {
+      foreign = owners_[tile];
+      return false;
+    }
+    return true;
+  });
+  return foreign;
+}
+
 }  // namespace nier::native

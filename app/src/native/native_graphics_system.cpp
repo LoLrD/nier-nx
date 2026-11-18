@@ -26,6 +26,7 @@
 
 #include "gpu_progress.h"
 #include "gpu_registers.h"
+#include "perf_modes.h"
 #include "pm4_executor.h"
 #include "pm4_reader.h"
 #include "ring_state.h"
@@ -101,6 +102,7 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem, private 
       const auto* device = static_cast<rex::ui::vulkan::VulkanProvider*>(provider_.get())->vulkan_device();
       shaders_ = std::make_unique<NativeShaders>(device);
       renderer_ = std::make_unique<NativeRenderer>(device, memory_, *shaders_, registers_);
+      InstallPerfModes();
       if (const std::string dir = REXCVAR_GET(nier_frame_dump_dir); !dir.empty()) {
         renderer_->SetFrameDump(dir, uint32_t(std::max(1, REXCVAR_GET(nier_frame_dump_interval))));
       }

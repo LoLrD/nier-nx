@@ -43,4 +43,17 @@ SampleScale ScaleFor(rex::graphics::xenos::MsaaSamples msaa);
 TargetExtent ExtentFor(const TargetKey& key);
 TargetSet TargetsFor(const rex::graphics::RegisterFile& regs, uint32_t normalized_color_mask);
 
+class EdramOwnership {
+ public:
+  void Write(const TargetKey& key, uint32_t x0, uint32_t y0, uint32_t x1, uint32_t y1, uint32_t owner);
+  uint32_t ForeignOwner(const TargetKey& key, uint32_t x0, uint32_t y0, uint32_t x1, uint32_t y1,
+                        uint32_t owner) const;
+
+ private:
+  template <typename Visit>
+  static void ForTiles(const TargetKey& key, uint32_t x0, uint32_t y0, uint32_t x1, uint32_t y1, Visit visit);
+
+  std::array<uint32_t, rex::graphics::xenos::kEdramTileCount> owners_{};
+};
+
 }  // namespace nier::native

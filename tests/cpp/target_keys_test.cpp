@@ -8,6 +8,7 @@
 #include "target_keys.h"
 
 using namespace rex::graphics;
+using nier::native::EdramOwnership;
 using nier::native::ExtentFor;
 using nier::native::TargetKey;
 using nier::native::TargetsFor;
@@ -91,6 +92,23 @@ int main() {
     TargetKey narrow{0, 1, false, 0};
     Check(extent.width == 1280 && extent.height == 2048, "extent_from_pitch");
     Check(ExtentFor(narrow).width == 80 && ExtentFor(narrow).height == 8192, "extent_clamped_to_8192");
+  }
+  {
+    EdramOwnership edram;
+    const TargetKey scene{0xB8, 8, false, 0};
+    const TargetKey post{0x2D0, 16, false, 0};
+    edram.Write(scene, 0, 0, 640, 368, 1);
+    Check(edram.ForeignOwner(scene, 0, 0, 640, 368, 1) == 0, "own_tiles_are_not_foreign");
+    Check(edram.ForeignOwner(post, 0, 0, 1280, 720, 2) == 0, "disjoint_tiles_are_not_foreign");
+    const TargetKey overlap{0xB8, 16, false, 0};
+    Check(edram.ForeignOwner(overlap, 0, 0, 1280, 16, 3) == 1, "overlapping_tiles_written_by_another_target");
+    edram.Write(overlap, 0, 0, 1280, 16, 3);
+    Check(edram.ForeignOwner(scene, 0, 0, 640, 368, 1) == 3, "later_write_through_another_target_makes_tiles_foreign");
+    Check(edram.ForeignOwner(scene, 0, 32, 640, 368, 1) == 0, "rows_below_the_overwrite_stay_owned");
+    const TargetKey wrapping{2040, 16, false, 0};
+    edram.Write(wrapping, 0, 0, 1280, 16, 4);
+    Check(edram.ForeignOwner(TargetKey{0, 8, false, 0}, 0, 0, 640, 16, 5) == 4, "tiles_wrap_at_the_end_of_edram");
+    Check(edram.ForeignOwner(scene, 0, 0, 0, 0, 1) == 0, "empty_rect_has_no_tiles");
   }
   return failures ? 1 : 0;
 }
