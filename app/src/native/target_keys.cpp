@@ -90,17 +90,28 @@ void EdramOwnership::Write(const TargetKey& key, uint32_t x0, uint32_t y0, uint3
   });
 }
 
-uint32_t EdramOwnership::ForeignOwner(const TargetKey& key, uint32_t x0, uint32_t y0, uint32_t x1, uint32_t y1,
-                                      uint32_t owner) const {
-  uint32_t foreign = 0;
+std::vector<ForeignTile> EdramOwnership::ForeignTiles(const TargetKey& key, uint32_t x0, uint32_t y0, uint32_t x1,
+                                                      uint32_t y1, uint32_t owner) const {
+  std::vector<ForeignTile> foreign;
   ForTiles(key, x0, y0, x1, y1, [&](uint32_t tile) {
     if (owners_[tile] && owners_[tile] != owner) {
-      foreign = owners_[tile];
-      return false;
+      foreign.push_back({tile, owners_[tile]});
     }
     return true;
   });
   return foreign;
+}
+
+TargetPoint TilePosition(const TargetKey& key, uint32_t tile) {
+  const uint32_t offset =
+      (tile + xenos::kEdramTileCount - key.base_tiles % xenos::kEdramTileCount) % xenos::kEdramTileCount;
+  return {(offset % key.pitch_tiles) * xenos::kEdramTileWidthSamples,
+          (offset / key.pitch_tiles) * xenos::kEdramTileHeightSamples};
+}
+
+uint32_t AssumedHeight(uint32_t width_samples) {
+  const uint32_t rows = width_samples * 9 / 16;
+  return (rows + xenos::kEdramTileHeightSamples - 1) / xenos::kEdramTileHeightSamples * xenos::kEdramTileHeightSamples;
 }
 
 }  // namespace nier::native

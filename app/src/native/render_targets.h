@@ -3,7 +3,10 @@
 #include <array>
 #include <cstdint>
 #include <optional>
+#include <set>
 #include <unordered_map>
+#include <utility>
+#include <vector>
 
 #include <rex/ui/vulkan/api.h>
 
@@ -25,6 +28,13 @@ class RenderTargets {
     VkFormat format = VK_FORMAT_UNDEFINED;
     TargetExtent extent{};
     VkDeviceSize bytes = 0;
+    uint32_t owner = 0;
+  };
+  struct Stats {
+    uint64_t transfers = 0;
+    uint64_t transfer_tiles = 0;
+    uint64_t transfer_regions = 0;
+    uint64_t incompatible_tiles = 0;
   };
 
   explicit RenderTargets(const rex::ui::vulkan::VulkanDevice* device);
@@ -38,8 +48,10 @@ class RenderTargets {
   uint64_t bytes() const { return bytes_; }
   bool rendering() const { return rendering_; }
   VkExtent2D render_area() const { return render_area_; }
+  const Stats& stats() const { return stats_; }
 
   Target* Get(VkCommandBuffer command_buffer, const TargetKey& key);
+  void Claim(VkCommandBuffer command_buffer, const TargetKey& key, uint32_t x0, uint32_t y0, uint32_t x1, uint32_t y1);
   bool Begins(const TargetSet& set) const;
   void Begin(VkCommandBuffer command_buffer, const TargetSet& set);
   void End(VkCommandBuffer command_buffer);
@@ -55,6 +67,8 @@ class RenderTargets {
   };
 
   void BeginRendering(VkCommandBuffer command_buffer, const Bound& bound);
+  void Discard(const TargetKey& key, const VkRect2D& rect);
+  void NoteIncompatible(uint32_t owner, uint32_t foreign);
 
   const rex::ui::vulkan::VulkanDevice* device_;
   VkFormat depth_format_;
@@ -63,6 +77,10 @@ class RenderTargets {
   VkExtent2D render_area_{};
   uint64_t bytes_ = 0;
   Bound bound_;
+  EdramOwnership edram_;
+  std::vector<TargetKey> owner_keys_{TargetKey{}};
+  std::set<std::pair<uint32_t, uint32_t>> logged_incompatible_;
+  Stats stats_;
 };
 
 void FullBarrier(const rex::ui::vulkan::VulkanDevice* device, VkCommandBuffer command_buffer);

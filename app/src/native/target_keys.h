@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <vector>
 
 #include <rex/graphics/register_file.h>
 #include <rex/graphics/xenos.h>
@@ -43,11 +44,26 @@ SampleScale ScaleFor(rex::graphics::xenos::MsaaSamples msaa);
 TargetExtent ExtentFor(const TargetKey& key);
 TargetSet TargetsFor(const rex::graphics::RegisterFile& regs, uint32_t normalized_color_mask);
 
+struct ForeignTile {
+  uint32_t tile;
+  uint32_t owner;
+
+  bool operator==(const ForeignTile&) const = default;
+};
+
+struct TargetPoint {
+  uint32_t x;
+  uint32_t y;
+};
+
+TargetPoint TilePosition(const TargetKey& key, uint32_t tile);
+uint32_t AssumedHeight(uint32_t width_samples);
+
 class EdramOwnership {
  public:
   void Write(const TargetKey& key, uint32_t x0, uint32_t y0, uint32_t x1, uint32_t y1, uint32_t owner);
-  uint32_t ForeignOwner(const TargetKey& key, uint32_t x0, uint32_t y0, uint32_t x1, uint32_t y1,
-                        uint32_t owner) const;
+  std::vector<ForeignTile> ForeignTiles(const TargetKey& key, uint32_t x0, uint32_t y0, uint32_t x1, uint32_t y1,
+                                        uint32_t owner) const;
 
  private:
   template <typename Visit>

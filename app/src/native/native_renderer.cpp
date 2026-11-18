@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
-#include <cmath>
 #include <cstring>
 #include <fstream>
 #include <utility>
@@ -95,26 +94,11 @@ constexpr uint64_t kEvictionPeriodMs = 1000;
 constexpr uint64_t kUnusedSeconds = 10;
 constexpr size_t kReportedPasses = 8;
 constexpr size_t kReportedShaders = 10;
-constexpr size_t kLoggedForeignPairs = 40;
-constexpr uint32_t kTrackedRows = 720;
 
 uint64_t NowMs() {
   return uint64_t(std::chrono::duration_cast<std::chrono::milliseconds>(
                       std::chrono::steady_clock::now().time_since_epoch())
                       .count());
-}
-
-VkRect2D ClipToViewport(const VkRect2D& rect, const VkViewport& viewport) {
-  const float top = std::min(viewport.y, viewport.y + viewport.height);
-  const float bottom = std::max(viewport.y, viewport.y + viewport.height);
-  const int32_t x0 = std::max(rect.offset.x, int32_t(std::floor(viewport.x)));
-  const int32_t y0 = std::max(rect.offset.y, int32_t(std::floor(top)));
-  const int32_t x1 = std::min(rect.offset.x + int32_t(rect.extent.width), int32_t(std::ceil(viewport.x + viewport.width)));
-  const int32_t y1 = std::min(rect.offset.y + int32_t(rect.extent.height), int32_t(std::ceil(bottom)));
-  if (x1 <= x0 || y1 <= y0) {
-    return {{rect.offset.x, rect.offset.y}, {0, 0}};
-  }
-  return {{x0, y0}, {uint32_t(x1 - x0), uint32_t(y1 - y0)}};
 }
 
 }  // namespace
@@ -360,7 +344,7 @@ VkDescriptorSet NativeRenderer::BindTextures(const RegisterFile& regs, const Spi
   return set;
 }
 
-VkRect2D NativeRenderer::SetDynamicState(const RegisterFile& regs, const draw_util::ViewportInfo& viewport_info,
+void NativeRenderer::SetDynamicState(const RegisterFile& regs, const draw_util::ViewportInfo& viewport_info,
                                      const SampleScale& scale, bool polygonal) {
   const auto& dfn = device_->functions();
   const VkCommandBuffer cmd = submissions_->main();
@@ -381,8 +365,6 @@ VkRect2D NativeRenderer::SetDynamicState(const RegisterFile& regs, const draw_ut
                       {std::min(scissor.extent[0] * scale.x, area.width - left),
                        std::min(scissor.extent[1] * scale.y, area.height - top)}};
   VkRect2D host_rect = rect;
-  const bool has_viewport = viewport_info.xy_extent[0] && viewport_info.xy_extent[1];
-  const VkRect2D drawn = has_viewport ? ClipToViewport(rect, viewport) : rect;
   if (PerfSkip(kSkipPixels)) {
     host_rect.extent = {0, 0};
   } else if (PerfSkip(kQuarterScreen)) {
@@ -411,7 +393,6 @@ VkRect2D NativeRenderer::SetDynamicState(const RegisterFile& regs, const draw_ut
   dfn.vkCmdSetStencilWriteMask(cmd, VK_STENCIL_FACE_BACK_BIT, back.stencilwritemask);
   dfn.vkCmdSetStencilReference(cmd, VK_STENCIL_FACE_FRONT_BIT, front.stencilref);
   dfn.vkCmdSetStencilReference(cmd, VK_STENCIL_FACE_BACK_BIT, back.stencilref);
-  return drawn;
 }
 
 void NativeRenderer::Draw(const RegisterFile& regs) {
@@ -575,7 +556,7 @@ NativeRenderer::DrawResult NativeRenderer::RecordDraw(const RegisterFile& regs) 
   const std::array<VkDescriptorSet, 4> sets = {shared_set_, submissions_->constants_set(), vs_set, ps_set};
   dfn.vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0, uint32_t(sets.size()), sets.data(),
                               uint32_t(offsets.size()), offsets.data());
-  TrackDrawTiles(targets, SetDynamicState(regs, viewport, targets.scale, polygonal));
+  SetDynamicState(regs, viewport, targets.scale, polygonal);
   switch (draw.index_source) {
     case IndexSource::kGuestDma:
       dfn.vkCmdBindIndexBuffer(cmd, mirror_->buffer(), draw.guest_index_address,
@@ -615,9 +596,7 @@ void NativeRenderer::Resolve(const RegisterFile& regs) {
   ScopedMicros timer(stats_.us_resolves);
   targets_->End(submissions_->main());
   submissions_->Mark(GpuCategory::kResolves);
-  const ResolvePlan plan = PlanResolve(info, regs);
-  TrackResolveTiles(plan);
-  resolves_->Resolve(submissions_->main(), plan, submissions_->current());
+  resolves_->Resolve(submissions_->main(), PlanResolve(info, regs), submissions_->current());
 }
 
 void NativeRenderer::PresentInto(VkCommandBuffer cmd, VkImage output, VkImageView output_view, bool written_before,
@@ -817,74 +796,6 @@ uint16_t NativeRenderer::LabelId(uint16_t pass, const vulkan::VulkanShader* pixe
   return it->second;
 }
 
-uint32_t NativeRenderer::OwnerId(const TargetKey& key) {
-  auto [it, inserted] = owner_ids_.try_emplace(key, uint32_t(owner_names_.size()));
-  if (inserted) {
-    owner_names_.push_back(fmt::format("{} {:X} w{} f{}", key.is_depth ? "d" : "c", key.base_tiles,
-                                       ExtentFor(key).width, key.format));
-  }
-  return it->second;
-}
-
-void NativeRenderer::NoteForeignTiles(const char* what, uint32_t owner, uint32_t foreign, uint32_t x0, uint32_t y0,
-                                      uint32_t x1, uint32_t y1, uint64_t& counter) {
-  ++counter;
-  if (logged_foreign_.size() >= kLoggedForeignPairs || !logged_foreign_.insert({owner, foreign}).second) {
-    return;
-  }
-  REXLOG_INFO("[native] edram: {} [{}] at {},{}-{},{} touches tiles last written through [{}]", what,
-              owner_names_[owner], x0, y0, x1, y1, owner_names_[foreign]);
-}
-
-void NativeRenderer::TrackDrawTiles(const TargetSet& set, const VkRect2D& rect) {
-  if (current_pass_ == tracked_pass_ && rect.offset.x == tracked_rect_.offset.x &&
-      rect.offset.y == tracked_rect_.offset.y && rect.extent.width == tracked_rect_.extent.width &&
-      rect.extent.height == tracked_rect_.extent.height) {
-    return;
-  }
-  tracked_pass_ = current_pass_;
-  tracked_rect_ = rect;
-  const uint32_t x0 = uint32_t(rect.offset.x);
-  const uint32_t y0 = uint32_t(rect.offset.y);
-  const uint32_t x1 = x0 + rect.extent.width;
-  const uint32_t y1 = std::min(y0 + rect.extent.height, kTrackedRows);
-  auto track = [&](const TargetKey& key) {
-    const uint32_t owner = OwnerId(key);
-    if (const uint32_t foreign = edram_.ForeignOwner(key, x0, y0, x1, y1, owner)) {
-      NoteForeignTiles("draw into", owner, foreign, x0, y0, x1, y1, stats_.edram_foreign_draws);
-    }
-    edram_.Write(key, x0, y0, x1, y1, owner);
-  };
-  for (const auto& key : set.color) {
-    if (key) {
-      track(*key);
-    }
-  }
-  if (set.depth) {
-    track(*set.depth);
-  }
-}
-
-void NativeRenderer::TrackResolveTiles(const ResolvePlan& plan) {
-  tracked_pass_ = 0;
-  const uint32_t x0 = plan.source_x;
-  const uint32_t y0 = plan.source_y;
-  const uint32_t x1 = x0 + plan.source_width;
-  const uint32_t y1 = y0 + plan.source_height;
-  if (plan.copy) {
-    const uint32_t owner = OwnerId(plan.source);
-    if (const uint32_t foreign = edram_.ForeignOwner(plan.source, x0, y0, x1, y1, owner)) {
-      NoteForeignTiles("resolve from", owner, foreign, x0, y0, x1, y1, stats_.edram_foreign_resolves);
-    }
-  }
-  if (plan.clear_color) {
-    edram_.Write(plan.source, x0, y0, x1, y1, OwnerId(plan.source));
-  }
-  if (plan.clear_depth) {
-    edram_.Write(plan.depth_target, x0, y0, x1, y1, OwnerId(plan.depth_target));
-  }
-}
-
 std::string NativeRenderer::Report() {
   if (!valid_) {
     return "[native] renderer disabled";
@@ -978,8 +889,12 @@ std::string NativeRenderer::Report() {
     }
     line.pop_back();
   }
-  line += fmt::format("; edram: foreign draws {}, foreign resolves {}", s.edram_foreign_draws - r.edram_foreign_draws,
-                      s.edram_foreign_resolves - r.edram_foreign_resolves);
+  const RenderTargets::Stats& e = targets_->stats();
+  line += fmt::format("; edram transfers {} ({} tiles in {} regions), {} incompatible tiles",
+                      e.transfers - reported_targets_.transfers, e.transfer_tiles - reported_targets_.transfer_tiles,
+                      e.transfer_regions - reported_targets_.transfer_regions,
+                      e.incompatible_tiles - reported_targets_.incompatible_tiles);
+  reported_targets_ = e;
   line += fmt::format("; {} evictions, {} memory skips, {} releases, {} draw retries, {} skipped after retry, {} staging flushes",
                       t.evictions - rt.evictions, t.memory_failures - rt.memory_failures, t.releases - rt.releases,
                       s.draw_retries - r.draw_retries, s.skipped_retry - r.skipped_retry,

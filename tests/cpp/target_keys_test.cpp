@@ -8,7 +8,11 @@
 #include "target_keys.h"
 
 using namespace rex::graphics;
+using nier::native::AssumedHeight;
 using nier::native::EdramOwnership;
+using nier::native::ForeignTile;
+using nier::native::TargetPoint;
+using nier::native::TilePosition;
 using nier::native::ExtentFor;
 using nier::native::TargetKey;
 using nier::native::TargetsFor;
@@ -98,17 +102,35 @@ int main() {
     const TargetKey scene{0xB8, 8, false, 0};
     const TargetKey post{0x2D0, 16, false, 0};
     edram.Write(scene, 0, 0, 640, 368, 1);
-    Check(edram.ForeignOwner(scene, 0, 0, 640, 368, 1) == 0, "own_tiles_are_not_foreign");
-    Check(edram.ForeignOwner(post, 0, 0, 1280, 720, 2) == 0, "disjoint_tiles_are_not_foreign");
+    Check(edram.ForeignTiles(scene, 0, 0, 640, 368, 1).empty(), "own_tiles_are_not_foreign");
+    Check(edram.ForeignTiles(post, 0, 0, 1280, 720, 2).empty(), "disjoint_tiles_are_not_foreign");
     const TargetKey overlap{0xB8, 16, false, 0};
-    Check(edram.ForeignOwner(overlap, 0, 0, 1280, 16, 3) == 1, "overlapping_tiles_written_by_another_target");
+    const auto first_row = edram.ForeignTiles(overlap, 0, 0, 1280, 16, 3);
+    Check(first_row.size() == 16 && first_row.front() == ForeignTile{0xB8, 1} &&
+              first_row.back() == ForeignTile{0xB8 + 15, 1},
+          "overlapping_tiles_listed_with_their_owner");
     edram.Write(overlap, 0, 0, 1280, 16, 3);
-    Check(edram.ForeignOwner(scene, 0, 0, 640, 368, 1) == 3, "later_write_through_another_target_makes_tiles_foreign");
-    Check(edram.ForeignOwner(scene, 0, 32, 640, 368, 1) == 0, "rows_below_the_overwrite_stay_owned");
+    const auto rewritten = edram.ForeignTiles(scene, 0, 0, 640, 368, 1);
+    Check(rewritten.size() == 16 && rewritten.front().owner == 3,
+          "later_write_through_another_target_makes_tiles_foreign");
+    Check(edram.ForeignTiles(scene, 0, 32, 640, 368, 1).empty(), "rows_below_the_overwrite_stay_owned");
     const TargetKey wrapping{2040, 16, false, 0};
     edram.Write(wrapping, 0, 0, 1280, 16, 4);
-    Check(edram.ForeignOwner(TargetKey{0, 8, false, 0}, 0, 0, 640, 16, 5) == 4, "tiles_wrap_at_the_end_of_edram");
-    Check(edram.ForeignOwner(scene, 0, 0, 0, 0, 1) == 0, "empty_rect_has_no_tiles");
+    const auto wrapped = edram.ForeignTiles(TargetKey{0, 8, false, 0}, 0, 0, 640, 16, 5);
+    Check(wrapped.size() == 8 && wrapped.front() == ForeignTile{0, 4}, "tiles_wrap_at_the_end_of_edram");
+    Check(edram.ForeignTiles(scene, 0, 0, 0, 0, 1).empty(), "empty_rect_has_no_tiles");
+  }
+  {
+    const TargetKey post{0x2D0, 16, false, 0};
+    const TargetPoint inside = TilePosition(post, 0x2D0 + 16 * 2 + 3);
+    const TargetPoint wrapped = TilePosition(TargetKey{2040, 16, false, 0}, 5);
+    Check(inside.x == 3 * 80 && inside.y == 2 * 16 && wrapped.x == 13 * 80 && wrapped.y == 0,
+          "tile_position_inside_a_target");
+  }
+  {
+    Check(AssumedHeight(1280) == 720 && AssumedHeight(640) == 368 && AssumedHeight(1040) == 592 &&
+              AssumedHeight(800) == 464 && AssumedHeight(80) == 48,
+          "assumed_height_is_sixteen_by_nine_rounded_to_tiles");
   }
   return failures ? 1 : 0;
 }

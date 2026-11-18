@@ -4,10 +4,8 @@
 #include <cstdint>
 #include <deque>
 #include <memory>
-#include <set>
 #include <string>
 #include <unordered_map>
-#include <utility>
 #include <vector>
 
 #include <rex/graphics/register_file.h>
@@ -69,8 +67,6 @@ class NativeRenderer {
     uint64_t us_gpu_wait = 0;
     uint64_t us_resolves = 0;
     uint64_t us_present = 0;
-    uint64_t edram_foreign_draws = 0;
-    uint64_t edram_foreign_resolves = 0;
   };
 
   NativeRenderer(const rex::ui::vulkan::VulkanDevice* device, rex::memory::Memory* memory, NativeShaders& shaders,
@@ -101,11 +97,6 @@ class NativeRenderer {
   uint16_t PassId(const TargetSet& set);
   uint16_t LabelId(uint16_t pass, const rex::graphics::vulkan::VulkanShader* pixel_shader,
                    const rex::graphics::vulkan::VulkanShader::VulkanTranslation* pixel);
-  uint32_t OwnerId(const TargetKey& key);
-  void TrackDrawTiles(const TargetSet& set, const VkRect2D& rect);
-  void TrackResolveTiles(const ResolvePlan& plan);
-  void NoteForeignTiles(const char* what, uint32_t owner, uint32_t foreign, uint32_t x0, uint32_t y0, uint32_t x1,
-                        uint32_t y1, uint64_t& counter);
   void ReleaseMemory();
   void BeginSubmission();
   void Flush();
@@ -115,7 +106,7 @@ class NativeRenderer {
   VkDescriptorSet BindTextures(const rex::graphics::RegisterFile& regs, const rex::graphics::SpirvShader& shader,
                                bool pixel, TextureConstantInfo& info, uint32_t& textures, uint32_t& samplers,
                                bool& out_of_memory);
-  VkRect2D SetDynamicState(const rex::graphics::RegisterFile& regs, const rex::graphics::draw_util::ViewportInfo& viewport,
+  void SetDynamicState(const rex::graphics::RegisterFile& regs, const rex::graphics::draw_util::ViewportInfo& viewport,
                        const SampleScale& scale, bool polygonal);
   void DumpFrame(uint32_t frontbuffer, uint32_t width, uint32_t height);
   void PresentInto(VkCommandBuffer command_buffer, VkImage output, VkImageView output_view, bool written_before,
@@ -166,12 +157,7 @@ class NativeRenderer {
   std::vector<uint16_t> label_pass_{0};
   std::vector<std::string> label_shader_{std::string()};
   uint16_t current_pass_ = 0;
-  EdramOwnership edram_;
-  std::unordered_map<TargetKey, uint32_t, TargetKeyHash> owner_ids_;
-  std::vector<std::string> owner_names_{std::string()};
-  std::set<std::pair<uint32_t, uint32_t>> logged_foreign_;
-  uint16_t tracked_pass_ = 0;
-  VkRect2D tracked_rect_{};
+  RenderTargets::Stats reported_targets_;
 };
 
 }  // namespace nier::native

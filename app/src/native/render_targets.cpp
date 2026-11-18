@@ -2,6 +2,9 @@
 
 #include <algorithm>
 #include <array>
+#include <unordered_map>
+
+#include <fmt/format.h>
 
 #include <rex/logging.h>
 #include <rex/ui/vulkan/device.h>
@@ -11,10 +14,13 @@
 namespace nier::native {
 
 namespace vk = rex::ui::vulkan;
+namespace xenos = rex::graphics::xenos;
 using rex::graphics::xenos::ColorRenderTargetFormat;
 using rex::graphics::xenos::DepthRenderTargetFormat;
 
 namespace {
+
+constexpr size_t kLoggedIncompatiblePairs = 20;
 
 VkFormat ChooseDepthFormat(const vk::VulkanDevice* device) {
   VkFormatProperties properties{};
@@ -89,6 +95,8 @@ RenderTargets::Target* RenderTargets::Get(VkCommandBuffer command_buffer, const 
     return nullptr;
   }
   bytes_ += target.bytes;
+  target.owner = uint32_t(owner_keys_.size());
+  owner_keys_.push_back(key);
   const VkImageAspectFlags aspects =
       key.is_depth ? VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
   VkImageViewCreateInfo view{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
@@ -150,6 +158,16 @@ void RenderTargets::BeginRendering(VkCommandBuffer command_buffer, const Bound& 
   }
   Target* depth = bound.depth ? Get(command_buffer, *bound.depth) : nullptr;
   for (uint32_t i = 0; i < 4; ++i) {
+    if (const Target* target = color_targets[i]) {
+      Claim(command_buffer, *bound.color[i], 0, 0, target->extent.width,
+            std::min(target->extent.height, AssumedHeight(target->extent.width)));
+    }
+  }
+  if (depth) {
+    Claim(command_buffer, *bound.depth, 0, 0, depth->extent.width,
+          std::min(depth->extent.height, AssumedHeight(depth->extent.width)));
+  }
+  for (uint32_t i = 0; i < 4; ++i) {
     colors[i] = {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR};
     colors[i].imageLayout = VK_IMAGE_LAYOUT_GENERAL;
     colors[i].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
@@ -201,6 +219,7 @@ void RenderTargets::ClearColor(VkCommandBuffer command_buffer, const TargetKey& 
     return;
   }
   End(command_buffer);
+  Discard(key, rect);
   Bound bound{};
   bound.color[0] = key;
   BeginRendering(command_buffer, bound);
@@ -217,6 +236,7 @@ void RenderTargets::ClearDepth(VkCommandBuffer command_buffer, const TargetKey& 
     return;
   }
   End(command_buffer);
+  Discard(key, rect);
   Bound bound{};
   bound.depth = key;
   BeginRendering(command_buffer, bound);
@@ -225,6 +245,95 @@ void RenderTargets::ClearDepth(VkCommandBuffer command_buffer, const TargetKey& 
   const VkClearRect clear_rect{rect, 0, 1};
   device_->functions().vkCmdClearAttachments(command_buffer, 1, &clear, 1, &clear_rect);
   End(command_buffer);
+}
+
+void RenderTargets::Claim(VkCommandBuffer command_buffer, const TargetKey& key, uint32_t x0, uint32_t y0, uint32_t x1,
+                          uint32_t y1) {
+  Target* target = Get(command_buffer, key);
+  if (!target) {
+    return;
+  }
+  const VkImageAspectFlags aspects =
+      key.is_depth ? VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+  std::unordered_map<uint32_t, std::vector<VkImageCopy>> copies;
+  for (const ForeignTile& foreign : edram_.ForeignTiles(key, x0, y0, x1, y1, target->owner)) {
+    const TargetKey& source_key = owner_keys_[foreign.owner];
+    if (source_key.is_depth != key.is_depth || source_key.format != key.format) {
+      ++stats_.incompatible_tiles;
+      NoteIncompatible(target->owner, foreign.owner);
+      continue;
+    }
+    const auto source = targets_.find(source_key);
+    if (source == targets_.end()) {
+      continue;
+    }
+    const TargetPoint from = TilePosition(source_key, foreign.tile);
+    const TargetPoint to = TilePosition(key, foreign.tile);
+    if (from.y + xenos::kEdramTileHeightSamples > source->second.extent.height ||
+        to.y + xenos::kEdramTileHeightSamples > target->extent.height) {
+      continue;
+    }
+    std::vector<VkImageCopy>& regions = copies[foreign.owner];
+    if (!regions.empty()) {
+      VkImageCopy& last = regions.back();
+      if (last.srcOffset.y == int32_t(from.y) && last.dstOffset.y == int32_t(to.y) &&
+          last.srcOffset.x + int32_t(last.extent.width) == int32_t(from.x) &&
+          last.dstOffset.x + int32_t(last.extent.width) == int32_t(to.x)) {
+        last.extent.width += xenos::kEdramTileWidthSamples;
+        ++stats_.transfer_tiles;
+        continue;
+      }
+    }
+    VkImageCopy region{};
+    region.srcSubresource = {aspects, 0, 0, 1};
+    region.dstSubresource = {aspects, 0, 0, 1};
+    region.srcOffset = {int32_t(from.x), int32_t(from.y), 0};
+    region.dstOffset = {int32_t(to.x), int32_t(to.y), 0};
+    region.extent = {xenos::kEdramTileWidthSamples, xenos::kEdramTileHeightSamples, 1};
+    regions.push_back(region);
+    ++stats_.transfer_tiles;
+  }
+  if (!copies.empty()) {
+    FullBarrier(device_, command_buffer);
+    for (const auto& [owner, regions] : copies) {
+      device_->functions().vkCmdCopyImage(command_buffer, targets_.find(owner_keys_[owner])->second.image,
+                                          VK_IMAGE_LAYOUT_GENERAL, target->image, VK_IMAGE_LAYOUT_GENERAL,
+                                          uint32_t(regions.size()), regions.data());
+      stats_.transfer_regions += regions.size();
+    }
+    ++stats_.transfers;
+    FullBarrier(device_, command_buffer);
+  }
+  edram_.Write(key, x0, y0, x1, y1, target->owner);
+}
+
+void RenderTargets::Discard(const TargetKey& key, const VkRect2D& rect) {
+  const auto it = targets_.find(key);
+  if (it == targets_.end()) {
+    return;
+  }
+  const uint32_t x0 = (uint32_t(rect.offset.x) + xenos::kEdramTileWidthSamples - 1) / xenos::kEdramTileWidthSamples *
+                      xenos::kEdramTileWidthSamples;
+  const uint32_t y0 = (uint32_t(rect.offset.y) + xenos::kEdramTileHeightSamples - 1) /
+                      xenos::kEdramTileHeightSamples * xenos::kEdramTileHeightSamples;
+  const uint32_t x1 = (uint32_t(rect.offset.x) + rect.extent.width) / xenos::kEdramTileWidthSamples *
+                      xenos::kEdramTileWidthSamples;
+  const uint32_t y1 = (uint32_t(rect.offset.y) + rect.extent.height) / xenos::kEdramTileHeightSamples *
+                      xenos::kEdramTileHeightSamples;
+  if (x1 > x0 && y1 > y0) {
+    edram_.Write(key, x0, y0, x1, y1, it->second.owner);
+  }
+}
+
+void RenderTargets::NoteIncompatible(uint32_t owner, uint32_t foreign) {
+  if (logged_incompatible_.size() >= kLoggedIncompatiblePairs || !logged_incompatible_.insert({owner, foreign}).second) {
+    return;
+  }
+  auto describe = [](const TargetKey& key) {
+    return fmt::format("{} {:X} w{} f{}", key.is_depth ? "d" : "c", key.base_tiles, ExtentFor(key).width, key.format);
+  };
+  REXLOG_INFO("[native] edram: [{}] uses tiles last written through [{}] in another format; not transferred",
+              describe(owner_keys_[owner]), describe(owner_keys_[foreign]));
 }
 
 }  // namespace nier::native
