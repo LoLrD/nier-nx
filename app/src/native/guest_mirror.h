@@ -14,7 +14,7 @@ class GuestMirror {
  public:
   static constexpr uint32_t kSize = 512 * 1024 * 1024;
 
-  GuestMirror(const rex::ui::vulkan::VulkanDevice* device, const uint8_t* physical_base);
+  GuestMirror(const rex::ui::vulkan::VulkanDevice* device, const uint8_t* physical_base, bool host_cached);
   ~GuestMirror();
   GuestMirror(const GuestMirror&) = delete;
   GuestMirror& operator=(const GuestMirror&) = delete;

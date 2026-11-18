@@ -11,11 +11,13 @@ namespace nier::native {
 
 namespace vk = rex::ui::vulkan;
 
-GuestMirror::GuestMirror(const vk::VulkanDevice* device, const uint8_t* physical_base)
+GuestMirror::GuestMirror(const vk::VulkanDevice* device, const uint8_t* physical_base, bool host_cached)
     : device_(device), physical_base_(physical_base) {
   if (!vk::util::CreateDedicatedAllocationBuffer(device_, kSize,
                                                  VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-                                                 vk::util::MemoryPurpose::kUpload, buffer_, memory_, &memory_type_)) {
+                                                 host_cached ? vk::util::MemoryPurpose::kReadback
+                                                             : vk::util::MemoryPurpose::kUpload,
+                                                 buffer_, memory_, &memory_type_)) {
     REXLOG_ERROR("[native] could not create the guest memory mirror");
     return;
   }

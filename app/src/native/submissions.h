@@ -18,7 +18,7 @@ class Submissions {
   static constexpr VkDeviceSize kUniformBytes = 8 << 20;
   static constexpr uint32_t kFloatConstantsBytes = 4096;
 
-  Submissions(const rex::ui::vulkan::VulkanDevice* device, VkDescriptorSetLayout constants_layout);
+  Submissions(const rex::ui::vulkan::VulkanDevice* device, VkDescriptorSetLayout constants_layout, bool host_cached);
   ~Submissions();
   Submissions(const Submissions&) = delete;
   Submissions& operator=(const Submissions&) = delete;

@@ -30,7 +30,8 @@ std::array<VkDeviceSize, SpirvShaderTranslator::kConstantBufferCount> ConstantRa
 
 }  // namespace
 
-Submissions::Submissions(const vk::VulkanDevice* device, VkDescriptorSetLayout constants_layout) : device_(device) {
+Submissions::Submissions(const vk::VulkanDevice* device, VkDescriptorSetLayout constants_layout, bool host_cached)
+    : device_(device) {
   const auto& dfn = device_->functions();
   const VkDevice d = device_->device();
   const VkDescriptorPoolSize constants_size{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
@@ -69,7 +70,9 @@ Submissions::Submissions(const vk::VulkanDevice* device, VkDescriptorSetLayout c
     descriptors.pPoolSizes = sizes.data();
     dfn.vkCreateDescriptorPool(d, &descriptors, nullptr, &slot.descriptors);
     vk::util::CreateDedicatedAllocationBuffer(device_, kUniformBytes, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-                                              vk::util::MemoryPurpose::kUpload, slot.uniforms, slot.uniform_memory,
+                                              host_cached ? vk::util::MemoryPurpose::kReadback
+                                                          : vk::util::MemoryPurpose::kUpload,
+                                              slot.uniforms, slot.uniform_memory,
                                               &slot.uniform_memory_type);
     void* mapping = nullptr;
     dfn.vkMapMemory(d, slot.uniform_memory, 0, VK_WHOLE_SIZE, 0, &mapping);
