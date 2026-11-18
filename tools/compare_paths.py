@@ -15,7 +15,8 @@ def launch(name: str, out: Path, route: str) -> tuple[subprocess.Popen, Path]:
     control = out / f"{name}.control"
     control.write_text("")
     env = dict(os.environ, NIER_CONTROL_FILE=str(control))
-    command = [str(BINARY), f"--nier_input_script={route}", "--keyboard_ui_auto_text=Nier", *PATHS[name]]
+    command = [str(BINARY), f"--nier_input_script={route}", "--keyboard_ui_auto_text=Nier", "--audio_mute=true",
+               *PATHS[name]]
     log = (out / f"{name}.log").open("w")
     return subprocess.Popen(command, cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT), control
 
