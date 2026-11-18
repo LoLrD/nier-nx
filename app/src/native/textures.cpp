@@ -134,7 +134,8 @@ void Textures::Prepare(VkCommandBuffer upload) {
   }
 }
 
-uint64_t Textures::DataHash(const TextureFootprint& footprint) const {
+uint64_t Textures::DataHash(const xenos::xe_gpu_texture_fetch_t& fetch) const {
+  const TextureFootprint footprint = FootprintOf(fetch);
   const uint64_t base = XXH3_64bits(physical_base_ + footprint.base_address, footprint.base_size);
   return footprint.mip_size
              ? XXH3_64bits_withSeed(physical_base_ + footprint.mip_address, footprint.mip_size, base)
@@ -159,13 +160,9 @@ Textures::Binding Textures::View(VkCommandBuffer upload, const xenos::xe_gpu_tex
     const uint32_t address = fetch.base_address << 12;
     if (auto it = resolve_images_.find(ResolveKey(address, host->format)); it != resolve_images_.end()) {
       ResolveImage& resolved = it->second;
-      if (NeedsRehash(resolved.guest_bytes, frame_, resolved.checked_frame, resolved.checked_frame == frame_, false)) {
+      if (NeedsRehash(resolved.guest_bytes, frame_, resolved.checked_frame, resolved.checked_frame == frame_)) {
         resolved.checked_frame = frame_;
         if (XXH3_64bits(physical_base_ + address, resolved.guest_bytes) != resolved.guest_hash) {
-          if (++stats_.resolve_drops <= 50) {
-            REXLOG_INFO("[native] resolve image {:08X} {}x{} dropped: guest memory changed", address, resolved.width,
-                        resolved.height);
-          }
           resolve_images_.erase(it);
           it = resolve_images_.end();
         }
@@ -186,25 +183,19 @@ Textures::Binding Textures::View(VkCommandBuffer upload, const xenos::xe_gpu_tex
   auto it = textures_.find(key);
   bool reload = it == textures_.end();
   uint64_t hash = 0;
-  uint64_t changed_frame = 0;
-  TextureFootprint footprint;
   if (!reload) {
     Texture& texture = it->second;
-    if (NeedsRehash(texture.bytes, frame_, texture.checked_frame, texture.checked_frame == frame_,
-                    IsVolatile(frame_, texture.changed_frame))) {
+    if (NeedsRehash(texture.bytes, frame_, texture.checked_frame, texture.used_frame == frame_)) {
       texture.checked_frame = frame_;
-      footprint = texture.footprint;
-      hash = DataHash(footprint);
+      hash = DataHash(fetch);
       if (hash != texture.data_hash) {
         Retire(texture);
         textures_.erase(it);
         reload = true;
-        changed_frame = frame_;
       }
     }
   } else {
-    footprint = FootprintOf(fetch);
-    hash = DataHash(footprint);
+    hash = DataHash(fetch);
   }
   if (reload) {
     auto loaded = LoadTexture(fetch, physical_base_);
@@ -222,8 +213,6 @@ Textures::Binding Textures::View(VkCommandBuffer upload, const xenos::xe_gpu_tex
       return result;
     }
     texture.shape = ShapeKey(*loaded);
-    texture.changed_frame = changed_frame;
-    texture.footprint = footprint;
     Upload(upload, texture.image, *loaded, submission);
     live_bytes_ += texture.bytes;
     it = textures_.emplace(key, texture).first;

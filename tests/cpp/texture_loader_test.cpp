@@ -175,16 +175,10 @@ int main() {
           "footprint_of_base_level");
   }
   {
-    Check(!NeedsRehash(4096, 10, 10, true, false) && !NeedsRehash(4096, 13, 10, false, false) &&
-              NeedsRehash(4096, 14, 10, false, false),
-          "static_texture_rehashed_every_fourth_frame");
-    Check(NeedsRehash(65536, 10, 10, true, true), "volatile_small_texture_rehashed_every_use");
-    Check(!NeedsRehash(1 << 20, 10, 10, true, true) && NeedsRehash(1 << 20, 11, 10, false, true),
-          "volatile_large_texture_rehashed_every_frame");
-    Check(!NeedsRehash(1 << 20, 13, 10, false, false) && NeedsRehash(1 << 20, 14, 10, false, false) &&
-              !NeedsRehash(1 << 20, 14, 10, true, false),
-          "static_large_texture_rehashed_every_fourth_frame");
-    Check(IsVolatile(100, 50) && !IsVolatile(100, 0) && !IsVolatile(500, 100), "volatile_after_recent_change");
+    Check(NeedsRehash(4096, 10, 10, true) && NeedsRehash(65536, 10, 10, true), "small_texture_rehashed_every_use");
+    Check(!NeedsRehash(1 << 20, 10, 10, false) && !NeedsRehash(1 << 20, 13, 10, false) &&
+              NeedsRehash(1 << 20, 14, 10, false) && !NeedsRehash(1 << 20, 14, 10, true),
+          "large_texture_rehashed_every_fourth_frame");
   }
   {
     Check(ResolveImageMatches(VK_FORMAT_R8G8B8A8_UNORM, 1280, 720, VK_FORMAT_R8G8B8A8_UNORM, 1280, 720) &&
