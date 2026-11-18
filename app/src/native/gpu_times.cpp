@@ -1,5 +1,7 @@
 #include "gpu_times.h"
 
+#include <cstddef>
+
 namespace nier::native {
 
 void AddGpuTimes(const uint64_t* ticks, const GpuCategory* categories, uint32_t count, double period_ns,
