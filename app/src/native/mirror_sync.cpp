@@ -2,46 +2,60 @@
 
 #include <algorithm>
 
-#include <rex/hash.h>
-
 namespace nier::native {
 
 MirrorSync::MirrorSync(uint32_t small_range_bytes) : small_range_bytes_(small_range_bytes) {}
 
 void MirrorSync::BeginFrame() { ++frame_; }
 
-uint64_t MirrorSync::Hash(const uint8_t* physical_base, uint64_t key) {
-  return XXH3_64bits(physical_base + uint32_t(key >> 32), uint32_t(key));
+HashSpan MirrorSync::Span(const uint8_t* physical_base, uint64_t key) {
+  return {physical_base + uint32_t(key >> 32), uint32_t(key)};
 }
 
 MirrorDecision MirrorSync::Use(uint32_t address, uint32_t size, const uint8_t* physical_base, uint64_t submission) {
   const uint64_t key = Key(address, size);
-  auto [it, inserted] = ranges_.try_emplace(key);
+  auto [it, inserted] = RangesFor(size).try_emplace(key);
   Range& range = it->second;
   if (!inserted && !range.stale && size > small_range_bytes_ && range.checked_frame == frame_) {
     Record(range, key, submission);
     return {MirrorAction::kNone, 0};
   }
   range.checked_frame = frame_;
-  const uint64_t hash = Hash(physical_base, key);
-  if (!inserted && !range.stale && hash == range.hash) {
-    Record(range, key, submission);
-    return {MirrorAction::kNone, 0};
+  const HashSpan span = Span(physical_base, key);
+  if (!inserted && !range.stale) {
+    const PhasedHash::Result result = range.content.Check({&span, 1});
+    hashed_bytes_ += result.hashed_bytes;
+    sampled_checks_ += result.sampled;
+    if (!result.changed) {
+      Record(range, key, submission);
+      return {MirrorAction::kNone, 0};
+    }
+    sampled_changes_ += result.sampled;
+    possibly_late_ += result.possibly_late;
+  } else {
+    hashed_bytes_ += range.content.Reset({&span, 1});
   }
   const uint64_t wait = PendingWait(key, physical_base);
-  range.hash = hash;
   range.stale = false;
-  max_size_ = std::max(max_size_, size);
+  if (size > small_range_bytes_) {
+    max_large_size_ = std::max(max_large_size_, size);
+  }
   InvalidateOverlaps(key);
   Record(range, key, submission);
   return {MirrorAction::kCopy, wait};
 }
 
 void MirrorSync::InvalidateOverlaps(uint64_t key) {
+  InvalidateOverlaps(small_, key, small_range_bytes_);
+  InvalidateOverlaps(large_, key, max_large_size_);
+}
+
+void MirrorSync::InvalidateOverlaps(Ranges& ranges, uint64_t key, uint32_t reach) {
   const uint32_t begin = uint32_t(key >> 32);
   const uint32_t end = begin + uint32_t(key);
-  const uint32_t first = begin > max_size_ ? begin - max_size_ : 0;
-  for (auto it = ranges_.lower_bound(Key(first, 0)); it != ranges_.end() && uint32_t(it->first >> 32) < end; ++it) {
+  const uint32_t first = begin > reach ? begin - reach : 0;
+  for (auto it = ranges.lower_bound(Key(first, 0)); it != ranges.end() && uint32_t(it->first >> 32) < end; ++it) {
+    ++overlap_visits_;
     const uint32_t other_begin = uint32_t(it->first >> 32);
     if (it->first != key && other_begin + uint32_t(it->first) > begin) {
       it->second.stale = true;
@@ -49,7 +63,7 @@ void MirrorSync::InvalidateOverlaps(uint64_t key) {
   }
 }
 
-uint64_t MirrorSync::PendingWait(uint64_t key, const uint8_t* physical_base) const {
+uint64_t MirrorSync::PendingWait(uint64_t key, const uint8_t* physical_base) {
   const uint32_t begin = uint32_t(key >> 32);
   const uint32_t end = begin + uint32_t(key);
   uint64_t wait = 0;
@@ -58,7 +72,13 @@ uint64_t MirrorSync::PendingWait(uint64_t key, const uint8_t* physical_base) con
         interval.begin >= end) {
       continue;
     }
-    if (interval.key == key || Hash(physical_base, interval.key) != ranges_.at(interval.key).hash) {
+    if (interval.key == key) {
+      wait = interval.submission;
+      continue;
+    }
+    const HashSpan span = Span(physical_base, interval.key);
+    hashed_bytes_ += span.bytes;
+    if (!RangesFor(span.bytes).at(interval.key).content.Matches({&span, 1})) {
       wait = interval.submission;
     }
   }
@@ -79,10 +99,12 @@ void MirrorSync::Completed(uint64_t submission) {
 }
 
 void MirrorSync::Prune(uint64_t unused_frames) {
-  std::erase_if(ranges_, [&](const auto& entry) {
+  auto unused = [&](const auto& entry) {
     const Range& range = entry.second;
     return range.used_submission <= completed_ && range.checked_frame + unused_frames < frame_;
-  });
+  };
+  std::erase_if(small_, unused);
+  std::erase_if(large_, unused);
 }
 
 }  // namespace nier::native

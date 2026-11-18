@@ -145,6 +145,26 @@ int main() {
     Check(texel[0] == source[2] && texel[2] == source[0] && texel[1] == source[1], "write_tiled_swaps_red_blue");
   }
   {
+    std::vector<uint8_t> host(13 * 7 * 4);
+    for (uint32_t i = 0; i < host.size(); ++i) {
+      host[i] = uint8_t(i * 7 + 3);
+    }
+    std::vector<uint8_t> guest(64 * 32 * 4, 0);
+    WriteTiled(host.data(), 3, 5, 13, 7, 64, xenos::Endian128::k8in32, true, guest.data());
+    bool same = true;
+    for (uint32_t row = 0; row < 7; ++row) {
+      for (uint32_t column = 0; column < 13; ++column) {
+        const uint8_t* source = host.data() + (row * 13 + column) * 4;
+        const uint32_t expected = __builtin_bswap32(uint32_t(source[2]) | uint32_t(source[1]) << 8 |
+                                                    uint32_t(source[0]) << 16 | uint32_t(source[3]) << 24);
+        uint32_t written;
+        std::memcpy(&written, guest.data() + texture_util::GetTiledOffset2D(3 + column, 5 + row, 64, 2), 4);
+        same &= written == expected;
+      }
+    }
+    Check(same, "write_tiled_unaligned_rectangle_matches_tiled_offsets");
+  }
+  {
     Check(ResolveGuestBytes(1280, 720, 1, 0x0A000000) == 1280u * 736u &&
               ResolveGuestBytes(1280, 720, 4, 0x0A000000) == 1280u * 736u * 4u &&
               ResolveGuestBytes(100, 10, 2, 0) == 128u * 32u * 2u,

@@ -9,12 +9,14 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <time.h>
 
 #include <rex/chrono/clock.h>
 #include <rex/cvar.h>
 #include <rex/kernel/xboxkrnl/video.h>
 #include <rex/logging.h>
 #include <rex/memory.h>
+#include <rex/platform.h>
 #include <rex/system/function_dispatcher.h>
 #include <rex/system/kernel_state.h>
 #include <rex/system/xmemory.h>
@@ -326,6 +328,16 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem, private 
     return 0;
   }
 
+  static uint64_t ThreadCpuUs() {
+#if REX_PLATFORM_SWITCH
+    return 0;
+#else
+    timespec cpu{};
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &cpu);
+    return uint64_t(cpu.tv_sec) * 1000000 + uint64_t(cpu.tv_nsec) / 1000;
+#endif
+  }
+
   void ReportIfDue() {
     const auto now = Clock::now();
     if (now - report_start_ < kReportInterval) {
@@ -337,13 +349,14 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem, private 
     REXLOG_INFO(
         "[native] 10 s: {} packets, {} draws, {} resolves, {} swaps, {} interrupts, {} shader loads, {} waits, {} "
         "overflows, {} coher events {} MB, {} progress wakes, {} unique shaders, {} shader translations, {} failed, {} ms "
-        "translating (max {} ms)",
+        "translating (max {} ms), ring thread cpu {} ms",
         s.packets - last_.packets, s.draws - last_.draws, s.resolves - last_.resolves, s.swaps - last_.swaps,
         s.interrupts - last_.interrupts, s.shader_loads - last_.shader_loads, s.waits - last_.waits,
         s.overflows - last_.overflows, s.coher_events - last_.coher_events,
         (s.coher_bytes - last_.coher_bytes) >> 20, SharedGpuProgress().notifies() - reported_notifies_,
         shader_dump_ ? shader_dump_->unique() : 0, t.translations,
-        t.failures, t.translate_us / 1000, t.max_translate_us / 1000);
+        t.failures, t.translate_us / 1000, t.max_translate_us / 1000, (ThreadCpuUs() - reported_cpu_us_) / 1000);
+    reported_cpu_us_ = ThreadCpuUs();
     last_ = s;
     reported_notifies_ = SharedGpuProgress().notifies();
     if (renderer_) {
@@ -368,6 +381,7 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem, private 
   std::atomic<uint32_t> callback_data_{0};
   std::atomic<uint32_t> read_writeback_{0};
   uint64_t reported_notifies_ = 0;
+  uint64_t reported_cpu_us_ = 0;
   std::atomic<uint32_t> publish_step_{kDefaultPublishStep};
   std::atomic<bool> ring_waiting_{false};
   std::mutex ring_mutex_;

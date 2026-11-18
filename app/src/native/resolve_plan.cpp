@@ -11,6 +11,7 @@
 #include <rex/math.h>
 
 #include "texture_loader.h"
+#include "tiling.h"
 
 namespace nier::native {
 
@@ -106,17 +107,22 @@ void WriteTiled(const uint8_t* host_rgba, uint32_t x, uint32_t y, uint32_t width
                 uint32_t pitch_aligned, xenos::Endian128 endian, bool swap_red_blue, uint8_t* guest) {
   const xenos::Endian swap = Endian32(endian);
   for (uint32_t row = 0; row < height; ++row) {
-    for (uint32_t column = 0; column < width; ++column) {
-      uint8_t texel[4];
-      std::memcpy(texel, host_rgba + (size_t(row) * width + column) * 4, 4);
-      if (swap_red_blue) {
-        std::swap(texel[0], texel[2]);
+    const uint8_t* source = host_rgba + size_t(row) * width * 4;
+    for (uint32_t column = 0; column < width;) {
+      const uint32_t guest_x = x + column;
+      uint8_t* target = guest + TiledOffset2D(int32_t(guest_x), int32_t(y + row), pitch_aligned, 2);
+      const uint32_t run = guest_x & 3 ? 1 : std::min(4u, width - column);
+      for (uint32_t i = 0; i < run; ++i, ++column) {
+        uint8_t texel[4];
+        std::memcpy(texel, source + size_t(column) * 4, 4);
+        if (swap_red_blue) {
+          std::swap(texel[0], texel[2]);
+        }
+        uint32_t value;
+        std::memcpy(&value, texel, 4);
+        value = xenos::GpuSwap(value, swap);
+        std::memcpy(target + i * 4, &value, 4);
       }
-      uint32_t value;
-      std::memcpy(&value, texel, 4);
-      value = xenos::GpuSwap(value, swap);
-      std::memcpy(guest + texture_util::GetTiledOffset2D(int32_t(x + column), int32_t(y + row), pitch_aligned, 2),
-                  &value, 4);
     }
   }
 }
