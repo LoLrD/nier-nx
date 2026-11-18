@@ -34,7 +34,7 @@ namespace nier::native {
 
 class NativeRenderer {
  public:
-  static constexpr uint32_t kMirrorRehashBytes = 2 << 20;
+  static constexpr uint32_t kMirrorRehashBytes = 64 << 10;
 
   struct Stats {
     uint64_t draws = 0;

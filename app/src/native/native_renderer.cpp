@@ -48,6 +48,7 @@ class ScopedMicros {
 constexpr size_t kStagingPageBytes = 16 << 20;
 constexpr VkDeviceSize kDrawUniformBytes = 16384;
 constexpr uint64_t kEvictionPeriodFrames = 64;
+constexpr uint64_t kStagingFlushBytes = 48ull << 20;
 constexpr uint64_t kUnusedFrames = 600;
 
 }  // namespace
@@ -186,6 +187,7 @@ void NativeRenderer::BeginSubmission() {
     ScopedMicros timer(stats_.us_gpu_wait);
     submissions_->Begin();
   }
+  textures_->ResetStaged();
   textures_->Prepare(submissions_->upload());
   ProcessCompleted();
 }
@@ -467,6 +469,9 @@ void NativeRenderer::Draw(const RegisterFile& regs) {
       break;
   }
   ++stats_.drawn;
+  if (textures_->staged_bytes() > kStagingFlushBytes) {
+    WaitFor(submissions_->current());
+  }
 }
 
 void NativeRenderer::Resolve(const RegisterFile& regs) {
@@ -633,7 +638,7 @@ std::string NativeRenderer::Report() {
   std::string line = fmt::format(
       "[native] render: {}/{} draws drawn, skipped raster {} primitive {} target {} shader {} empty {}; {} resolves ({} colour, "
       "{} depth, {} clears, {} readbacks, {} skipped); mirror {} copies {} MB {} waits; textures {} uploads {} MB {} "
-      "unsupported {} resolve hits, {} live {} MB; {} resolve images, {} mirror keys; {} targets, {} pipelines, {} submissions, {} black frames",
+      "unsupported {} resolve hits {} reused, {} live {} MB; {} resolve images, {} mirror keys; {} targets, {} pipelines, {} submissions, {} black frames",
       s.drawn - r.drawn, s.draws - r.draws, s.skipped_raster - r.skipped_raster,
       s.skipped_primitive - r.skipped_primitive, s.skipped_target - r.skipped_target,
       s.skipped_shader - r.skipped_shader, s.skipped_empty - r.skipped_empty, s.resolves - r.resolves, v.copies - reported_resolves_.copies,
@@ -642,6 +647,7 @@ std::string NativeRenderer::Report() {
       s.mirror_copies - r.mirror_copies, (s.mirror_bytes - r.mirror_bytes) >> 20, s.mirror_waits - r.mirror_waits,
       t.uploads - reported_textures_.uploads, (t.upload_bytes - reported_textures_.upload_bytes) >> 20,
       t.unsupported - reported_textures_.unsupported, t.resolve_hits - reported_textures_.resolve_hits,
+      t.reused - reported_textures_.reused,
       textures_->live_images(), textures_->live_bytes() >> 20, resolves_->image_count(), mirror_sync_.key_count(), targets_->count(), pipelines_->pipeline_count(), submissions - reported_submissions_,
       s.black_frames - r.black_frames);
   line += fmt::format("; ms draws {} (mirror {}, textures {}), resolves {}, present {}, gpu wait {}",
