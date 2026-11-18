@@ -22,6 +22,22 @@ namespace {
 constexpr VkDeviceSize kReadbackBufferBytes = 256 * 1024;
 constexpr uint32_t kMaxDepthSets = 64;
 
+bool HasRedAndBlue(VkFormat format) {
+  switch (format) {
+    case VK_FORMAT_R8G8B8A8_UNORM:
+    case VK_FORMAT_R8G8B8A8_SNORM:
+    case VK_FORMAT_A2B10G10R10_UNORM_PACK32:
+    case VK_FORMAT_B10G11R11_UFLOAT_PACK32:
+    case VK_FORMAT_R16G16B16A16_UNORM:
+    case VK_FORMAT_R16G16B16A16_SNORM:
+    case VK_FORMAT_R16G16B16A16_SFLOAT:
+    case VK_FORMAT_R32G32B32A32_SFLOAT:
+      return true;
+    default:
+      return false;
+  }
+}
+
 struct DepthConstants {
   int32_t source_offset[2];
   int32_t dest_offset[2];
@@ -207,6 +223,11 @@ Resolves::DestImage* Resolves::Dest(VkCommandBuffer command_buffer, const Resolv
   view.format = format;
   view.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
   dfn.vkCreateImageView(d, &view, nullptr, &dest.view);
+  if (HasRedAndBlue(format)) {
+    view.components = {VK_COMPONENT_SWIZZLE_B, VK_COMPONENT_SWIZZLE_G, VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_A};
+    dfn.vkCreateImageView(d, &view, nullptr, &dest.swapped_view);
+    view.components = {};
+  }
   if (storage) {
     view.viewType = VK_IMAGE_VIEW_TYPE_2D;
     dfn.vkCreateImageView(d, &view, nullptr, &dest.storage_view);
@@ -254,7 +275,8 @@ void Resolves::Publish(const ResolvePlan& plan, DestImage& dest, uint32_t bytes_
   dest.last_frame = frame_;
   dest.last_submission = submission;
   const uint32_t guest_bytes = ResolveGuestBytes(dest.width, dest.height, bytes_per_pixel, plan.dest_address);
-  textures_.AddResolveImage(plan.dest_address, dest.format, dest.width, dest.height, dest.view, guest_bytes);
+  const VkImageView view = plan.dest_swap && !plan.depth && dest.swapped_view ? dest.swapped_view : dest.view;
+  textures_.AddResolveImage(plan.dest_address, dest.format, dest.width, dest.height, view, guest_bytes);
 }
 
 void Resolves::CopyDepth(VkCommandBuffer command_buffer, const ResolvePlan& plan, const RenderTargets::Target& source,
@@ -394,6 +416,9 @@ void Resolves::Evict(uint64_t unused_frames, uint64_t submission) {
     }
     const uint64_t retire = std::max(image.last_submission, submission);
     textures_.RemoveResolveImage(image.address, image.format, image.view);
+    if (image.swapped_view) {
+      textures_.RemoveResolveImage(image.address, image.format, image.swapped_view);
+    }
     if (auto presentable = presentable_by_address_.find(image.address);
         presentable != presentable_by_address_.end() && presentable->second == entry.first) {
       presentable_by_address_.erase(presentable);
@@ -415,6 +440,9 @@ void Resolves::Destroy(DestImage& image) {
   const VkDevice d = device_->device();
   if (image.storage_view) {
     dfn.vkDestroyImageView(d, image.storage_view, nullptr);
+  }
+  if (image.swapped_view) {
+    dfn.vkDestroyImageView(d, image.swapped_view, nullptr);
   }
   dfn.vkDestroyImageView(d, image.view, nullptr);
   dfn.vkDestroyImage(d, image.image, nullptr);
