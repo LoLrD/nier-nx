@@ -13,6 +13,7 @@
 #include <rex/graphics/util/draw.h>
 #include <rex/logging.h>
 #include <rex/memory.h>
+#include <rex/platform.h>
 #include <rex/ui/vulkan/device.h>
 #include <rex/ui/vulkan/instance.h>
 #include <rex/ui/vulkan/presenter.h>
@@ -23,6 +24,10 @@
 #include "shaders/apply_gamma_cs.h"
 #include "resolve_plan.h"
 #include "target_keys.h"
+
+#if REX_PLATFORM_SWITCH
+extern "C" void RexSwitchPerfCount(unsigned id);
+#endif
 
 namespace nier::native {
 
@@ -44,6 +49,41 @@ class ScopedMicros {
   uint64_t& total_;
   std::chrono::steady_clock::time_point start_;
 };
+
+constexpr VkDeviceSize kMemoryProbeBytes = 8 << 20;
+
+double WriteSpeed(const vk::VulkanDevice* device, vk::util::MemoryPurpose purpose, const std::vector<uint8_t>& source,
+                  uint32_t& memory_type) {
+  VkBuffer buffer = VK_NULL_HANDLE;
+  VkDeviceMemory memory = VK_NULL_HANDLE;
+  if (!vk::util::CreateDedicatedAllocationBuffer(device, kMemoryProbeBytes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, purpose,
+                                                 buffer, memory, &memory_type)) {
+    return 0.0;
+  }
+  const auto& dfn = device->functions();
+  void* mapping = nullptr;
+  dfn.vkMapMemory(device->device(), memory, 0, VK_WHOLE_SIZE, 0, &mapping);
+  const auto start = std::chrono::steady_clock::now();
+  for (int i = 0; i < 4; ++i) {
+    std::memcpy(mapping, source.data(), source.size());
+    vk::util::FlushMappedMemoryRange(device, memory, memory_type, 0, kMemoryProbeBytes, kMemoryProbeBytes);
+  }
+  const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+  dfn.vkDestroyBuffer(device->device(), buffer, nullptr);
+  dfn.vkFreeMemory(device->device(), memory, nullptr);
+  return 4.0 * double(kMemoryProbeBytes >> 20) / seconds;
+}
+
+bool PreferCachedUploads(const vk::VulkanDevice* device) {
+  const std::vector<uint8_t> source(kMemoryProbeBytes, 0x5A);
+  uint32_t uncached_type = UINT32_MAX, cached_type = UINT32_MAX;
+  const double uncached = WriteSpeed(device, vk::util::MemoryPurpose::kUpload, source, uncached_type);
+  const double cached = WriteSpeed(device, vk::util::MemoryPurpose::kReadback, source, cached_type);
+  const bool prefer = cached_type != uncached_type && cached > uncached * 1.25;
+  REXLOG_INFO("[native] host writes: type {} {:.0f} MB/s, type {} {:.0f} MB/s (flushed), using {}", uncached_type,
+              uncached, cached_type, cached, prefer ? "cached" : "uncached");
+  return prefer;
+}
 
 constexpr size_t kStagingPageBytes = 16 << 20;
 constexpr VkDeviceSize kDrawUniformBytes = 16384;
@@ -67,13 +107,15 @@ NativeRenderer::NativeRenderer(const vk::VulkanDevice* device, rex::memory::Memo
   const auto& dfn = device_->functions();
   const VkDevice d = device_->device();
   pipelines_ = std::make_unique<Pipelines>(device_);
-  submissions_ = std::make_unique<Submissions>(device_, pipelines_->ConstantsLayout());
-  mirror_ = std::make_unique<GuestMirror>(device_, physical_base_);
+  const bool cached_uploads = PreferCachedUploads(device_);
+  submissions_ = std::make_unique<Submissions>(device_, pipelines_->ConstantsLayout(), cached_uploads);
+  mirror_ = std::make_unique<GuestMirror>(device_, physical_base_, cached_uploads);
   if (!mirror_->valid()) {
     return;
   }
   targets_ = std::make_unique<RenderTargets>(device_);
-  staging_ = std::make_unique<vk::VulkanUploadBufferPool>(device_, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, kStagingPageBytes);
+  staging_ = std::make_unique<vk::VulkanUploadBufferPool>(device_, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, kStagingPageBytes,
+                                                         cached_uploads);
   textures_ = std::make_unique<Textures>(device_, physical_base_, *staging_);
   resolves_ = std::make_unique<Resolves>(device_, *targets_, *textures_, physical_base_);
   const auto rectangles = BuildRectangleIndices(kMaxBuiltinRectangles);
@@ -598,6 +640,9 @@ void NativeRenderer::DumpFrame(uint32_t frontbuffer, uint32_t width, uint32_t he
 
 void NativeRenderer::Swap(rex::ui::Presenter* presenter, uint32_t frontbuffer, uint32_t width, uint32_t height) {
   ++stats_.swaps;
+#if REX_PLATFORM_SWITCH
+  RexSwitchPerfCount(0);
+#endif
   if (!valid_) {
     return;
   }
