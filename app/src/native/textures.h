@@ -50,6 +50,7 @@ class Textures {
     uint64_t loads[3] = {};
     uint64_t load_bytes[3] = {};
     uint64_t stale_reads[5] = {};
+    uint64_t hashed_bytes = 0;
   };
   static constexpr size_t kTopUploads = 5;
 
@@ -133,7 +134,8 @@ class Textures {
   void EnforceBudget();
   void EvictOldest(uint64_t budget);
   VkImageView NullView(rex::graphics::xenos::FetchOpDimension dimension) const;
-  uint64_t DataHash(const rex::graphics::xenos::xe_gpu_texture_fetch_t& fetch) const;
+  uint64_t DataHash(const rex::graphics::xenos::xe_gpu_texture_fetch_t& fetch);
+  uint64_t GuestHash(uint32_t address, uint32_t bytes);
   void RecordLoad(const rex::graphics::xenos::xe_gpu_texture_fetch_t& fetch, const LoadedTexture& loaded, uint32_t bytes,
                   UploadReason reason);
   void NoteResolveMiss(uint32_t address, const rex::graphics::xenos::xe_gpu_texture_fetch_t& fetch, VkFormat format,

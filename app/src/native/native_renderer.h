@@ -67,6 +67,7 @@ class NativeRenderer {
     uint64_t us_gpu_wait = 0;
     uint64_t us_resolves = 0;
     uint64_t us_present = 0;
+    uint64_t us_presenter = 0;
   };
 
   NativeRenderer(const rex::ui::vulkan::VulkanDevice* device, rex::memory::Memory* memory, NativeShaders& shaders,
@@ -146,6 +147,7 @@ class NativeRenderer {
   Presented presented_;
   Stats stats_;
   Stats reported_;
+  uint64_t reported_mirror_hashed_ = 0;
   Textures::Stats reported_textures_;
   Resolves::Stats reported_resolves_;
   uint64_t reported_submissions_ = 0;

@@ -732,13 +732,20 @@ void NativeRenderer::Swap(rex::ui::Presenter* presenter, uint32_t frontbuffer, u
     DumpFrame(frontbuffer, width, height);
   }
   if (presenter && width && height) {
-    presenter->RefreshGuestOutput(width, height, 16, 9, [&](rex::ui::Presenter::GuestOutputRefreshContext& context) {
-      auto& output = static_cast<vk::VulkanPresenter::VulkanGuestOutputRefreshContext&>(context);
-      PresentInto(submissions_->main(), output.image(), output.image_view(), output.image_ever_written_previously(),
-                  frontbuffer, width, height);
-      Flush();
-      return true;
-    });
+    uint64_t us_paint = 0;
+    uint64_t us_refresh = 0;
+    {
+      ScopedMicros refresh_timer(us_refresh);
+      presenter->RefreshGuestOutput(width, height, 16, 9, [&](rex::ui::Presenter::GuestOutputRefreshContext& context) {
+        ScopedMicros paint_timer(us_paint);
+        auto& output = static_cast<vk::VulkanPresenter::VulkanGuestOutputRefreshContext&>(context);
+        PresentInto(submissions_->main(), output.image(), output.image_view(), output.image_ever_written_previously(),
+                    frontbuffer, width, height);
+        Flush();
+        return true;
+      });
+    }
+    stats_.us_presenter += us_refresh - std::min(us_refresh, us_paint);
   }
   Flush();
   const uint64_t now_ms = NowMs();
@@ -829,6 +836,10 @@ std::string NativeRenderer::Report() {
   auto gpu_ms = [&](GpuCategory category) {
     return (gpu[size_t(category)] - reported_gpu_ns_[size_t(category)]) / 1000000;
   };
+  line += fmt::format("; cpu: mirror hashed {} MB, textures hashed {} MB, presenter {} ms",
+                      (mirror_sync_.hashed_bytes() - reported_mirror_hashed_) >> 20,
+                      (t.hashed_bytes - reported_textures_.hashed_bytes) >> 20, (s.us_presenter - r.us_presenter) / 1000);
+  reported_mirror_hashed_ = mirror_sync_.hashed_bytes();
   line += fmt::format("; gpu ms draws {}, resolves {}, uploads {}, present {}", gpu_ms(GpuCategory::kDraws),
                       gpu_ms(GpuCategory::kResolves), gpu_ms(GpuCategory::kUploads), gpu_ms(GpuCategory::kPresent));
   reported_gpu_ns_ = gpu;

@@ -145,8 +145,14 @@ void Textures::Prepare(VkCommandBuffer upload) {
   }
 }
 
-uint64_t Textures::DataHash(const xenos::xe_gpu_texture_fetch_t& fetch) const {
+uint64_t Textures::GuestHash(uint32_t address, uint32_t bytes) {
+  stats_.hashed_bytes += bytes;
+  return XXH3_64bits(physical_base_ + address, bytes);
+}
+
+uint64_t Textures::DataHash(const xenos::xe_gpu_texture_fetch_t& fetch) {
   const TextureFootprint footprint = FootprintOf(fetch);
+  stats_.hashed_bytes += footprint.base_size + footprint.mip_size;
   const uint64_t base = XXH3_64bits(physical_base_ + footprint.base_address, footprint.base_size);
   return footprint.mip_size
              ? XXH3_64bits_withSeed(physical_base_ + footprint.mip_address, footprint.mip_size, base)
@@ -173,7 +179,7 @@ Textures::Binding Textures::View(VkCommandBuffer upload, const xenos::xe_gpu_tex
       ResolveImage& resolved = it->second;
       if (NeedsRehash(resolved.guest_bytes, frame_, resolved.checked_frame, resolved.checked_frame == frame_)) {
         resolved.checked_frame = frame_;
-        if (XXH3_64bits(physical_base_ + address, resolved.guest_bytes) != resolved.guest_hash) {
+        if (GuestHash(address, resolved.guest_bytes) != resolved.guest_hash) {
           ForgetResolveImage(it->first, StaleRead::kForgotten);
           it = resolve_images_.end();
         }
@@ -434,14 +440,14 @@ void Textures::AddResolveImage(uint32_t address, VkFormat format, uint32_t width
   if (!inserted && resolved.view == view && resolved.guest_bytes == guest_bytes) {
     return;
   }
-  resolved = {format, width, height, view, guest_bytes, XXH3_64bits(physical_base_ + address, guest_bytes), frame_,
+  resolved = {format, width, height, view, guest_bytes, GuestHash(address, guest_bytes), frame_,
               frame_};
 }
 
 void Textures::RefreshResolveHash(uint32_t address) {
   for (auto& [key, resolved] : resolve_images_) {
     if (uint32_t(key >> 32) == address) {
-      resolved.guest_hash = XXH3_64bits(physical_base_ + address, resolved.guest_bytes);
+      resolved.guest_hash = GuestHash(address, resolved.guest_bytes);
       resolved.checked_frame = frame_;
     }
   }

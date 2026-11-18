@@ -11,6 +11,7 @@ MirrorSync::MirrorSync(uint32_t small_range_bytes) : small_range_bytes_(small_ra
 void MirrorSync::BeginFrame() { ++frame_; }
 
 uint64_t MirrorSync::Hash(const uint8_t* physical_base, uint64_t key) {
+  hashed_bytes_ += uint32_t(key);
   return XXH3_64bits(physical_base + uint32_t(key >> 32), uint32_t(key));
 }
 
@@ -49,7 +50,7 @@ void MirrorSync::InvalidateOverlaps(uint64_t key) {
   }
 }
 
-uint64_t MirrorSync::PendingWait(uint64_t key, const uint8_t* physical_base) const {
+uint64_t MirrorSync::PendingWait(uint64_t key, const uint8_t* physical_base) {
   const uint32_t begin = uint32_t(key >> 32);
   const uint32_t end = begin + uint32_t(key);
   uint64_t wait = 0;

@@ -22,6 +22,7 @@ class MirrorSync {
   void Completed(uint64_t submission);
   void Prune(uint64_t unused_frames);
   size_t key_count() const { return ranges_.size(); }
+  uint64_t hashed_bytes() const { return hashed_bytes_; }
 
  private:
   struct Range {
@@ -38,8 +39,8 @@ class MirrorSync {
   };
 
   static uint64_t Key(uint32_t address, uint32_t size) { return uint64_t(address) << 32 | size; }
-  static uint64_t Hash(const uint8_t* physical_base, uint64_t key);
-  uint64_t PendingWait(uint64_t key, const uint8_t* physical_base) const;
+  uint64_t Hash(const uint8_t* physical_base, uint64_t key);
+  uint64_t PendingWait(uint64_t key, const uint8_t* physical_base);
   void Record(Range& range, uint64_t key, uint64_t submission);
   void InvalidateOverlaps(uint64_t key);
 
@@ -49,6 +50,7 @@ class MirrorSync {
   std::map<uint64_t, Range> ranges_;
   uint32_t max_size_ = 0;
   std::vector<Interval> intervals_;
+  uint64_t hashed_bytes_ = 0;
 };
 
 }  // namespace nier::native
