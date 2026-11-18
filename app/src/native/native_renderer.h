@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -117,6 +118,7 @@ class NativeRenderer {
   Textures::Stats reported_textures_;
   Resolves::Stats reported_resolves_;
   uint64_t reported_submissions_ = 0;
+  std::array<uint64_t, kGpuCategories> reported_gpu_ns_{};
 };
 
 }  // namespace nier::native

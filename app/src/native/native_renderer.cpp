@@ -423,6 +423,7 @@ void NativeRenderer::Draw(const RegisterFile& regs) {
     Flush();
     BeginSubmission();
   }
+  submissions_->Mark(GpuCategory::kDraws);
   auto sync_ranges = [&] {
     for (const auto& binding : prepared->vertex_shader->vertex_bindings()) {
       const auto fetch = regs.GetVertexFetch(binding.fetch_constant);
@@ -527,6 +528,8 @@ void NativeRenderer::Resolve(const RegisterFile& regs) {
   }
   BeginSubmission();
   ScopedMicros timer(stats_.us_resolves);
+  targets_->End(submissions_->main());
+  submissions_->Mark(GpuCategory::kResolves);
   resolves_->Resolve(submissions_->main(), PlanResolve(info, regs), submissions_->current());
 }
 
@@ -649,6 +652,7 @@ void NativeRenderer::Swap(rex::ui::Presenter* presenter, uint32_t frontbuffer, u
   BeginSubmission();
   ScopedMicros timer(stats_.us_present);
   targets_->End(submissions_->main());
+  submissions_->Mark(GpuCategory::kPresent);
   if (dump_interval_ && stats_.swaps % dump_interval_ == 0) {
     DumpFrame(frontbuffer, width, height);
   }
@@ -701,6 +705,13 @@ std::string NativeRenderer::Report() {
                       (s.us_draws - r.us_draws) / 1000, (s.us_mirror - r.us_mirror) / 1000,
                       (s.us_textures - r.us_textures) / 1000, (s.us_resolves - r.us_resolves) / 1000,
                       (s.us_present - r.us_present) / 1000, (s.us_gpu_wait - r.us_gpu_wait) / 1000);
+  const auto& gpu = submissions_->gpu_ns();
+  auto gpu_ms = [&](GpuCategory category) {
+    return (gpu[size_t(category)] - reported_gpu_ns_[size_t(category)]) / 1000000;
+  };
+  line += fmt::format("; gpu ms draws {}, resolves {}, uploads {}, present {}", gpu_ms(GpuCategory::kDraws),
+                      gpu_ms(GpuCategory::kResolves), gpu_ms(GpuCategory::kUploads), gpu_ms(GpuCategory::kPresent));
+  reported_gpu_ns_ = gpu;
   reported_ = s;
   reported_textures_ = t;
   reported_resolves_ = v;

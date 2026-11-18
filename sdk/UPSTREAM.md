@@ -66,8 +66,8 @@ code generator and runtime changes of masseffect-nx. The third-party sources are
   it (NieR's native renderer uses the SDK's shader translator and register file); the plugin loader still opens the
   same image. Other platforms keep hidden visibility; the Switch build is a static archive.
 - `include/rex/ui/vulkan/functions/device_1_0.inc`: the device function table also loads `vkCmdBlitImage`,
-  `vkCmdClearDepthStencilImage` and `vkFreeDescriptorSets` (core 1.0), used by NieR's native renderer for resolves,
-  new depth targets and evicted resolve images.
+  `vkCmdClearDepthStencilImage`, `vkFreeDescriptorSets`, `vkCmdWriteTimestamp` and `vkGetQueryPoolResults` (core 1.0),
+  used by NieR's native renderer for resolves, new depth targets, evicted resolve images and GPU time per category.
 - `src/ui/vulkan/vulkan_presenter.cpp`: guest output images also have `VK_IMAGE_USAGE_TRANSFER_DST_BIT`, so a graphics system
   can blit or clear its frontbuffer into them (NieR's native renderer).
 - `include/rex/ui/vulkan/upload_buffer_pool.h`, `src/ui/vulkan/vulkan_upload_buffer_pool.cpp`: an upload buffer pool can

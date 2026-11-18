@@ -3,8 +3,11 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <vector>
 
 #include <rex/ui/vulkan/api.h>
+
+#include "gpu_times.h"
 
 namespace rex::ui::vulkan {
 class VulkanDevice;
@@ -17,6 +20,7 @@ class Submissions {
   static constexpr uint32_t kSlots = 3;
   static constexpr VkDeviceSize kUniformBytes = 8 << 20;
   static constexpr uint32_t kFloatConstantsBytes = 4096;
+  static constexpr uint32_t kTimestamps = 512;
 
   Submissions(const rex::ui::vulkan::VulkanDevice* device, VkDescriptorSetLayout constants_layout, bool host_cached);
   ~Submissions();
@@ -30,11 +34,13 @@ class Submissions {
   VkCommandBuffer main() const { return slots_[current_ % kSlots].main; }
   VkDescriptorSet constants_set() const { return slots_[current_ % kSlots].constants_set; }
   VkBuffer uniform_buffer() const { return slots_[current_ % kSlots].uniforms; }
+  const std::array<uint64_t, kGpuCategories>& gpu_ns() const { return gpu_ns_; }
 
   void Begin();
   bool HasUniformSpace(VkDeviceSize bytes) const;
   bool Uniform(const void* data, size_t size, size_t reserve, uint32_t& offset);
   VkDescriptorSet Allocate(VkDescriptorSetLayout layout);
+  void Mark(GpuCategory category);
   void Submit();
   void Wait(uint64_t submission);
   bool Poll();
@@ -54,7 +60,13 @@ class Submissions {
     VkDeviceSize uniform_used = 0;
     VkDescriptorSet constants_set = VK_NULL_HANDLE;
     uint64_t submission = 0;
+    VkQueryPool queries = VK_NULL_HANDLE;
+    std::vector<GpuCategory> marks;
   };
+
+  void SetupTimestamps();
+  void CollectTimes(Slot& slot);
+  void WriteTimestamp(Slot& slot, VkCommandBuffer command_buffer, uint32_t index, GpuCategory category);
 
   const rex::ui::vulkan::VulkanDevice* device_;
   std::array<Slot, kSlots> slots_;
@@ -62,6 +74,9 @@ class Submissions {
   uint64_t current_ = 1;
   uint64_t completed_ = 0;
   bool open_ = false;
+  double timestamp_period_ns_ = 0.0;
+  uint64_t timestamp_mask_ = 0;
+  std::array<uint64_t, kGpuCategories> gpu_ns_{};
 };
 
 }  // namespace nier::native

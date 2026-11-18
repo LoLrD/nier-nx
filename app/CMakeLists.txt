@@ -14,6 +14,7 @@ set(NIER_SOURCES
     src/nier_input_script.cpp
     src/native/draw_constants.cpp
     src/native/gpu_registers.cpp
+    src/native/gpu_times.cpp
     src/native/guest_mirror.cpp
     src/native/mirror_sync.cpp
     src/native/native_graphics_system.cpp

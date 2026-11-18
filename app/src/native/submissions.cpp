@@ -2,11 +2,13 @@
 
 #include <array>
 #include <cstring>
+#include <vector>
 
 #include <rex/graphics/pipeline/shader/spirv_translator.h>
 #include <rex/logging.h>
 #include <rex/math.h>
 #include <rex/ui/vulkan/device.h>
+#include <rex/ui/vulkan/instance.h>
 #include <rex/ui/vulkan/util.h>
 
 namespace nier::native {
@@ -91,6 +93,31 @@ Submissions::Submissions(const vk::VulkanDevice* device, VkDescriptorSetLayout c
     }
     dfn.vkUpdateDescriptorSets(d, uint32_t(writes.size()), writes.data(), 0, nullptr);
   }
+  SetupTimestamps();
+}
+
+void Submissions::SetupTimestamps() {
+  const auto& ifn = device_->vulkan_instance()->functions();
+  VkPhysicalDeviceProperties properties;
+  ifn.vkGetPhysicalDeviceProperties(device_->physical_device(), &properties);
+  uint32_t family_count = 0;
+  ifn.vkGetPhysicalDeviceQueueFamilyProperties(device_->physical_device(), &family_count, nullptr);
+  std::vector<VkQueueFamilyProperties> families(family_count);
+  ifn.vkGetPhysicalDeviceQueueFamilyProperties(device_->physical_device(), &family_count, families.data());
+  const uint32_t bits = families[device_->queue_family_graphics_compute()].timestampValidBits;
+  if (!bits || properties.limits.timestampPeriod <= 0.0f) {
+    REXLOG_INFO("[native] the queue has no timestamps, GPU time is not measured");
+    return;
+  }
+  timestamp_period_ns_ = properties.limits.timestampPeriod;
+  timestamp_mask_ = bits >= 64 ? ~0ull : (1ull << bits) - 1;
+  VkQueryPoolCreateInfo info{VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
+  info.queryType = VK_QUERY_TYPE_TIMESTAMP;
+  info.queryCount = kTimestamps;
+  for (Slot& slot : slots_) {
+    device_->functions().vkCreateQueryPool(device_->device(), &info, nullptr, &slot.queries);
+    slot.marks.reserve(kTimestamps);
+  }
 }
 
 Submissions::~Submissions() {
@@ -98,6 +125,9 @@ Submissions::~Submissions() {
   const auto& dfn = device_->functions();
   const VkDevice d = device_->device();
   for (Slot& slot : slots_) {
+    if (slot.queries) {
+      dfn.vkDestroyQueryPool(d, slot.queries, nullptr);
+    }
     dfn.vkDestroyBuffer(d, slot.uniforms, nullptr);
     dfn.vkFreeMemory(d, slot.uniform_memory, nullptr);
     dfn.vkDestroyDescriptorPool(d, slot.descriptors, nullptr);
@@ -117,6 +147,7 @@ void Submissions::Begin() {
   if (slot.submission > completed_) {
     Wait(slot.submission);
   }
+  CollectTimes(slot);
   dfn.vkResetFences(d, 1, &slot.fence);
   dfn.vkResetCommandPool(d, slot.pool, 0);
   dfn.vkResetDescriptorPool(d, slot.descriptors, 0);
@@ -125,7 +156,40 @@ void Submissions::Begin() {
   begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
   dfn.vkBeginCommandBuffer(slot.upload, &begin);
   dfn.vkBeginCommandBuffer(slot.main, &begin);
+  if (slot.queries) {
+    dfn.vkCmdResetQueryPool(slot.upload, slot.queries, 0, kTimestamps);
+    slot.marks.assign(2, GpuCategory::kNone);
+    WriteTimestamp(slot, slot.upload, 0, GpuCategory::kUploads);
+  }
   open_ = true;
+}
+
+void Submissions::WriteTimestamp(Slot& slot, VkCommandBuffer command_buffer, uint32_t index, GpuCategory category) {
+  slot.marks[index] = category;
+  device_->functions().vkCmdWriteTimestamp(command_buffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, slot.queries, index);
+}
+
+void Submissions::Mark(GpuCategory category) {
+  Slot& slot = slots_[current_ % kSlots];
+  if (!open_ || !slot.queries || slot.marks.back() == category || slot.marks.size() + 1 >= kTimestamps) {
+    return;
+  }
+  slot.marks.push_back(category);
+  WriteTimestamp(slot, slot.main, uint32_t(slot.marks.size() - 1), category);
+}
+
+void Submissions::CollectTimes(Slot& slot) {
+  if (slot.marks.size() < 2) {
+    return;
+  }
+  std::array<uint64_t, kTimestamps> ticks;
+  const uint32_t count = uint32_t(slot.marks.size());
+  if (device_->functions().vkGetQueryPoolResults(device_->device(), slot.queries, 0, count,
+                                                 count * sizeof(uint64_t), ticks.data(), sizeof(uint64_t),
+                                                 VK_QUERY_RESULT_64_BIT) == VK_SUCCESS) {
+    AddGpuTimes(ticks.data(), slot.marks.data(), count, timestamp_period_ns_, timestamp_mask_, gpu_ns_);
+  }
+  slot.marks.clear();
 }
 
 bool Submissions::HasUniformSpace(VkDeviceSize bytes) const {
@@ -168,6 +232,13 @@ void Submissions::Submit() {
   VkMemoryBarrier barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
   barrier.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT;
   barrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
+  if (slot.queries) {
+    WriteTimestamp(slot, slot.upload, 1, GpuCategory::kNone);
+    if (slot.marks.size() > 2) {
+      slot.marks.push_back(GpuCategory::kNone);
+      WriteTimestamp(slot, slot.main, uint32_t(slot.marks.size() - 1), GpuCategory::kNone);
+    }
+  }
   dfn.vkCmdPipelineBarrier(slot.upload, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 1,
                            &barrier, 0, nullptr, 0, nullptr);
   dfn.vkEndCommandBuffer(slot.upload);

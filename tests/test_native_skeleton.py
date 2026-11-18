@@ -79,6 +79,9 @@ class NativeSkeletonTest(unittest.TestCase):
     def test_resolve_plan(self) -> None:
         self.check("resolve_plan", ["resolve_plan.cpp", "target_keys.cpp", "texture_loader.cpp"], link_sdk=True)
 
+    def test_gpu_times(self) -> None:
+        self.check("gpu_times", ["gpu_times.cpp"])
+
     def test_sdk_link(self) -> None:
         self.check("sdk_link", [], link_sdk=True)
 
