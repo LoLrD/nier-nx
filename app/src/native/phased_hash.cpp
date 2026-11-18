@@ -49,6 +49,12 @@ uint64_t PhasedHash::Edges(std::span<const HashSpan> spans, uint32_t total) {
 
 PhasedHash::Digest PhasedHash::Full(std::span<const HashSpan> spans, uint32_t total) {
   Digest digest;
+  if (total <= kMinSampledBytes) {
+    for (const HashSpan& span : spans) {
+      digest.phases[0] = Mix(digest.phases[0], XXH3_64bits(span.data, span.bytes) + span.bytes);
+    }
+    return digest;
+  }
   digest.edges = Edges(spans, total);
   ForEachBlock(spans, [&](uint32_t index, const uint8_t* data, uint32_t bytes) {
     uint64_t& phase = digest.phases[index % kPhases];
