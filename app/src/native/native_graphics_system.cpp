@@ -192,9 +192,7 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem, private 
       }
       return;
     }
-    if (const auto store = registers_.Set(index, value)) {
-      StoreWord(store->address & ~3u, __builtin_bswap32(store->value));
-    }
+    registers_.Store(index, value);
   }
 
   uint32_t LoadWord(uint32_t physical) override {

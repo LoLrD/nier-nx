@@ -1,6 +1,7 @@
 #include "gpu_registers.h"
 
 #include <algorithm>
+#include <atomic>
 
 #include <rex/graphics/registers.h>
 
@@ -72,6 +73,12 @@ std::optional<MemoryStore> GpuRegisters::Set(uint32_t index, uint32_t value) {
     return std::nullopt;
   }
   return MemoryStore{file_.values[XE_GPU_REG_SCRATCH_ADDR] + scratch * 4, value};
+}
+
+void GpuRegisters::Store(uint32_t index, uint32_t value) {
+  if (index < kCount) {
+    std::atomic_ref<uint32_t>(file_.values[index]).store(value, std::memory_order_relaxed);
+  }
 }
 
 uint32_t GpuRegisters::ReadMmio(uint32_t index, uint32_t display_width, uint32_t display_height) const {

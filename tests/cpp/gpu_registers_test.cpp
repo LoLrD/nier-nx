@@ -92,5 +92,18 @@ int main() {
     const uint32_t linear = 3u * 0x3FF / 0xFF;
     Check(regs.gamma_ramp()[3] == (linear << 20 | linear << 10 | 0x3FF), "gamma_ramp_30_color_write_mask_blue_only");
   }
+  {
+    GpuRegisters regs;
+    regs.Set(XE_GPU_REG_DC_LUT_WRITE_EN_MASK, 7);
+    regs.Set(XE_GPU_REG_DC_LUT_RW_INDEX, 5);
+    const auto before = regs.gamma_ramp();
+    regs.Store(XE_GPU_REG_DC_LUT_30_COLOR, 0x3FFFFFFF);
+    regs.Store(XE_GPU_REG_SCRATCH_REG0, 0x1234);
+    Check(regs.gamma_ramp() == before && regs.Get(XE_GPU_REG_DC_LUT_RW_INDEX) == 5 &&
+              regs.Get(XE_GPU_REG_DC_LUT_30_COLOR) == 0x3FFFFFFF && regs.Get(XE_GPU_REG_SCRATCH_REG0) == 0x1234,
+          "mmio_store_has_no_side_effects");
+    regs.Store(GpuRegisters::kCount, 1);
+    Check(regs.Get(GpuRegisters::kCount) == 0, "mmio_store_out_of_range_ignored");
+  }
   return failures ? 1 : 0;
 }
