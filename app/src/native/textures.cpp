@@ -25,6 +25,8 @@ namespace {
 
 constexpr uint64_t kTextureBudgetBytes = 256ull << 20;
 constexpr uint64_t kFreeImageBytes = 48ull << 20;
+constexpr uint64_t kMinAgeMs = 1000;
+constexpr uint64_t kFailedRetryMs = 2000;
 
 constexpr VkSamplerAddressMode kAddressModes[8] = {
     VK_SAMPLER_ADDRESS_MODE_REPEAT,          VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT,
@@ -109,7 +111,10 @@ Textures::~Textures() {
   Destroy(null_3d_);
 }
 
-void Textures::BeginFrame() { ++frame_; }
+void Textures::BeginFrame(uint64_t now_ms) {
+  ++frame_;
+  now_ms_ = now_ms;
+}
 
 void Textures::Prepare(VkCommandBuffer upload) {
   if (prepared_) {
@@ -210,31 +215,37 @@ Textures::Binding Textures::View(VkCommandBuffer upload, const xenos::xe_gpu_tex
     }
   }
   if (reload) {
-    auto loaded = LoadTexture(fetch, physical_base_);
-    if (!loaded) {
+    if (auto failed = failed_.find(key); failed != failed_.end()) {
+      if (now_ms_ < failed->second + kFailedRetryMs) {
+        ++stats_.memory_failures;
+        return result;
+      }
+      failed_.erase(failed);
+    }
+    const auto shape = ShapeFor(fetch);
+    if (!shape) {
       ++stats_.unsupported;
       return result;
     }
-    Texture texture{AcquireImage(*loaded), loaded->host, loaded->width, loaded->height, loaded->cube, 0,
-                    hash, frame_, 0, 0};
-    for (const auto& level : loaded->levels) {
-      texture.bytes += uint32_t(level.size());
+    const Image image = AcquireImage(*shape);
+    if (image.image == VK_NULL_HANDLE) {
+      return OutOfMemory(key, result);
     }
-    if (texture.image.image == VK_NULL_HANDLE) {
-      ++stats_.unsupported;
-      return result;
+    const auto loaded = LoadTexture(fetch, physical_base_);
+    if (!Upload(upload, image, *loaded, submission)) {
+      RetireImage(image, submission, shape->bytes, ShapeKey(*shape));
+      return OutOfMemory(key, result);
     }
-    texture.shape = ShapeKey(*loaded);
-    Upload(upload, texture.image, *loaded, submission);
-    RecordLoad(fetch, *loaded, texture.bytes, reason);
-    live_bytes_ += texture.bytes;
-    it = textures_.emplace(key, texture).first;
-    it->second.used_frame = frame_;
+    RecordLoad(fetch, *loaded, shape->bytes, reason);
+    active_bytes_ += shape->bytes;
+    textures_.emplace(key, Texture{image, shape->host, shape->width, shape->height, shape->cube, shape->bytes, hash,
+                                   frame_, frame_, now_ms_, submission, ShapeKey(*shape)});
     EnforceBudget();
     it = textures_.find(key);
   }
   Texture& texture = it->second;
   texture.used_frame = frame_;
+  texture.used_ms = now_ms_;
   texture.last_submission = submission;
   const bool cube_view = binding.dimension == xenos::FetchOpDimension::kCube;
   if (cube_view && !texture.cube) {
@@ -245,7 +256,17 @@ Textures::Binding Textures::View(VkCommandBuffer upload, const xenos::xe_gpu_tex
   return result;
 }
 
-Textures::Image Textures::CreateImage(const LoadedTexture& loaded) {
+Textures::Binding Textures::OutOfMemory(uint64_t key, Binding result) {
+  if (released_frame_ == frame_) {
+    failed_[key] = now_ms_;
+    ++stats_.memory_failures;
+    return result;
+  }
+  result.out_of_memory = true;
+  return result;
+}
+
+Textures::Image Textures::CreateImage(const TextureShape& loaded) {
   Image image;
   const auto& dfn = device_->functions();
   const bool mutable_format = loaded.host.signed_format != loaded.host.format;
@@ -282,7 +303,7 @@ Textures::Image Textures::CreateImage(const LoadedTexture& loaded) {
   return image;
 }
 
-void Textures::Upload(VkCommandBuffer upload, const Image& image, const LoadedTexture& loaded, uint64_t submission) {
+bool Textures::Upload(VkCommandBuffer upload, const Image& image, const LoadedTexture& loaded, uint64_t submission) {
   const auto& dfn = device_->functions();
   VkImageMemoryBarrier barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
   barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
@@ -301,7 +322,7 @@ void Textures::Upload(VkCommandBuffer upload, const Image& image, const LoadedTe
     uint8_t* mapping = staging_.Request(submission, data.size(), 16, buffer, offset);
     if (!mapping) {
       REXLOG_ERROR("[native] no staging space for a {}-byte texture level", data.size());
-      continue;
+      return false;
     }
     std::memcpy(mapping, data.data(), data.size());
     staged_bytes_ += data.size();
@@ -313,6 +334,7 @@ void Textures::Upload(VkCommandBuffer upload, const Image& image, const LoadedTe
     ++stats_.uploads;
     stats_.upload_bytes += data.size();
   }
+  return true;
 }
 
 void Textures::Destroy(Image& image) {
@@ -471,63 +493,90 @@ void Textures::NoteEvicted(uint64_t key) {
 }
 
 void Textures::Retire(Texture& texture) {
-  retired_.push_back({texture.image, texture.last_submission, texture.bytes, texture.shape});
+  active_bytes_ -= texture.bytes;
+  RetireImage(texture.image, texture.last_submission, texture.bytes, texture.shape);
 }
 
-uint64_t Textures::ShapeKey(const LoadedTexture& loaded) {
+void Textures::RetireImage(const Image& image, uint64_t submission, uint32_t bytes, uint64_t shape) {
+  retired_.push_back({image, submission, bytes, shape});
+  retired_bytes_ += bytes;
+}
+
+uint64_t Textures::ShapeKey(const TextureShape& loaded) {
   const std::array<uint32_t, 7> fields = {uint32_t(loaded.host.format), uint32_t(loaded.host.signed_format),
                                           loaded.width, loaded.height, loaded.mips, loaded.layers,
                                           uint32_t(loaded.cube)};
   return XXH3_64bits(fields.data(), sizeof(fields));
 }
 
-Textures::Image Textures::AcquireImage(const LoadedTexture& loaded) {
-  auto it = free_images_.find(ShapeKey(loaded));
+Textures::Image Textures::AcquireImage(const TextureShape& shape) {
+  auto it = free_images_.find(ShapeKey(shape));
   if (it == free_images_.end()) {
-    return CreateImage(loaded);
+    return CreateImage(shape);
   }
   Image image = it->second.image;
   free_bytes_ -= it->second.bytes;
-  live_bytes_ -= it->second.bytes;
   free_images_.erase(it);
   ++stats_.reused;
   return image;
 }
 
 void Textures::EnforceBudget() {
-  while (live_bytes_ > kTextureBudgetBytes && !free_images_.empty()) {
+  while (active_bytes_ + free_bytes_ > kTextureBudgetBytes && !free_images_.empty()) {
     auto it = free_images_.begin();
     Destroy(it->second.image);
     free_bytes_ -= it->second.bytes;
-    live_bytes_ -= it->second.bytes;
     free_images_.erase(it);
   }
-  while (live_bytes_ > kTextureBudgetBytes) {
-    auto oldest = textures_.end();
-    for (auto it = textures_.begin(); it != textures_.end(); ++it) {
-      if (it->second.used_frame < frame_ && (oldest == textures_.end() || it->second.used_frame < oldest->second.used_frame)) {
-        oldest = it;
-      }
-    }
-    if (oldest == textures_.end()) {
-      return;
-    }
-    NoteEvicted(oldest->first);
-    Retire(oldest->second);
-    textures_.erase(oldest);
+  EvictOldest(kTextureBudgetBytes);
+}
+
+void Textures::EvictOldest(uint64_t budget) {
+  if (active_bytes_ <= budget) {
+    return;
+  }
+  std::vector<EvictionCandidate> candidates;
+  candidates.reserve(textures_.size());
+  for (const auto& [key, texture] : textures_) {
+    candidates.push_back({key, texture.used_ms, texture.bytes});
+  }
+  for (const uint64_t key : PickEvictions(std::move(candidates), active_bytes_, budget, now_ms_, kMinAgeMs)) {
+    auto it = textures_.find(key);
+    NoteEvicted(key);
+    Retire(it->second);
+    textures_.erase(it);
+    ++stats_.evictions;
   }
 }
 
-void Textures::Evict(uint64_t unused_frames) {
+void Textures::Evict(uint64_t unused_ms) {
   std::erase_if(textures_, [&](auto& entry) {
     Texture& texture = entry.second;
-    if (texture.used_frame + unused_frames >= frame_) {
+    if (texture.used_ms + unused_ms >= now_ms_) {
       return false;
     }
     NoteEvicted(entry.first);
     Retire(texture);
+    ++stats_.evictions;
     return true;
   });
+  std::erase_if(failed_, [&](const auto& entry) { return entry.second + kFailedRetryMs < now_ms_; });
+}
+
+void Textures::ReleaseMemory() {
+  released_frame_ = frame_;
+  ++stats_.releases;
+  EvictOldest(0);
+  for (Retired& retired : retired_) {
+    Destroy(retired.image);
+  }
+  retired_.clear();
+  retired_bytes_ = 0;
+  for (auto& [shape, free] : free_images_) {
+    Destroy(free.image);
+  }
+  free_images_.clear();
+  free_bytes_ = 0;
 }
 
 void Textures::Completed(uint64_t submission) {
@@ -535,12 +584,12 @@ void Textures::Completed(uint64_t submission) {
     if (retired.last_submission > submission) {
       return false;
     }
+    retired_bytes_ -= retired.bytes;
     if (free_bytes_ + retired.bytes <= kFreeImageBytes) {
       free_images_.emplace(retired.shape, FreeImage{retired.image, retired.bytes});
       free_bytes_ += retired.bytes;
     } else {
       Destroy(retired.image);
-      live_bytes_ -= retired.bytes;
     }
     return true;
   });

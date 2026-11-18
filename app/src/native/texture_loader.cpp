@@ -180,6 +180,26 @@ std::optional<HostTextureFormat> HostFormatFor(xenos::TextureFormat format) {
   }
 }
 
+std::optional<TextureShape> ShapeFor(const xenos::xe_gpu_texture_fetch_t& fetch) {
+  const auto host = HostFormatFor(fetch.format);
+  const auto source = Describe(fetch);
+  if (!host || !source) {
+    return std::nullopt;
+  }
+  TextureShape shape{*host, source->width, source->height, source->layers, source->mips,
+                     fetch.dimension == xenos::DataDimension::kCube, 0};
+  for (uint32_t level = 0; level < source->mips; ++level) {
+    const uint32_t width = std::max(source->width >> level, 1u);
+    const uint32_t height = std::max(source->height >> level, 1u);
+    shape.bytes += host->convert == Convert::kCtx1ToR8G8
+                       ? width * height * 2 * source->layers
+                       : ((width + host->block_width - 1) / host->block_width) *
+                             ((height + host->block_height - 1) / host->block_height) * host->bytes_per_block *
+                             source->layers;
+  }
+  return shape;
+}
+
 TextureFootprint FootprintOf(const xenos::xe_gpu_texture_fetch_t& fetch) {
   const auto source = Describe(fetch);
   if (!source) {
@@ -229,6 +249,26 @@ bool NeedsRehash(uint32_t bytes, uint64_t frame, uint64_t last_checked_frame, bo
     return true;
   }
   return !used_this_frame && frame >= last_checked_frame + kRehashFrames;
+}
+
+std::vector<uint64_t> PickEvictions(std::vector<EvictionCandidate> candidates, uint64_t active_bytes, uint64_t budget,
+                                    uint64_t now_ms, uint64_t min_age_ms) {
+  std::vector<uint64_t> picked;
+  if (active_bytes <= budget) {
+    return picked;
+  }
+  std::erase_if(candidates, [&](const EvictionCandidate& candidate) { return now_ms - candidate.used_ms < min_age_ms; });
+  std::sort(candidates.begin(), candidates.end(),
+            [](const EvictionCandidate& a, const EvictionCandidate& b) { return a.used_ms < b.used_ms; });
+  const uint64_t target = budget / 4 * 3;
+  for (const EvictionCandidate& candidate : candidates) {
+    if (active_bytes <= target) {
+      break;
+    }
+    picked.push_back(candidate.key);
+    active_bytes -= std::min(active_bytes, candidate.bytes);
+  }
+  return picked;
 }
 
 bool ResolveImageMatches(VkFormat image_format, uint32_t image_width, uint32_t image_height, VkFormat wanted_format,

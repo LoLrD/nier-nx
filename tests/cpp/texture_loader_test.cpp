@@ -186,5 +186,38 @@ int main() {
               !ResolveImageMatches(VK_FORMAT_R8G8B8A8_UNORM, 1280, 720, VK_FORMAT_R8G8B8A8_UNORM, 640, 360),
           "resolve_image_used_only_on_match");
   }
+  {
+    const std::vector<EvictionCandidate> candidates = {
+        {1, 10, 20}, {2, 5, 20}, {3, 50, 30}, {4, 950, 60}, {5, 60, 40}};
+    const auto picked = PickEvictions(candidates, 130, 100, 1000, 100);
+    Check(picked == std::vector<uint64_t>{2, 1, 3}, "eviction_frees_oldest_to_three_quarters");
+    Check(PickEvictions(candidates, 100, 100, 1000, 100).empty(), "eviction_none_under_budget");
+    Check(PickEvictions(candidates, 400, 100, 1000, 2000).empty(), "eviction_keeps_recent");
+    Check(PickEvictions(candidates, 170, 0, 1000, 100) == std::vector<uint64_t>{2, 1, 3, 5},
+          "eviction_to_zero_takes_every_old_texture");
+  }
+  {
+    auto f = Fetch(xenos::TextureFormat::k_DXT4_5, 256, 128, true, 0x10000, xenos::DataDimension::k2DOrStacked);
+    f.mip_address = 0x40000 >> 12;
+    f.mip_max_level = 3;
+    const auto shape = ShapeFor(f);
+    const auto loaded = LoadTexture(f, base);
+    uint32_t bytes = 0;
+    for (const auto& level : loaded->levels) {
+      bytes += uint32_t(level.size());
+    }
+    Check(shape && loaded && shape->host.format == loaded->host.format && shape->width == loaded->width &&
+              shape->height == loaded->height && shape->mips == loaded->mips && shape->layers == loaded->layers &&
+              shape->cube == loaded->cube && shape->bytes == bytes,
+          "shape_without_loading");
+    auto cube = Fetch(xenos::TextureFormat::k_CTX1, 64, 64, true, 0x10000, xenos::DataDimension::kCube);
+    const auto cube_shape = ShapeFor(cube);
+    const auto cube_loaded = LoadTexture(cube, base);
+    Check(cube_shape && cube_loaded && cube_shape->cube && cube_shape->layers == 6 &&
+              cube_shape->bytes == cube_loaded->levels[0].size(),
+          "shape_of_ctx1_cube");
+    Check(!ShapeFor(Fetch(xenos::TextureFormat::k_1_5_5_5, 32, 32, true, 0x1000, xenos::DataDimension::k2DOrStacked)),
+          "no_shape_for_unknown_format");
+  }
   return failures ? 1 : 0;
 }

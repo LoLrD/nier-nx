@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstdint>
+#include <deque>
 #include <memory>
 #include <string>
 
@@ -49,6 +50,10 @@ class NativeRenderer {
     uint64_t swaps = 0;
     uint64_t black_frames = 0;
     uint64_t presented_changes = 0;
+    uint64_t draw_retries = 0;
+    uint64_t skipped_retry = 0;
+    uint64_t memory_releases = 0;
+    uint64_t staging_flushes = 0;
     uint64_t mirror_copies = 0;
     uint64_t mirror_bytes = 0;
     uint64_t mirror_waits = 0;
@@ -74,6 +79,8 @@ class NativeRenderer {
   std::string Report();
 
  private:
+  enum class DrawResult { kDone, kRetry, kOutOfMemory };
+
   struct Presented {
     bool found = false;
     VkFormat format = VK_FORMAT_UNDEFINED;
@@ -82,13 +89,16 @@ class NativeRenderer {
     bool operator==(const Presented&) const = default;
   };
 
+  DrawResult RecordDraw(const rex::graphics::RegisterFile& regs);
+  void ReleaseMemory();
   void BeginSubmission();
   void Flush();
   void WaitFor(uint64_t submission);
   void ProcessCompleted();
   void SyncMirror(uint32_t address, uint32_t size);
   VkDescriptorSet BindTextures(const rex::graphics::RegisterFile& regs, const rex::graphics::SpirvShader& shader,
-                               bool pixel, TextureConstantInfo& info, uint32_t& textures, uint32_t& samplers);
+                               bool pixel, TextureConstantInfo& info, uint32_t& textures, uint32_t& samplers,
+                               bool& out_of_memory);
   void SetDynamicState(const rex::graphics::RegisterFile& regs, const rex::graphics::draw_util::ViewportInfo& viewport,
                        const SampleScale& scale, bool polygonal);
   void DumpFrame(uint32_t frontbuffer, uint32_t width, uint32_t height);
@@ -122,6 +132,8 @@ class NativeRenderer {
   std::string dump_directory_;
   uint32_t dump_interval_ = 0;
   uint64_t processed_ = 0;
+  uint64_t last_eviction_ms_ = 0;
+  std::deque<uint64_t> swap_marks_;
   Presented presented_;
   Stats stats_;
   Stats reported_;

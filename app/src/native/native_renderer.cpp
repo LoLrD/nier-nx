@@ -87,9 +87,15 @@ bool PreferCachedUploads(const vk::VulkanDevice* device) {
 
 constexpr size_t kStagingPageBytes = 16 << 20;
 constexpr VkDeviceSize kDrawUniformBytes = 16384;
-constexpr uint64_t kEvictionPeriodFrames = 64;
-constexpr uint64_t kStagingFlushBytes = 48ull << 20;
-constexpr uint64_t kUnusedFrames = 600;
+constexpr uint64_t kStagingFlushBytes = 16ull << 20;
+constexpr uint64_t kEvictionPeriodMs = 1000;
+constexpr uint64_t kUnusedSeconds = 10;
+
+uint64_t NowMs() {
+  return uint64_t(std::chrono::duration_cast<std::chrono::milliseconds>(
+                      std::chrono::steady_clock::now().time_since_epoch())
+                      .count());
+}
 
 }  // namespace
 
@@ -288,7 +294,8 @@ void NativeRenderer::SyncMirror(uint32_t address, uint32_t size) {
 }
 
 VkDescriptorSet NativeRenderer::BindTextures(const RegisterFile& regs, const SpirvShader& shader, bool pixel,
-                                             TextureConstantInfo& info, uint32_t& textures, uint32_t& samplers) {
+                                             TextureConstantInfo& info, uint32_t& textures, uint32_t& samplers,
+                                             bool& out_of_memory) {
   const auto& texture_bindings = shader.GetTextureBindingsAfterTranslation();
   const auto& sampler_bindings = shader.GetSamplerBindingsAfterTranslation();
   textures = uint32_t(texture_bindings.size());
@@ -306,6 +313,10 @@ VkDescriptorSet NativeRenderer::BindTextures(const RegisterFile& regs, const Spi
     {
       ScopedMicros timer(stats_.us_textures);
       bound = textures_->View(submissions_->upload(), fetch, binding, submissions_->current());
+    }
+    if (bound.out_of_memory) {
+      out_of_memory = true;
+      return VK_NULL_HANDLE;
     }
     images[i] = {VK_NULL_HANDLE, bound.view, VK_IMAGE_LAYOUT_GENERAL};
     writes[i] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, set, i, 0, 1, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
@@ -379,25 +390,52 @@ void NativeRenderer::Draw(const RegisterFile& regs) {
   if (!valid_) {
     return;
   }
+  DrawResult result = RecordDraw(regs);
+  if (result == DrawResult::kDone) {
+    return;
+  }
+  ++stats_.draw_retries;
+  Flush();
+  if (result == DrawResult::kOutOfMemory) {
+    ReleaseMemory();
+  }
+  if (RecordDraw(regs) != DrawResult::kDone) {
+    ++stats_.skipped_retry;
+  }
+}
+
+void NativeRenderer::ReleaseMemory() {
+  ++stats_.memory_releases;
+  {
+    ScopedMicros timer(stats_.us_gpu_wait);
+    submissions_->WaitIdle();
+  }
+  ProcessCompleted();
+  textures_->ReleaseMemory();
+  REXLOG_WARN("[native] out of memory: waited for the GPU and released textures, {} MB still in use",
+                 textures_->active_bytes() >> 20);
+}
+
+NativeRenderer::DrawResult NativeRenderer::RecordDraw(const RegisterFile& regs) {
   const bool polygonal = draw_util::IsPrimitivePolygonal(regs);
   if (!draw_util::IsRasterizationPotentiallyDone(regs, polygonal)) {
     ++stats_.skipped_raster;
-    return;
+    return DrawResult::kDone;
   }
   const HostDraw draw = SetupPrimitive(regs);
   if (!draw.supported) {
     ++stats_.skipped_primitive;
-    return;
+    return DrawResult::kDone;
   }
   if (!draw.host_count) {
     ++stats_.skipped_empty;
-    return;
+    return DrawResult::kDone;
   }
   const SampleScale scale = ScaleFor(regs.Get<reg::RB_SURFACE_INFO>().msaa_samples);
   const auto prepared = shaders_.PrepareDraw(regs, draw.vs_type, scale.x, scale.y);
   if (!prepared) {
     ++stats_.skipped_shader;
-    return;
+    return DrawResult::kDone;
   }
   const uint32_t color_mask = draw_util::GetNormalizedColorMask(
       regs, prepared->pixel_shader ? prepared->pixel_shader->writes_color_targets() : 0);
@@ -416,7 +454,7 @@ void NativeRenderer::Draw(const RegisterFile& regs) {
   }
   if (!any || !supported) {
     ++stats_.skipped_target;
-    return;
+    return DrawResult::kDone;
   }
   BeginSubmission();
   if (!submissions_->HasUniformSpace(kDrawUniformBytes)) {
@@ -440,14 +478,18 @@ void NativeRenderer::Draw(const RegisterFile& regs) {
   }
   TextureConstantInfo texture_info;
   uint32_t vs_textures = 0, vs_samplers = 0, ps_textures = 0, ps_samplers = 0;
-  VkDescriptorSet vs_set = BindTextures(regs, *prepared->vertex_shader, false, texture_info, vs_textures, vs_samplers);
-  VkDescriptorSet ps_set = prepared->pixel_shader
-                               ? BindTextures(regs, *prepared->pixel_shader, true, texture_info, ps_textures, ps_samplers)
-                               : submissions_->Allocate(pipelines_->TextureSetLayout(true, 0, 0));
-  if (vs_set == VK_NULL_HANDLE || ps_set == VK_NULL_HANDLE) {
-    Flush();
-    ++stats_.skipped_shader;
-    return;
+  bool out_of_memory = false;
+  const VkDescriptorSet vs_set =
+      BindTextures(regs, *prepared->vertex_shader, false, texture_info, vs_textures, vs_samplers, out_of_memory);
+  if (vs_set == VK_NULL_HANDLE) {
+    return out_of_memory ? DrawResult::kOutOfMemory : DrawResult::kRetry;
+  }
+  const VkDescriptorSet ps_set =
+      prepared->pixel_shader
+          ? BindTextures(regs, *prepared->pixel_shader, true, texture_info, ps_textures, ps_samplers, out_of_memory)
+          : submissions_->Allocate(pipelines_->TextureSetLayout(true, 0, 0));
+  if (ps_set == VK_NULL_HANDLE) {
+    return out_of_memory ? DrawResult::kOutOfMemory : DrawResult::kRetry;
   }
   PipelineState state = BuildPipelineState(regs, draw, targets, color_mask, targets_->depth_format());
   state.vertex_module = prepared->vertex->shader_module();
@@ -456,7 +498,7 @@ void NativeRenderer::Draw(const RegisterFile& regs) {
   const VkPipeline pipeline = pipelines_->Get(state, layout);
   if (pipeline == VK_NULL_HANDLE) {
     ++stats_.skipped_shader;
-    return;
+    return DrawResult::kDone;
   }
   const auto& properties = device_->properties();
   draw_util::ViewportInfo viewport;
@@ -485,7 +527,7 @@ void NativeRenderer::Draw(const RegisterFile& regs) {
   targets_->Begin(cmd, targets);
   if (!targets_->rendering()) {
     ++stats_.skipped_target;
-    return;
+    return DrawResult::kDone;
   }
   const auto& dfn = device_->functions();
   dfn.vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
@@ -513,8 +555,10 @@ void NativeRenderer::Draw(const RegisterFile& regs) {
   }
   ++stats_.drawn;
   if (textures_->staged_bytes() > kStagingFlushBytes) {
-    WaitFor(submissions_->current());
+    ++stats_.staging_flushes;
+    Flush();
   }
+  return DrawResult::kDone;
 }
 
 void NativeRenderer::Resolve(const RegisterFile& regs) {
@@ -675,13 +719,22 @@ void NativeRenderer::Swap(rex::ui::Presenter* presenter, uint32_t frontbuffer, u
     });
   }
   Flush();
+  const uint64_t now_ms = NowMs();
   mirror_sync_.BeginFrame();
-  textures_->BeginFrame();
+  textures_->BeginFrame(now_ms);
   resolves_->BeginFrame();
-  if (stats_.swaps % kEvictionPeriodFrames == 0) {
-    mirror_sync_.Prune(kUnusedFrames);
-    textures_->Evict(kUnusedFrames);
-    resolves_->Evict(kUnusedFrames, submissions_->current());
+  if (now_ms >= last_eviction_ms_ + kEvictionPeriodMs) {
+    last_eviction_ms_ = now_ms;
+    textures_->Evict(kUnusedSeconds * 1000);
+    swap_marks_.push_back(stats_.swaps);
+    if (swap_marks_.size() > kUnusedSeconds + 1) {
+      swap_marks_.pop_front();
+    }
+    if (swap_marks_.size() == kUnusedSeconds + 1) {
+      const uint64_t unused_frames = stats_.swaps - swap_marks_.front();
+      mirror_sync_.Prune(unused_frames);
+      resolves_->Evict(unused_frames, submissions_->current());
+    }
   }
   ProcessCompleted();
 }
@@ -708,7 +761,7 @@ std::string NativeRenderer::Report() {
       t.uploads - reported_textures_.uploads, (t.upload_bytes - reported_textures_.upload_bytes) >> 20,
       t.unsupported - reported_textures_.unsupported, t.resolve_hits - reported_textures_.resolve_hits,
       t.reused - reported_textures_.reused,
-      textures_->live_images(), textures_->live_bytes() >> 20, resolves_->image_count(), mirror_sync_.key_count(), targets_->count(), pipelines_->pipeline_count(), submissions - reported_submissions_,
+      textures_->live_images(), (textures_->active_bytes() + textures_->retired_bytes() + textures_->free_bytes()) >> 20, resolves_->image_count(), mirror_sync_.key_count(), targets_->count(), pipelines_->pipeline_count(), submissions - reported_submissions_,
       s.black_frames - r.black_frames);
   line += fmt::format("; ms draws {} (mirror {}, textures {}), resolves {}, present {}, gpu wait {}",
                       (s.us_draws - r.us_draws) / 1000, (s.us_mirror - r.us_mirror) / 1000,
@@ -736,8 +789,13 @@ std::string NativeRenderer::Report() {
     }
     line.pop_back();
   }
-  line += fmt::format("; memory MB: mirror {}, textures {} (free {}), resolve images {}, targets {}, staging {}, uniforms {}",
-                      GuestMirror::kSize >> 20, textures_->live_bytes() >> 20, textures_->free_bytes() >> 20,
+  line += fmt::format("; {} evictions, {} memory skips, {} releases, {} draw retries, {} skipped after retry, {} staging flushes",
+                      t.evictions - rt.evictions, t.memory_failures - rt.memory_failures, t.releases - rt.releases,
+                      s.draw_retries - r.draw_retries, s.skipped_retry - r.skipped_retry,
+                      s.staging_flushes - r.staging_flushes);
+  line += fmt::format("; memory MB: mirror {}, textures {} (retired {}, free {}), resolve images {}, targets {}, staging {}, uniforms {}",
+                      GuestMirror::kSize >> 20, textures_->active_bytes() >> 20, textures_->retired_bytes() >> 20,
+                      textures_->free_bytes() >> 20,
                       resolves_->bytes() >> 20, targets_->bytes() >> 20,
                       (staging_->page_count() * staging_->page_size()) >> 20,
                       (Submissions::kSlots * Submissions::kUniformBytes) >> 20);

@@ -24,6 +24,7 @@ class Textures {
     VkImageView view = VK_NULL_HANDLE;
     uint16_t host_swizzle = 0;
     uint8_t swizzled_signs = 0;
+    bool out_of_memory = false;
   };
   enum class UploadReason : uint8_t { kNew, kChanged, kEvicted };
   struct UploadRecord {
@@ -41,6 +42,9 @@ class Textures {
     uint64_t resolve_hits = 0;
     uint64_t resolve_misses = 0;
     uint64_t reused = 0;
+    uint64_t evictions = 0;
+    uint64_t memory_failures = 0;
+    uint64_t releases = 0;
     uint64_t loads[3] = {};
     uint64_t load_bytes[3] = {};
   };
@@ -52,7 +56,7 @@ class Textures {
   Textures(const Textures&) = delete;
   Textures& operator=(const Textures&) = delete;
 
-  void BeginFrame();
+  void BeginFrame(uint64_t now_ms);
   void Prepare(VkCommandBuffer upload);
   Binding View(VkCommandBuffer upload, const rex::graphics::xenos::xe_gpu_texture_fetch_t& fetch,
                const rex::graphics::SpirvShader::TextureBinding& binding, uint64_t submission);
@@ -62,12 +66,14 @@ class Textures {
                        uint32_t guest_bytes);
   void RefreshResolveHash(uint32_t address);
   void RemoveResolveImage(uint32_t address, VkFormat format, VkImageView view);
-  void Evict(uint64_t unused_frames);
+  void Evict(uint64_t unused_ms);
+  void ReleaseMemory();
   void Completed(uint64_t submission);
   const Stats& stats() const { return stats_; }
   std::vector<UploadRecord> TakeTopUploads();
-  size_t live_images() const { return textures_.size() + retired_.size(); }
-  uint64_t live_bytes() const { return live_bytes_; }
+  size_t live_images() const { return textures_.size() + retired_.size() + free_images_.size(); }
+  uint64_t active_bytes() const { return active_bytes_; }
+  uint64_t retired_bytes() const { return retired_bytes_; }
   uint64_t free_bytes() const { return free_bytes_; }
   uint64_t staged_bytes() const { return staged_bytes_; }
   void ResetStaged() { staged_bytes_ = 0; }
@@ -88,8 +94,9 @@ class Textures {
     uint64_t data_hash;
     uint64_t checked_frame;
     uint64_t used_frame;
+    uint64_t used_ms;
     uint64_t last_submission;
-    uint64_t shape = 0;
+    uint64_t shape;
   };
   struct Retired {
     Image image;
@@ -111,13 +118,16 @@ class Textures {
     uint64_t checked_frame;
   };
 
-  Image CreateImage(const LoadedTexture& loaded);
-  Image AcquireImage(const LoadedTexture& loaded);
-  static uint64_t ShapeKey(const LoadedTexture& loaded);
-  void Upload(VkCommandBuffer upload, const Image& image, const LoadedTexture& loaded, uint64_t submission);
+  Image CreateImage(const TextureShape& shape);
+  Image AcquireImage(const TextureShape& shape);
+  static uint64_t ShapeKey(const TextureShape& shape);
+  bool Upload(VkCommandBuffer upload, const Image& image, const LoadedTexture& loaded, uint64_t submission);
+  Binding OutOfMemory(uint64_t key, Binding result);
+  void RetireImage(const Image& image, uint64_t submission, uint32_t bytes, uint64_t shape);
   void Destroy(Image& image);
   void Retire(Texture& texture);
   void EnforceBudget();
+  void EvictOldest(uint64_t budget);
   VkImageView NullView(rex::graphics::xenos::FetchOpDimension dimension) const;
   uint64_t DataHash(const rex::graphics::xenos::xe_gpu_texture_fetch_t& fetch) const;
   void RecordLoad(const rex::graphics::xenos::xe_gpu_texture_fetch_t& fetch, const LoadedTexture& loaded, uint32_t bytes,
@@ -131,6 +141,8 @@ class Textures {
   const uint8_t* physical_base_;
   rex::ui::vulkan::VulkanUploadBufferPool& staging_;
   uint64_t frame_ = 1;
+  uint64_t now_ms_ = 0;
+  uint64_t released_frame_ = 0;
   bool prepared_ = false;
   Image null_array_;
   Image null_3d_;
@@ -141,8 +153,10 @@ class Textures {
   std::unordered_set<uint64_t> evicted_keys_;
   std::vector<UploadRecord> top_uploads_;
   std::unordered_map<uint64_t, VkSampler> samplers_;
-  uint64_t live_bytes_ = 0;
+  uint64_t active_bytes_ = 0;
+  uint64_t retired_bytes_ = 0;
   uint64_t free_bytes_ = 0;
+  std::unordered_map<uint64_t, uint64_t> failed_;
   uint64_t staged_bytes_ = 0;
   std::unordered_multimap<uint64_t, FreeImage> free_images_;
   Stats stats_;
