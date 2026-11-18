@@ -168,6 +168,7 @@ NativeRenderer::NativeRenderer(const vk::VulkanDevice* device, rex::memory::Memo
                                    nullptr};
   dfn.vkUpdateDescriptorSets(d, 1, &write, 0, nullptr);
   CreateGammaPipeline();
+  last_swap_ms_ = NowMs();
   valid_ = true;
   REXLOG_INFO("[native] renderer ready: {} shared memory bindings, depth {}", shared_count,
               targets_->depth_format() == VK_FORMAT_D24_UNORM_S8_UINT ? "D24S8" : "D32S8");
@@ -720,11 +721,13 @@ void NativeRenderer::Swap(rex::ui::Presenter* presenter, uint32_t frontbuffer, u
   }
   Flush();
   const uint64_t now_ms = NowMs();
+  frame_clock_ms_ = AdvanceFrameClock(frame_clock_ms_, last_swap_ms_, now_ms);
+  last_swap_ms_ = now_ms;
   mirror_sync_.BeginFrame();
-  textures_->BeginFrame(now_ms);
+  textures_->BeginFrame(frame_clock_ms_);
   resolves_->BeginFrame();
-  if (now_ms >= last_eviction_ms_ + kEvictionPeriodMs) {
-    last_eviction_ms_ = now_ms;
+  if (frame_clock_ms_ >= last_eviction_ms_ + kEvictionPeriodMs) {
+    last_eviction_ms_ = frame_clock_ms_;
     textures_->Evict(kUnusedSeconds * 1000);
     swap_marks_.push_back(stats_.swaps);
     if (swap_marks_.size() > kUnusedSeconds + 1) {

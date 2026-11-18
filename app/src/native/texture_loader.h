@@ -39,6 +39,7 @@ struct TextureShape {
   uint32_t mips;
   bool cube;
   uint32_t bytes;
+  uint32_t level_bytes;
 };
 
 struct EvictionCandidate {
@@ -62,6 +63,7 @@ std::optional<LoadedTexture> LoadTexture(const rex::graphics::xenos::xe_gpu_text
 bool NeedsRehash(uint32_t bytes, uint64_t frame, uint64_t last_checked_frame, bool used_this_frame);
 std::vector<uint64_t> PickEvictions(std::vector<EvictionCandidate> candidates, uint64_t active_bytes, uint64_t budget,
                                     uint64_t now_ms, uint64_t min_age_ms);
+uint64_t AdvanceFrameClock(uint64_t clock_ms, uint64_t last_ms, uint64_t now_ms);
 bool ResolveImageMatches(VkFormat image_format, uint32_t image_width, uint32_t image_height, VkFormat wanted_format,
                          uint32_t width, uint32_t height);
 

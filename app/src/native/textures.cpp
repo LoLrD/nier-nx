@@ -208,11 +208,8 @@ Textures::Binding Textures::View(VkCommandBuffer upload, const xenos::xe_gpu_tex
         reason = UploadReason::kChanged;
       }
     }
-  } else {
-    hash = DataHash(fetch);
-    if (evicted_keys_.erase(key)) {
-      reason = UploadReason::kEvicted;
-    }
+  } else if (evicted_keys_.erase(key)) {
+    reason = UploadReason::kEvicted;
   }
   if (reload) {
     if (auto failed = failed_.find(key); failed != failed_.end()) {
@@ -223,9 +220,12 @@ Textures::Binding Textures::View(VkCommandBuffer upload, const xenos::xe_gpu_tex
       failed_.erase(failed);
     }
     const auto shape = ShapeFor(fetch);
-    if (!shape) {
+    if (!shape || shape->level_bytes > staging_.page_size()) {
       ++stats_.unsupported;
       return result;
+    }
+    if (reason != UploadReason::kChanged) {
+      hash = DataHash(fetch);
     }
     const Image image = AcquireImage(*shape);
     if (image.image == VK_NULL_HANDLE) {

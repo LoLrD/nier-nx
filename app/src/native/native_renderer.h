@@ -133,6 +133,8 @@ class NativeRenderer {
   uint32_t dump_interval_ = 0;
   uint64_t processed_ = 0;
   uint64_t last_eviction_ms_ = 0;
+  uint64_t frame_clock_ms_ = 0;
+  uint64_t last_swap_ms_ = 0;
   std::deque<uint64_t> swap_marks_;
   Presented presented_;
   Stats stats_;

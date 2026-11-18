@@ -16,6 +16,7 @@ namespace {
 
 constexpr uint32_t kSmallTextureBytes = 65536;
 constexpr uint64_t kRehashFrames = 4;
+constexpr uint64_t kMaxFrameStepMs = 250;
 
 struct Storage {
   std::vector<uint8_t> data;
@@ -187,15 +188,17 @@ std::optional<TextureShape> ShapeFor(const xenos::xe_gpu_texture_fetch_t& fetch)
     return std::nullopt;
   }
   TextureShape shape{*host, source->width, source->height, source->layers, source->mips,
-                     fetch.dimension == xenos::DataDimension::kCube, 0};
+                     fetch.dimension == xenos::DataDimension::kCube, 0, 0};
   for (uint32_t level = 0; level < source->mips; ++level) {
     const uint32_t width = std::max(source->width >> level, 1u);
     const uint32_t height = std::max(source->height >> level, 1u);
-    shape.bytes += host->convert == Convert::kCtx1ToR8G8
-                       ? width * height * 2 * source->layers
-                       : ((width + host->block_width - 1) / host->block_width) *
-                             ((height + host->block_height - 1) / host->block_height) * host->bytes_per_block *
-                             source->layers;
+    const uint32_t bytes = host->convert == Convert::kCtx1ToR8G8
+                               ? width * height * 2 * source->layers
+                               : ((width + host->block_width - 1) / host->block_width) *
+                                     ((height + host->block_height - 1) / host->block_height) *
+                                     host->bytes_per_block * source->layers;
+    shape.bytes += bytes;
+    shape.level_bytes = std::max(shape.level_bytes, bytes);
   }
   return shape;
 }
@@ -269,6 +272,10 @@ std::vector<uint64_t> PickEvictions(std::vector<EvictionCandidate> candidates, u
     active_bytes -= std::min(active_bytes, candidate.bytes);
   }
   return picked;
+}
+
+uint64_t AdvanceFrameClock(uint64_t clock_ms, uint64_t last_ms, uint64_t now_ms) {
+  return clock_ms + std::min(now_ms - last_ms, kMaxFrameStepMs);
 }
 
 bool ResolveImageMatches(VkFormat image_format, uint32_t image_width, uint32_t image_height, VkFormat wanted_format,

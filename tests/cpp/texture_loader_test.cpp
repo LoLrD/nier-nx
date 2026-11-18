@@ -208,7 +208,7 @@ int main() {
     }
     Check(shape && loaded && shape->host.format == loaded->host.format && shape->width == loaded->width &&
               shape->height == loaded->height && shape->mips == loaded->mips && shape->layers == loaded->layers &&
-              shape->cube == loaded->cube && shape->bytes == bytes,
+              shape->cube == loaded->cube && shape->bytes == bytes && shape->level_bytes == loaded->levels[0].size(),
           "shape_without_loading");
     auto cube = Fetch(xenos::TextureFormat::k_CTX1, 64, 64, true, 0x10000, xenos::DataDimension::kCube);
     const auto cube_shape = ShapeFor(cube);
@@ -218,6 +218,11 @@ int main() {
           "shape_of_ctx1_cube");
     Check(!ShapeFor(Fetch(xenos::TextureFormat::k_1_5_5_5, 32, 32, true, 0x1000, xenos::DataDimension::k2DOrStacked)),
           "no_shape_for_unknown_format");
+  }
+  {
+    Check(AdvanceFrameClock(1000, 5000, 5016) == 1016 && AdvanceFrameClock(1000, 5000, 35000) == 1250 &&
+              AdvanceFrameClock(1000, 5000, 5000) == 1000,
+          "frame_clock_skips_suspensions");
   }
   return failures ? 1 : 0;
 }
