@@ -23,6 +23,7 @@ set(NIER_SOURCES
     src/native/native_renderer.cpp
     src/native/native_shaders.cpp
     src/native/perf_modes.cpp
+    src/native/phased_hash.cpp
     src/native/pipeline_state.cpp
     src/native/pipelines.cpp
     src/native/pm4_executor.cpp

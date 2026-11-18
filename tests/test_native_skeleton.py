@@ -59,7 +59,7 @@ class NativeSkeletonTest(unittest.TestCase):
         self.check("shader_dump", ["shader_dump.cpp"])
 
     def test_mirror_sync(self) -> None:
-        self.check("mirror_sync", ["mirror_sync.cpp"], link_sdk=True)
+        self.check("mirror_sync", ["mirror_sync.cpp", "phased_hash.cpp"], link_sdk=True)
 
     def test_target_keys(self) -> None:
         self.check("target_keys", ["target_keys.cpp"], link_sdk=True)
@@ -72,6 +72,9 @@ class NativeSkeletonTest(unittest.TestCase):
 
     def test_pipeline_state(self) -> None:
         self.check("pipeline_state", ["pipeline_state.cpp"], link_sdk=True)
+
+    def test_phased_hash(self) -> None:
+        self.check("phased_hash", ["phased_hash.cpp"], link_sdk=True)
 
     def test_tiling(self) -> None:
         self.check("tiling", [], link_sdk=True)

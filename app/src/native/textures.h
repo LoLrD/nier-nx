@@ -1,7 +1,9 @@
 #pragma once
 
 #include <cstdint>
+#include <array>
 #include <map>
+#include <span>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -10,6 +12,7 @@
 #include <rex/graphics/xenos.h>
 #include <rex/ui/vulkan/api.h>
 
+#include "phased_hash.h"
 #include "resolve_plan.h"
 #include "texture_loader.h"
 
@@ -51,6 +54,8 @@ class Textures {
     uint64_t load_bytes[3] = {};
     uint64_t stale_reads[5] = {};
     uint64_t hashed_bytes = 0;
+    uint64_t sampled_checks = 0;
+    uint64_t late_changes = 0;
   };
   static constexpr size_t kTopUploads = 5;
 
@@ -95,7 +100,7 @@ class Textures {
     uint32_t height;
     bool cube;
     uint32_t bytes;
-    uint64_t data_hash;
+    PhasedHash content;
     uint64_t checked_frame;
     uint64_t used_frame;
     uint64_t used_ms;
@@ -118,7 +123,7 @@ class Textures {
     uint32_t height;
     VkImageView view;
     uint32_t guest_bytes;
-    uint64_t guest_hash;
+    PhasedHash guest;
     uint64_t checked_frame;
     uint64_t published_frame;
   };
@@ -134,8 +139,10 @@ class Textures {
   void EnforceBudget();
   void EvictOldest(uint64_t budget);
   VkImageView NullView(rex::graphics::xenos::FetchOpDimension dimension) const;
-  uint64_t DataHash(const rex::graphics::xenos::xe_gpu_texture_fetch_t& fetch);
-  uint64_t GuestHash(uint32_t address, uint32_t bytes);
+  std::array<HashSpan, 2> ContentSpans(const rex::graphics::xenos::xe_gpu_texture_fetch_t& fetch) const;
+  HashSpan GuestSpan(uint32_t address, uint32_t bytes) const { return {physical_base_ + address, bytes}; }
+  void Reset(PhasedHash& content, std::span<const HashSpan> spans);
+  bool Changed(PhasedHash& content, std::span<const HashSpan> spans);
   void RecordLoad(const rex::graphics::xenos::xe_gpu_texture_fetch_t& fetch, const LoadedTexture& loaded, uint32_t bytes,
                   UploadReason reason);
   void NoteResolveMiss(uint32_t address, const rex::graphics::xenos::xe_gpu_texture_fetch_t& fetch, VkFormat format,

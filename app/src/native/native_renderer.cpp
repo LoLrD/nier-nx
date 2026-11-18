@@ -836,10 +836,14 @@ std::string NativeRenderer::Report() {
   auto gpu_ms = [&](GpuCategory category) {
     return (gpu[size_t(category)] - reported_gpu_ns_[size_t(category)]) / 1000000;
   };
-  line += fmt::format("; cpu: mirror hashed {} MB, textures hashed {} MB, presenter {} ms",
-                      (mirror_sync_.hashed_bytes() - reported_mirror_hashed_) >> 20,
-                      (t.hashed_bytes - reported_textures_.hashed_bytes) >> 20, (s.us_presenter - r.us_presenter) / 1000);
-  reported_mirror_hashed_ = mirror_sync_.hashed_bytes();
+  line += fmt::format(
+      "; cpu: mirror hashed {} MB ({} sampled checks, {} late changes), textures hashed {} MB ({} sampled checks, {} "
+      "late changes), presenter {} ms",
+      (mirror_sync_.hashed_bytes() - reported_mirror_.hashed) >> 20,
+      mirror_sync_.sampled_checks() - reported_mirror_.sampled, mirror_sync_.late_changes() - reported_mirror_.late,
+      (t.hashed_bytes - reported_textures_.hashed_bytes) >> 20, t.sampled_checks - reported_textures_.sampled_checks,
+      t.late_changes - reported_textures_.late_changes, (s.us_presenter - r.us_presenter) / 1000);
+  reported_mirror_ = {mirror_sync_.hashed_bytes(), mirror_sync_.sampled_checks(), mirror_sync_.late_changes()};
   line += fmt::format("; gpu ms draws {}, resolves {}, uploads {}, present {}", gpu_ms(GpuCategory::kDraws),
                       gpu_ms(GpuCategory::kResolves), gpu_ms(GpuCategory::kUploads), gpu_ms(GpuCategory::kPresent));
   reported_gpu_ns_ = gpu;

@@ -4,6 +4,8 @@
 #include <map>
 #include <vector>
 
+#include "phased_hash.h"
+
 namespace nier::native {
 
 enum class MirrorAction { kNone, kCopy };
@@ -24,10 +26,12 @@ class MirrorSync {
   size_t key_count() const { return small_.size() + large_.size(); }
   uint64_t hashed_bytes() const { return hashed_bytes_; }
   uint64_t overlap_visits() const { return overlap_visits_; }
+  uint64_t sampled_checks() const { return sampled_checks_; }
+  uint64_t late_changes() const { return late_changes_; }
 
  private:
   struct Range {
-    uint64_t hash = 0;
+    PhasedHash content;
     uint64_t checked_frame = UINT64_MAX;
     uint64_t used_submission = 0;
     bool stale = false;
@@ -43,7 +47,7 @@ class MirrorSync {
 
   static uint64_t Key(uint32_t address, uint32_t size) { return uint64_t(address) << 32 | size; }
   Ranges& RangesFor(uint32_t size) { return size > small_range_bytes_ ? large_ : small_; }
-  uint64_t Hash(const uint8_t* physical_base, uint64_t key);
+  static HashSpan Span(const uint8_t* physical_base, uint64_t key);
   uint64_t PendingWait(uint64_t key, const uint8_t* physical_base);
   void Record(Range& range, uint64_t key, uint64_t submission);
   void InvalidateOverlaps(uint64_t key);
@@ -58,6 +62,8 @@ class MirrorSync {
   std::vector<Interval> intervals_;
   uint64_t hashed_bytes_ = 0;
   uint64_t overlap_visits_ = 0;
+  uint64_t sampled_checks_ = 0;
+  uint64_t late_changes_ = 0;
 };
 
 }  // namespace nier::native

@@ -147,7 +147,12 @@ class NativeRenderer {
   Presented presented_;
   Stats stats_;
   Stats reported_;
-  uint64_t reported_mirror_hashed_ = 0;
+  struct MirrorCounters {
+    uint64_t hashed = 0;
+    uint64_t sampled = 0;
+    uint64_t late = 0;
+  };
+  MirrorCounters reported_mirror_;
   Textures::Stats reported_textures_;
   Resolves::Stats reported_resolves_;
   uint64_t reported_submissions_ = 0;

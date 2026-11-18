@@ -145,18 +145,22 @@ void Textures::Prepare(VkCommandBuffer upload) {
   }
 }
 
-uint64_t Textures::GuestHash(uint32_t address, uint32_t bytes) {
-  stats_.hashed_bytes += bytes;
-  return XXH3_64bits(physical_base_ + address, bytes);
+std::array<HashSpan, 2> Textures::ContentSpans(const xenos::xe_gpu_texture_fetch_t& fetch) const {
+  const TextureFootprint footprint = FootprintOf(fetch);
+  return {HashSpan{physical_base_ + footprint.base_address, footprint.base_size},
+          HashSpan{physical_base_ + footprint.mip_address, footprint.mip_size}};
 }
 
-uint64_t Textures::DataHash(const xenos::xe_gpu_texture_fetch_t& fetch) {
-  const TextureFootprint footprint = FootprintOf(fetch);
-  stats_.hashed_bytes += footprint.base_size + footprint.mip_size;
-  const uint64_t base = XXH3_64bits(physical_base_ + footprint.base_address, footprint.base_size);
-  return footprint.mip_size
-             ? XXH3_64bits_withSeed(physical_base_ + footprint.mip_address, footprint.mip_size, base)
-             : base;
+void Textures::Reset(PhasedHash& content, std::span<const HashSpan> spans) {
+  stats_.hashed_bytes += content.Reset(spans);
+}
+
+bool Textures::Changed(PhasedHash& content, std::span<const HashSpan> spans) {
+  const PhasedHash::Result result = content.Check(spans);
+  stats_.hashed_bytes += result.hashed_bytes;
+  stats_.sampled_checks += result.sampled;
+  stats_.late_changes += result.changed && result.sampled;
+  return result.changed;
 }
 
 Textures::Binding Textures::View(VkCommandBuffer upload, const xenos::xe_gpu_texture_fetch_t& fetch,
@@ -179,7 +183,8 @@ Textures::Binding Textures::View(VkCommandBuffer upload, const xenos::xe_gpu_tex
       ResolveImage& resolved = it->second;
       if (NeedsRehash(resolved.guest_bytes, frame_, resolved.checked_frame, resolved.checked_frame == frame_)) {
         resolved.checked_frame = frame_;
-        if (GuestHash(address, resolved.guest_bytes) != resolved.guest_hash) {
+        const HashSpan span = GuestSpan(address, resolved.guest_bytes);
+        if (Changed(resolved.guest, {&span, 1})) {
           ForgetResolveImage(it->first, StaleRead::kForgotten);
           it = resolve_images_.end();
         }
@@ -207,14 +212,14 @@ Textures::Binding Textures::View(VkCommandBuffer upload, const xenos::xe_gpu_tex
   const uint64_t key = TextureKey(fetch);
   auto it = textures_.find(key);
   bool reload = it == textures_.end();
-  uint64_t hash = 0;
+  PhasedHash content;
   UploadReason reason = UploadReason::kNew;
   if (!reload) {
     Texture& texture = it->second;
     if (NeedsRehash(texture.bytes, frame_, texture.checked_frame, texture.used_frame == frame_)) {
       texture.checked_frame = frame_;
-      hash = DataHash(fetch);
-      if (hash != texture.data_hash) {
+      if (Changed(texture.content, ContentSpans(fetch))) {
+        content = texture.content;
         Retire(texture);
         textures_.erase(it);
         reload = true;
@@ -238,7 +243,7 @@ Textures::Binding Textures::View(VkCommandBuffer upload, const xenos::xe_gpu_tex
       return result;
     }
     if (reason != UploadReason::kChanged) {
-      hash = DataHash(fetch);
+      Reset(content, ContentSpans(fetch));
     }
     const Image image = AcquireImage(*shape);
     if (image.image == VK_NULL_HANDLE) {
@@ -251,7 +256,7 @@ Textures::Binding Textures::View(VkCommandBuffer upload, const xenos::xe_gpu_tex
     }
     RecordLoad(fetch, *loaded, shape->bytes, reason);
     active_bytes_ += shape->bytes;
-    textures_.emplace(key, Texture{image, shape->host, shape->width, shape->height, shape->cube, shape->bytes, hash,
+    textures_.emplace(key, Texture{image, shape->host, shape->width, shape->height, shape->cube, shape->bytes, content,
                                    frame_, frame_, now_ms_, submission, ShapeKey(*shape)});
     EnforceBudget();
     it = textures_.find(key);
@@ -440,14 +445,16 @@ void Textures::AddResolveImage(uint32_t address, VkFormat format, uint32_t width
   if (!inserted && resolved.view == view && resolved.guest_bytes == guest_bytes) {
     return;
   }
-  resolved = {format, width, height, view, guest_bytes, GuestHash(address, guest_bytes), frame_,
-              frame_};
+  resolved = {format, width, height, view, guest_bytes, PhasedHash{}, frame_, frame_};
+  const HashSpan span = GuestSpan(address, guest_bytes);
+  Reset(resolved.guest, {&span, 1});
 }
 
 void Textures::RefreshResolveHash(uint32_t address) {
   for (auto& [key, resolved] : resolve_images_) {
     if (uint32_t(key >> 32) == address) {
-      resolved.guest_hash = GuestHash(address, resolved.guest_bytes);
+      const HashSpan span = GuestSpan(address, resolved.guest_bytes);
+      Reset(resolved.guest, {&span, 1});
       resolved.checked_frame = frame_;
     }
   }

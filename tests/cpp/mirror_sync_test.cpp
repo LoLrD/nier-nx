@@ -135,5 +135,28 @@ int main() {
     Check(sync.overlap_visits() - before < 200, "copy_visits_only_nearby_keys");
     memory[0x80000 + 999 * 0x200] = 0x11;
   }
+  {
+    MirrorSync sync;
+    for (uint64_t frame = 1; frame <= 10; ++frame) {
+      sync.BeginFrame();
+      sync.Use(0x40000, 0x80000, base, frame);
+      sync.Completed(frame);
+    }
+    sync.BeginFrame();
+    const uint64_t before = sync.hashed_bytes();
+    auto stable = sync.Use(0x40000, 0x80000, base, 11);
+    Check(stable.action == MirrorAction::kNone && sync.hashed_bytes() - before < 0x80000 / 4,
+          "stable_large_range_sampled");
+    sync.Completed(11);
+    for (uint32_t i = 0x40000; i < 0xC0000; i += 256) {
+      memory[i] = 0xBB;
+    }
+    sync.BeginFrame();
+    auto rewritten = sync.Use(0x40000, 0x80000, base, 12);
+    Check(rewritten.action == MirrorAction::kCopy, "rewritten_large_range_copied_next_frame");
+    for (uint32_t i = 0x40000; i < 0xC0000; i += 256) {
+      memory[i] = 0x11;
+    }
+  }
   return failures ? 1 : 0;
 }

@@ -2,17 +2,14 @@
 
 #include <algorithm>
 
-#include <rex/hash.h>
-
 namespace nier::native {
 
 MirrorSync::MirrorSync(uint32_t small_range_bytes) : small_range_bytes_(small_range_bytes) {}
 
 void MirrorSync::BeginFrame() { ++frame_; }
 
-uint64_t MirrorSync::Hash(const uint8_t* physical_base, uint64_t key) {
-  hashed_bytes_ += uint32_t(key);
-  return XXH3_64bits(physical_base + uint32_t(key >> 32), uint32_t(key));
+HashSpan MirrorSync::Span(const uint8_t* physical_base, uint64_t key) {
+  return {physical_base + uint32_t(key >> 32), uint32_t(key)};
 }
 
 MirrorDecision MirrorSync::Use(uint32_t address, uint32_t size, const uint8_t* physical_base, uint64_t submission) {
@@ -24,13 +21,20 @@ MirrorDecision MirrorSync::Use(uint32_t address, uint32_t size, const uint8_t* p
     return {MirrorAction::kNone, 0};
   }
   range.checked_frame = frame_;
-  const uint64_t hash = Hash(physical_base, key);
-  if (!inserted && !range.stale && hash == range.hash) {
-    Record(range, key, submission);
-    return {MirrorAction::kNone, 0};
+  const HashSpan span = Span(physical_base, key);
+  if (!inserted && !range.stale) {
+    const PhasedHash::Result result = range.content.Check({&span, 1});
+    hashed_bytes_ += result.hashed_bytes;
+    sampled_checks_ += result.sampled;
+    if (!result.changed) {
+      Record(range, key, submission);
+      return {MirrorAction::kNone, 0};
+    }
+    late_changes_ += result.sampled;
+  } else {
+    hashed_bytes_ += range.content.Reset({&span, 1});
   }
   const uint64_t wait = PendingWait(key, physical_base);
-  range.hash = hash;
   range.stale = false;
   if (size > small_range_bytes_) {
     max_large_size_ = std::max(max_large_size_, size);
@@ -67,8 +71,13 @@ uint64_t MirrorSync::PendingWait(uint64_t key, const uint8_t* physical_base) {
         interval.begin >= end) {
       continue;
     }
-    if (interval.key == key ||
-        Hash(physical_base, interval.key) != RangesFor(uint32_t(interval.key)).at(interval.key).hash) {
+    if (interval.key == key) {
+      wait = interval.submission;
+      continue;
+    }
+    const HashSpan span = Span(physical_base, interval.key);
+    hashed_bytes_ += span.bytes;
+    if (!RangesFor(span.bytes).at(interval.key).content.Matches({&span, 1})) {
       wait = interval.submission;
     }
   }
