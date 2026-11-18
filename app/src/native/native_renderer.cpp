@@ -94,6 +94,7 @@ constexpr uint64_t kEvictionPeriodMs = 1000;
 constexpr uint64_t kUnusedSeconds = 10;
 constexpr size_t kReportedPasses = 8;
 constexpr size_t kReportedShaders = 10;
+constexpr size_t kTracedFrames = 12;
 
 uint64_t NowMs() {
   return uint64_t(std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -323,6 +324,9 @@ VkDescriptorSet NativeRenderer::BindTextures(const RegisterFile& regs, const Spi
       out_of_memory = true;
       return VK_NULL_HANDLE;
     }
+    if (bound.resolve_address) {
+      trace_pass_.samples.insert({bound.resolve_address, (fetch.size_2d.width + 1) << 16 | (fetch.size_2d.height + 1)});
+    }
     images[i] = {VK_NULL_HANDLE, bound.view, VK_IMAGE_LAYOUT_GENERAL};
     writes[i] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, set, i, 0, 1, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
                  &images[i], nullptr, nullptr};
@@ -344,7 +348,7 @@ VkDescriptorSet NativeRenderer::BindTextures(const RegisterFile& regs, const Spi
   return set;
 }
 
-void NativeRenderer::SetDynamicState(const RegisterFile& regs, const draw_util::ViewportInfo& viewport_info,
+VkRect2D NativeRenderer::SetDynamicState(const RegisterFile& regs, const draw_util::ViewportInfo& viewport_info,
                                      const SampleScale& scale, bool polygonal) {
   const auto& dfn = device_->functions();
   const VkCommandBuffer cmd = submissions_->main();
@@ -393,6 +397,7 @@ void NativeRenderer::SetDynamicState(const RegisterFile& regs, const draw_util::
   dfn.vkCmdSetStencilWriteMask(cmd, VK_STENCIL_FACE_BACK_BIT, back.stencilwritemask);
   dfn.vkCmdSetStencilReference(cmd, VK_STENCIL_FACE_FRONT_BIT, front.stencilref);
   dfn.vkCmdSetStencilReference(cmd, VK_STENCIL_FACE_BACK_BIT, back.stencilref);
+  return rect;
 }
 
 void NativeRenderer::Draw(const RegisterFile& regs) {
@@ -544,6 +549,9 @@ NativeRenderer::DrawResult NativeRenderer::RecordDraw(const RegisterFile& regs) 
     targets_->End(cmd);
     current_pass_ = PassId(targets);
     submissions_->Mark(GpuCategory::kDraws, LabelId(current_pass_, nullptr, nullptr));
+    FlushTracePass();
+    trace_pass_.pass = current_pass_;
+    frame_passes_.push_back(current_pass_);
   }
   targets_->Begin(cmd, targets);
   if (!targets_->rendering()) {
@@ -556,7 +564,10 @@ NativeRenderer::DrawResult NativeRenderer::RecordDraw(const RegisterFile& regs) 
   const std::array<VkDescriptorSet, 4> sets = {shared_set_, submissions_->constants_set(), vs_set, ps_set};
   dfn.vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0, uint32_t(sets.size()), sets.data(),
                               uint32_t(offsets.size()), offsets.data());
-  SetDynamicState(regs, viewport, targets.scale, polygonal);
+  const VkRect2D scissor = SetDynamicState(regs, viewport, targets.scale, polygonal);
+  if (!trace_pass_.draws++) {
+    trace_pass_.first_scissor = scissor;
+  }
   switch (draw.index_source) {
     case IndexSource::kGuestDma:
       dfn.vkCmdBindIndexBuffer(cmd, mirror_->buffer(), draw.guest_index_address,
@@ -596,7 +607,16 @@ void NativeRenderer::Resolve(const RegisterFile& regs) {
   ScopedMicros timer(stats_.us_resolves);
   targets_->End(submissions_->main());
   submissions_->Mark(GpuCategory::kResolves);
-  resolves_->Resolve(submissions_->main(), PlanResolve(info, regs), submissions_->current());
+  const ResolvePlan plan = PlanResolve(info, regs);
+  FlushTracePass();
+  trace_.push_back(fmt::format(
+      "resolve [{} {:X} w{} f{}] {},{} {}x{} -> {:08X} f{} {}x{} pitch {}{}{}{}{}{}", plan.source.is_depth ? "d" : "c",
+      plan.source.base_tiles, ExtentFor(plan.source).width, plan.source.format, plan.source_x, plan.source_y,
+      plan.source_width, plan.source_height, plan.dest_address, uint32_t(plan.dest_format), plan.dest_width,
+      plan.dest_height, plan.dest_pitch, plan.copy ? " copy" : "", plan.depth ? " depth" : "",
+      plan.clear_color ? " clear-colour" : "", plan.clear_depth ? " clear-depth" : "", plan.readback ? " readback" : "",
+      plan.dest_swap ? " swap" : ""));
+  resolves_->Resolve(submissions_->main(), plan, submissions_->current());
 }
 
 void NativeRenderer::PresentInto(VkCommandBuffer cmd, VkImage output, VkImageView output_view, bool written_before,
@@ -724,6 +744,7 @@ void NativeRenderer::Swap(rex::ui::Presenter* presenter, uint32_t frontbuffer, u
   if (!valid_) {
     return;
   }
+  TraceSwap(frontbuffer, width, height);
   BeginSubmission();
   ScopedMicros timer(stats_.us_present);
   targets_->End(submissions_->main());
@@ -794,6 +815,36 @@ uint16_t NativeRenderer::LabelId(uint16_t pass, const vulkan::VulkanShader* pixe
                                          : std::string());
   }
   return it->second;
+}
+
+void NativeRenderer::FlushTracePass() {
+  if (trace_pass_.draws) {
+    std::string samples;
+    for (const auto& [address, size] : trace_pass_.samples) {
+      samples += fmt::format(" {:08X} {}x{}", address, size >> 16, size & 0xFFFF);
+    }
+    const VkRect2D& r = trace_pass_.first_scissor;
+    trace_.push_back(fmt::format("pass [{}] {} draws, first scissor {},{} {}x{}, samples resolves:{}",
+                                 pass_names_[trace_pass_.pass], trace_pass_.draws, r.offset.x, r.offset.y,
+                                 r.extent.width, r.extent.height, samples.empty() ? " none" : samples));
+  }
+  trace_pass_ = {};
+  trace_pass_.pass = current_pass_;
+}
+
+void NativeRenderer::TraceSwap(uint32_t frontbuffer, uint32_t width, uint32_t height) {
+  FlushTracePass();
+  trace_.push_back(fmt::format("swap {:08X} {}x{}", frontbuffer, width, height));
+  std::vector<uint16_t> signature = frame_passes_;
+  std::sort(signature.begin(), signature.end());
+  signature.erase(std::unique(signature.begin(), signature.end()), signature.end());
+  if (traced_frames_.size() < kTracedFrames && traced_frames_.insert(signature).second) {
+    for (const std::string& line : trace_) {
+      REXLOG_INFO("[native] trace {}: {}", stats_.swaps, line);
+    }
+  }
+  trace_.clear();
+  frame_passes_.clear();
 }
 
 std::string NativeRenderer::Report() {

@@ -4,8 +4,10 @@
 #include <cstdint>
 #include <deque>
 #include <memory>
+#include <set>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include <rex/graphics/register_file.h>
@@ -95,6 +97,8 @@ class NativeRenderer {
 
   DrawResult RecordDraw(const rex::graphics::RegisterFile& regs);
   uint16_t PassId(const TargetSet& set);
+  void FlushTracePass();
+  void TraceSwap(uint32_t frontbuffer, uint32_t width, uint32_t height);
   uint16_t LabelId(uint16_t pass, const rex::graphics::vulkan::VulkanShader* pixel_shader,
                    const rex::graphics::vulkan::VulkanShader::VulkanTranslation* pixel);
   void ReleaseMemory();
@@ -106,7 +110,7 @@ class NativeRenderer {
   VkDescriptorSet BindTextures(const rex::graphics::RegisterFile& regs, const rex::graphics::SpirvShader& shader,
                                bool pixel, TextureConstantInfo& info, uint32_t& textures, uint32_t& samplers,
                                bool& out_of_memory);
-  void SetDynamicState(const rex::graphics::RegisterFile& regs, const rex::graphics::draw_util::ViewportInfo& viewport,
+  VkRect2D SetDynamicState(const rex::graphics::RegisterFile& regs, const rex::graphics::draw_util::ViewportInfo& viewport,
                        const SampleScale& scale, bool polygonal);
   void DumpFrame(uint32_t frontbuffer, uint32_t width, uint32_t height);
   void PresentInto(VkCommandBuffer command_buffer, VkImage output, VkImageView output_view, bool written_before,
@@ -158,6 +162,16 @@ class NativeRenderer {
   std::vector<std::string> label_shader_{std::string()};
   uint16_t current_pass_ = 0;
   RenderTargets::Stats reported_targets_;
+  struct TracePass {
+    uint16_t pass = 0;
+    uint32_t draws = 0;
+    VkRect2D first_scissor{};
+    std::set<std::pair<uint32_t, uint32_t>> samples;
+  };
+  TracePass trace_pass_;
+  std::vector<std::string> trace_;
+  std::set<std::vector<uint16_t>> traced_frames_;
+  std::vector<uint16_t> frame_passes_;
 };
 
 }  // namespace nier::native

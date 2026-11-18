@@ -27,6 +27,7 @@ class Textures {
     uint16_t host_swizzle = 0;
     uint8_t swizzled_signs = 0;
     bool out_of_memory = false;
+    uint32_t resolve_address = 0;
   };
   enum class UploadReason : uint8_t { kNew, kChanged, kEvicted };
   struct UploadRecord {

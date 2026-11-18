@@ -181,6 +181,7 @@ Textures::Binding Textures::View(VkCommandBuffer upload, const xenos::xe_gpu_tex
       if (it != resolve_images_.end() &&
           ResolveImageMatches(resolved.format, resolved.width, resolved.height, host->format, width, height)) {
         ++stats_.resolve_hits;
+        result.resolve_address = address;
         if (OlderThanNewest(resolve_records_, address, resolved.published_frame)) {
           NoteStaleRead(StaleRead::kOlderImage, address, fetch, host->format, width, height);
         }
