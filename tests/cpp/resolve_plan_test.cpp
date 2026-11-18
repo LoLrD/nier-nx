@@ -1,6 +1,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <map>
 #include <memory>
 #include <vector>
 
@@ -174,6 +175,23 @@ int main() {
     Check(later[0].guest_hash == 33 && later[1].guest_hash == 11 && later[2].guest_hash == 99 &&
               later[3].guest_hash == 11,
           "later_readback_to_same_range_expects_written_bytes");
+  }
+  {
+    std::map<uint32_t, ResolveRecord> records;
+    records[0x100000] = {0x100000, 0x10000, 100, 0, StaleRead::kNone};
+    records[0x200000] = {0x200000, 0x10000, 100, 0, StaleRead::kForgotten};
+    records[0x300000] = {0x300000, 0x10000, 100, 0, StaleRead::kRemoved};
+    Check(GuestReadKind(records, 0x100000, 110) == StaleRead::kNone, "guest_read_of_live_resolve_base_is_a_counted_miss");
+    Check(GuestReadKind(records, 0x108000, 110) == StaleRead::kInsideRange, "guest_read_inside_resolved_range");
+    Check(GuestReadKind(records, 0x200000, 110) == StaleRead::kForgotten, "guest_read_of_forgotten_resolve");
+    Check(GuestReadKind(records, 0x300000, 110) == StaleRead::kRemoved, "guest_read_of_removed_resolve");
+    Check(GuestReadKind(records, 0x110000, 110) == StaleRead::kNone, "guest_read_past_the_range");
+    Check(GuestReadKind(records, 0x0FF000, 110) == StaleRead::kNone, "guest_read_before_any_range");
+    Check(GuestReadKind(records, 0x108000, 100 + kRecentResolveFrames + 1) == StaleRead::kNone,
+          "old_resolves_are_not_recent");
+    Check(OlderThanNewest(records, 0x100000, 99) && !OlderThanNewest(records, 0x100000, 100) &&
+              !OlderThanNewest(records, 0x400000, 1),
+          "image_older_than_newest_resolve_at_its_address");
   }
   return failures ? 1 : 0;
 }

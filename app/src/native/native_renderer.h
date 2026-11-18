@@ -5,6 +5,8 @@
 #include <deque>
 #include <memory>
 #include <string>
+#include <unordered_map>
+#include <vector>
 
 #include <rex/graphics/register_file.h>
 #include <rex/ui/vulkan/api.h>
@@ -90,6 +92,7 @@ class NativeRenderer {
   };
 
   DrawResult RecordDraw(const rex::graphics::RegisterFile& regs);
+  uint16_t PassId(const TargetSet& set);
   void ReleaseMemory();
   void BeginSubmission();
   void Flush();
@@ -143,6 +146,9 @@ class NativeRenderer {
   Resolves::Stats reported_resolves_;
   uint64_t reported_submissions_ = 0;
   std::array<uint64_t, kGpuCategories> reported_gpu_ns_{};
+  std::vector<uint64_t> reported_pass_ns_;
+  std::unordered_map<std::string, uint16_t> pass_ids_;
+  std::vector<std::string> pass_names_{std::string()};
 };
 
 }  // namespace nier::native

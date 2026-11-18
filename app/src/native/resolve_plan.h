@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <map>
 
 #include <rex/graphics/register_file.h>
 #include <rex/graphics/util/draw.h>
@@ -48,6 +49,23 @@ uint32_t ResolveGuestBytes(uint32_t width, uint32_t height, uint32_t bytes_per_p
 bool PresentableResolve(const ResolvePlan& plan);
 bool ShouldWriteBack(const PendingRange& range, uint64_t current_hash);
 void CarryWrittenHash(PendingRange& later, const PendingRange& written, uint64_t written_hash);
+
+enum class StaleRead : uint8_t { kNone, kOlderImage, kForgotten, kRemoved, kInsideRange };
+
+constexpr uint64_t kRecentResolveFrames = 600;
+
+struct ResolveRecord {
+  uint32_t address;
+  uint32_t bytes;
+  uint64_t frame;
+  uint32_t format;
+  StaleRead lost;
+  uint32_t width = 0;
+  uint32_t height = 0;
+};
+
+StaleRead GuestReadKind(const std::map<uint32_t, ResolveRecord>& records, uint32_t address, uint64_t frame);
+bool OlderThanNewest(const std::map<uint32_t, ResolveRecord>& records, uint32_t address, uint64_t published_frame);
 void WriteTiled(const uint8_t* host_rgba, uint32_t x, uint32_t y, uint32_t width, uint32_t height,
                 uint32_t pitch_aligned, rex::graphics::xenos::Endian128 endian, bool swap_red_blue, uint8_t* guest);
 

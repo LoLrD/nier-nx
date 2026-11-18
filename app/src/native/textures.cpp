@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <iterator>
 #include <string>
 #include <utility>
 
@@ -27,6 +28,7 @@ constexpr uint64_t kTextureBudgetBytes = 256ull << 20;
 constexpr uint64_t kFreeImageBytes = 48ull << 20;
 constexpr uint64_t kMinAgeMs = 1000;
 constexpr uint64_t kFailedRetryMs = 2000;
+constexpr uint64_t kLoggedStaleReads = 40;
 
 constexpr VkSamplerAddressMode kAddressModes[8] = {
     VK_SAMPLER_ADDRESS_MODE_REPEAT,          VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT,
@@ -172,19 +174,24 @@ Textures::Binding Textures::View(VkCommandBuffer upload, const xenos::xe_gpu_tex
       if (NeedsRehash(resolved.guest_bytes, frame_, resolved.checked_frame, resolved.checked_frame == frame_)) {
         resolved.checked_frame = frame_;
         if (XXH3_64bits(physical_base_ + address, resolved.guest_bytes) != resolved.guest_hash) {
-          ForgetResolveImage(it->first);
+          ForgetResolveImage(it->first, StaleRead::kForgotten);
           it = resolve_images_.end();
         }
       }
       if (it != resolve_images_.end() &&
           ResolveImageMatches(resolved.format, resolved.width, resolved.height, host->format, width, height)) {
         ++stats_.resolve_hits;
+        if (OlderThanNewest(resolve_records_, address, resolved.published_frame)) {
+          NoteStaleRead(StaleRead::kOlderImage, address, fetch, host->format, width, height);
+        }
         result.view = resolved.view;
         return result;
       }
     }
     if (resolve_addresses_.contains(address)) {
       NoteResolveMiss(address, fetch, host->format, width, height);
+    } else if (const StaleRead kind = GuestReadKind(resolve_records_, address, frame_); kind != StaleRead::kNone) {
+      NoteStaleRead(kind, address, fetch, host->format, width, height);
     }
   }
   if (binding.dimension == xenos::FetchOpDimension::k3DOrStacked) {
@@ -417,15 +424,18 @@ VkSampler Textures::Sampler(const xenos::xe_gpu_texture_fetch_t& fetch, const Sp
 
 void Textures::AddResolveImage(uint32_t address, VkFormat format, uint32_t width, uint32_t height, VkImageView view,
                                uint32_t guest_bytes) {
+  resolve_records_[address] = {address, guest_bytes, frame_, uint32_t(format), StaleRead::kNone, width, height};
   auto [it, inserted] = resolve_images_.try_emplace(ResolveKey(address, format));
   if (inserted) {
     ++resolve_addresses_[address];
   }
   ResolveImage& resolved = it->second;
+  resolved.published_frame = frame_;
   if (!inserted && resolved.view == view && resolved.guest_bytes == guest_bytes) {
     return;
   }
-  resolved = {format, width, height, view, guest_bytes, XXH3_64bits(physical_base_ + address, guest_bytes), frame_};
+  resolved = {format, width, height, view, guest_bytes, XXH3_64bits(physical_base_ + address, guest_bytes), frame_,
+              frame_};
 }
 
 void Textures::RefreshResolveHash(uint32_t address) {
@@ -440,16 +450,34 @@ void Textures::RefreshResolveHash(uint32_t address) {
 void Textures::RemoveResolveImage(uint32_t address, VkFormat format, VkImageView view) {
   if (auto it = resolve_images_.find(ResolveKey(address, format));
       it != resolve_images_.end() && it->second.view == view) {
-    ForgetResolveImage(it->first);
+    ForgetResolveImage(it->first, StaleRead::kRemoved);
   }
 }
 
-void Textures::ForgetResolveImage(uint64_t key) {
+void Textures::ForgetResolveImage(uint64_t key, StaleRead reason) {
   const uint32_t address = uint32_t(key >> 32);
   if (auto count = resolve_addresses_.find(address); count != resolve_addresses_.end() && !--count->second) {
     resolve_addresses_.erase(count);
+    if (auto record = resolve_records_.find(address); record != resolve_records_.end()) {
+      record->second.lost = reason;
+    }
   }
   resolve_images_.erase(key);
+}
+
+void Textures::NoteStaleRead(StaleRead kind, uint32_t address, const xenos::xe_gpu_texture_fetch_t& fetch,
+                             VkFormat format, uint32_t width, uint32_t height) {
+  ++stats_.stale_reads[size_t(kind)];
+  if (++logged_stale_reads_ > kLoggedStaleReads) {
+    return;
+  }
+  constexpr const char* kKinds[] = {"none", "older image", "forgotten by hash", "removed", "inside a resolved range"};
+  auto it = resolve_records_.upper_bound(address);
+  const ResolveRecord& last = std::prev(it)->second;
+  REXLOG_INFO("[native] stale read ({}): texture {:08X} {}x{} guest format {} host {}; last resolve at {:08X} {}x{} "
+              "host {} {} KB, {} frames ago",
+              kKinds[size_t(kind)], address, width, height, uint32_t(fetch.format), uint32_t(format), last.address,
+              last.width, last.height, last.format, last.bytes >> 10, frame_ - last.frame);
 }
 
 void Textures::NoteResolveMiss(uint32_t address, const xenos::xe_gpu_texture_fetch_t& fetch, VkFormat format,
@@ -561,6 +589,8 @@ void Textures::Evict(uint64_t unused_ms) {
     return true;
   });
   std::erase_if(failed_, [&](const auto& entry) { return entry.second + kFailedRetryMs < now_ms_; });
+  std::erase_if(resolve_records_,
+                [&](const auto& entry) { return entry.second.frame + kRecentResolveFrames < frame_; });
 }
 
 void Textures::ReleaseMemory() {

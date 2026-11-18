@@ -1,6 +1,7 @@
 #include <array>
 #include <cstdint>
 #include <cstdio>
+#include <vector>
 
 #include "gpu_times.h"
 
@@ -46,6 +47,12 @@ int main() {
     std::array<uint64_t, kGpuCategories> ns{};
     AddGpuTimes(ticks, categories, 1, 1.0, ~0ull, ns);
     Check(ns[size_t(GpuCategory::kUploads)] == 0, "single_mark_adds_nothing");
+  }
+  {
+    std::vector<uint64_t> ns;
+    const uint16_t passes[] = {0, 2, 1, 2, 0};
+    AddPassTimes(ticks, passes, 5, 2.0, ~0ull, ns);
+    Check(ns.size() == 3 && ns[0] == 0 && ns[1] == 100 && ns[2] == 600 + 1100, "pass_intervals_go_to_their_pass");
   }
   return failures ? 1 : 0;
 }

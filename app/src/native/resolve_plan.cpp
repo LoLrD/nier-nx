@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <iterator>
 #include <utility>
 
 #include <rex/graphics/pipeline/texture/info.h>
@@ -118,6 +119,23 @@ void WriteTiled(const uint8_t* host_rgba, uint32_t x, uint32_t y, uint32_t width
                   &value, 4);
     }
   }
+}
+
+StaleRead GuestReadKind(const std::map<uint32_t, ResolveRecord>& records, uint32_t address, uint64_t frame) {
+  auto it = records.upper_bound(address);
+  if (it == records.begin()) {
+    return StaleRead::kNone;
+  }
+  const ResolveRecord& record = std::prev(it)->second;
+  if (address - record.address >= record.bytes || frame - record.frame > kRecentResolveFrames) {
+    return StaleRead::kNone;
+  }
+  return record.address == address ? record.lost : StaleRead::kInsideRange;
+}
+
+bool OlderThanNewest(const std::map<uint32_t, ResolveRecord>& records, uint32_t address, uint64_t published_frame) {
+  const auto it = records.find(address);
+  return it != records.end() && published_frame < it->second.frame;
 }
 
 }  // namespace nier::native

@@ -7,6 +7,7 @@
 #include <rex/graphics/pipeline/shader/spirv_translator.h>
 #include <rex/logging.h>
 #include <rex/math.h>
+#include <rex/platform.h>
 #include <rex/ui/vulkan/device.h>
 #include <rex/ui/vulkan/instance.h>
 #include <rex/ui/vulkan/util.h>
@@ -110,6 +111,9 @@ void Submissions::SetupTimestamps() {
     return;
   }
   timestamp_period_ns_ = properties.limits.timestampPeriod;
+#if REX_PLATFORM_SWITCH
+  timestamp_period_ns_ *= 625.0 / 384.0;
+#endif
   timestamp_mask_ = bits >= 64 ? ~0ull : (1ull << bits) - 1;
   VkQueryPoolCreateInfo info{VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
   info.queryType = VK_QUERY_TYPE_TIMESTAMP;
@@ -117,6 +121,7 @@ void Submissions::SetupTimestamps() {
   for (Slot& slot : slots_) {
     device_->functions().vkCreateQueryPool(device_->device(), &info, nullptr, &slot.queries);
     slot.marks.reserve(kTimestamps);
+    slot.passes.reserve(kTimestamps);
   }
 }
 
@@ -159,23 +164,28 @@ void Submissions::Begin() {
   if (slot.queries) {
     dfn.vkCmdResetQueryPool(slot.upload, slot.queries, 0, kTimestamps);
     slot.marks.assign(2, GpuCategory::kNone);
-    WriteTimestamp(slot, slot.upload, 0, GpuCategory::kUploads);
+    slot.passes.assign(2, 0);
+    WriteTimestamp(slot, slot.upload, 0, GpuCategory::kUploads, 0);
   }
   open_ = true;
 }
 
-void Submissions::WriteTimestamp(Slot& slot, VkCommandBuffer command_buffer, uint32_t index, GpuCategory category) {
+void Submissions::WriteTimestamp(Slot& slot, VkCommandBuffer command_buffer, uint32_t index, GpuCategory category,
+                                 uint16_t pass) {
   slot.marks[index] = category;
+  slot.passes[index] = pass;
   device_->functions().vkCmdWriteTimestamp(command_buffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, slot.queries, index);
 }
 
-void Submissions::Mark(GpuCategory category) {
+void Submissions::Mark(GpuCategory category, uint16_t pass) {
   Slot& slot = slots_[current_ % kSlots];
-  if (!open_ || !slot.queries || slot.marks.back() == category || slot.marks.size() + 1 >= kTimestamps) {
+  if (!open_ || !slot.queries || (slot.marks.back() == category && slot.passes.back() == pass) ||
+      slot.marks.size() + 1 >= kTimestamps) {
     return;
   }
   slot.marks.push_back(category);
-  WriteTimestamp(slot, slot.main, uint32_t(slot.marks.size() - 1), category);
+  slot.passes.push_back(pass);
+  WriteTimestamp(slot, slot.main, uint32_t(slot.marks.size() - 1), category, pass);
 }
 
 void Submissions::CollectTimes(Slot& slot) {
@@ -188,8 +198,10 @@ void Submissions::CollectTimes(Slot& slot) {
                                                  count * sizeof(uint64_t), ticks.data(), sizeof(uint64_t),
                                                  VK_QUERY_RESULT_64_BIT) == VK_SUCCESS) {
     AddGpuTimes(ticks.data(), slot.marks.data(), count, timestamp_period_ns_, timestamp_mask_, gpu_ns_);
+    AddPassTimes(ticks.data(), slot.passes.data(), count, timestamp_period_ns_, timestamp_mask_, pass_ns_);
   }
   slot.marks.clear();
+  slot.passes.clear();
 }
 
 bool Submissions::HasUniformSpace(VkDeviceSize bytes) const {
@@ -233,10 +245,11 @@ void Submissions::Submit() {
   barrier.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT;
   barrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
   if (slot.queries) {
-    WriteTimestamp(slot, slot.upload, 1, GpuCategory::kNone);
+    WriteTimestamp(slot, slot.upload, 1, GpuCategory::kNone, 0);
     if (slot.marks.size() > 2) {
       slot.marks.push_back(GpuCategory::kNone);
-      WriteTimestamp(slot, slot.main, uint32_t(slot.marks.size() - 1), GpuCategory::kNone);
+      slot.passes.push_back(0);
+      WriteTimestamp(slot, slot.main, uint32_t(slot.marks.size() - 1), GpuCategory::kNone, 0);
     }
   }
   dfn.vkCmdPipelineBarrier(slot.upload, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 1,

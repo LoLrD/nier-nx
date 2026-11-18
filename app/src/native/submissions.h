@@ -20,7 +20,7 @@ class Submissions {
   static constexpr uint32_t kSlots = 3;
   static constexpr VkDeviceSize kUniformBytes = 8 << 20;
   static constexpr uint32_t kFloatConstantsBytes = 4096;
-  static constexpr uint32_t kTimestamps = 512;
+  static constexpr uint32_t kTimestamps = 1024;
 
   Submissions(const rex::ui::vulkan::VulkanDevice* device, VkDescriptorSetLayout constants_layout, bool host_cached);
   ~Submissions();
@@ -35,12 +35,13 @@ class Submissions {
   VkDescriptorSet constants_set() const { return slots_[current_ % kSlots].constants_set; }
   VkBuffer uniform_buffer() const { return slots_[current_ % kSlots].uniforms; }
   const std::array<uint64_t, kGpuCategories>& gpu_ns() const { return gpu_ns_; }
+  const std::vector<uint64_t>& pass_ns() const { return pass_ns_; }
 
   void Begin();
   bool HasUniformSpace(VkDeviceSize bytes) const;
   bool Uniform(const void* data, size_t size, size_t reserve, uint32_t& offset);
   VkDescriptorSet Allocate(VkDescriptorSetLayout layout);
-  void Mark(GpuCategory category);
+  void Mark(GpuCategory category, uint16_t pass = 0);
   void Submit();
   void Wait(uint64_t submission);
   bool Poll();
@@ -62,11 +63,12 @@ class Submissions {
     uint64_t submission = 0;
     VkQueryPool queries = VK_NULL_HANDLE;
     std::vector<GpuCategory> marks;
+    std::vector<uint16_t> passes;
   };
 
   void SetupTimestamps();
   void CollectTimes(Slot& slot);
-  void WriteTimestamp(Slot& slot, VkCommandBuffer command_buffer, uint32_t index, GpuCategory category);
+  void WriteTimestamp(Slot& slot, VkCommandBuffer command_buffer, uint32_t index, GpuCategory category, uint16_t pass);
 
   const rex::ui::vulkan::VulkanDevice* device_;
   std::array<Slot, kSlots> slots_;
@@ -77,6 +79,7 @@ class Submissions {
   double timestamp_period_ns_ = 0.0;
   uint64_t timestamp_mask_ = 0;
   std::array<uint64_t, kGpuCategories> gpu_ns_{};
+  std::vector<uint64_t> pass_ns_;
 };
 
 }  // namespace nier::native

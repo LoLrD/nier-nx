@@ -40,6 +40,7 @@ class RenderTargets {
   VkExtent2D render_area() const { return render_area_; }
 
   Target* Get(VkCommandBuffer command_buffer, const TargetKey& key);
+  bool Begins(const TargetSet& set) const;
   void Begin(VkCommandBuffer command_buffer, const TargetSet& set);
   void End(VkCommandBuffer command_buffer);
   void ClearColor(VkCommandBuffer command_buffer, const TargetKey& key, const VkRect2D& rect, const float color[4]);

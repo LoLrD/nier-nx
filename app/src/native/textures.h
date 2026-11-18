@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <map>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -9,6 +10,7 @@
 #include <rex/graphics/xenos.h>
 #include <rex/ui/vulkan/api.h>
 
+#include "resolve_plan.h"
 #include "texture_loader.h"
 
 namespace rex::ui::vulkan {
@@ -47,6 +49,7 @@ class Textures {
     uint64_t releases = 0;
     uint64_t loads[3] = {};
     uint64_t load_bytes[3] = {};
+    uint64_t stale_reads[5] = {};
   };
   static constexpr size_t kTopUploads = 5;
 
@@ -116,6 +119,7 @@ class Textures {
     uint32_t guest_bytes;
     uint64_t guest_hash;
     uint64_t checked_frame;
+    uint64_t published_frame;
   };
 
   Image CreateImage(const TextureShape& shape);
@@ -134,7 +138,9 @@ class Textures {
                   UploadReason reason);
   void NoteResolveMiss(uint32_t address, const rex::graphics::xenos::xe_gpu_texture_fetch_t& fetch, VkFormat format,
                        uint32_t width, uint32_t height);
-  void ForgetResolveImage(uint64_t key);
+  void NoteStaleRead(StaleRead kind, uint32_t address, const rex::graphics::xenos::xe_gpu_texture_fetch_t& fetch,
+                     VkFormat format, uint32_t width, uint32_t height);
+  void ForgetResolveImage(uint64_t key, StaleRead reason);
   void NoteEvicted(uint64_t key);
 
   const rex::ui::vulkan::VulkanDevice* device_;
@@ -150,6 +156,8 @@ class Textures {
   std::vector<Retired> retired_;
   std::unordered_map<uint64_t, ResolveImage> resolve_images_;
   std::unordered_map<uint32_t, uint32_t> resolve_addresses_;
+  std::map<uint32_t, ResolveRecord> resolve_records_;
+  uint64_t logged_stale_reads_ = 0;
   std::unordered_set<uint64_t> evicted_keys_;
   std::vector<UploadRecord> top_uploads_;
   std::unordered_map<uint64_t, VkSampler> samplers_;

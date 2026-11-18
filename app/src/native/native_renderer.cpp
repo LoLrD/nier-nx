@@ -5,6 +5,7 @@
 #include <chrono>
 #include <cstring>
 #include <fstream>
+#include <utility>
 #include <vector>
 
 #include <fmt/format.h>
@@ -90,6 +91,7 @@ constexpr VkDeviceSize kDrawUniformBytes = 16384;
 constexpr uint64_t kStagingFlushBytes = 16ull << 20;
 constexpr uint64_t kEvictionPeriodMs = 1000;
 constexpr uint64_t kUnusedSeconds = 10;
+constexpr size_t kReportedPasses = 8;
 
 uint64_t NowMs() {
   return uint64_t(std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -462,7 +464,6 @@ NativeRenderer::DrawResult NativeRenderer::RecordDraw(const RegisterFile& regs) 
     Flush();
     BeginSubmission();
   }
-  submissions_->Mark(GpuCategory::kDraws);
   auto sync_ranges = [&] {
     for (const auto& binding : prepared->vertex_shader->vertex_bindings()) {
       const auto fetch = regs.GetVertexFetch(binding.fetch_constant);
@@ -525,6 +526,10 @@ NativeRenderer::DrawResult NativeRenderer::RecordDraw(const RegisterFile& regs) 
   CopyFetchConstants(regs, fetches);
   submissions_->Uniform(fetches, sizeof(fetches), sizeof(fetches), offsets[Translator::kConstantBufferFetch]);
   const VkCommandBuffer cmd = submissions_->main();
+  if (targets_->Begins(targets)) {
+    targets_->End(cmd);
+    submissions_->Mark(GpuCategory::kDraws, PassId(targets));
+  }
   targets_->Begin(cmd, targets);
   if (!targets_->rendering()) {
     ++stats_.skipped_target;
@@ -742,6 +747,24 @@ void NativeRenderer::Swap(rex::ui::Presenter* presenter, uint32_t frontbuffer, u
   ProcessCompleted();
 }
 
+uint16_t NativeRenderer::PassId(const TargetSet& set) {
+  std::string name;
+  for (uint32_t i = 0; i < set.color.size(); ++i) {
+    if (const auto& key = set.color[i]) {
+      name += fmt::format("c{} {:X} w{} f{} ", i, key->base_tiles, ExtentFor(*key).width, key->format);
+    }
+  }
+  if (set.depth) {
+    name += fmt::format("d {:X} w{} f{} ", set.depth->base_tiles, ExtentFor(*set.depth).width, set.depth->format);
+  }
+  name += fmt::format("msaa {}x{}", set.scale.x, set.scale.y);
+  auto [it, inserted] = pass_ids_.try_emplace(name, uint16_t(pass_names_.size()));
+  if (inserted) {
+    pass_names_.push_back(name);
+  }
+  return it->second;
+}
+
 std::string NativeRenderer::Report() {
   if (!valid_) {
     return "[native] renderer disabled";
@@ -778,11 +801,32 @@ std::string NativeRenderer::Report() {
   line += fmt::format("; gpu ms draws {}, resolves {}, uploads {}, present {}", gpu_ms(GpuCategory::kDraws),
                       gpu_ms(GpuCategory::kResolves), gpu_ms(GpuCategory::kUploads), gpu_ms(GpuCategory::kPresent));
   reported_gpu_ns_ = gpu;
+  const std::vector<uint64_t>& passes = submissions_->pass_ns();
+  reported_pass_ns_.resize(passes.size());
+  std::vector<std::pair<uint64_t, size_t>> heaviest;
+  for (size_t i = 1; i < passes.size(); ++i) {
+    if (passes[i] > reported_pass_ns_[i]) {
+      heaviest.emplace_back(passes[i] - reported_pass_ns_[i], i);
+    }
+  }
+  std::sort(heaviest.rbegin(), heaviest.rend());
+  heaviest.resize(std::min(heaviest.size(), kReportedPasses));
+  if (!heaviest.empty()) {
+    line += "; gpu passes:";
+    for (const auto& [ns, id] : heaviest) {
+      line += fmt::format(" {} ms [{}],", ns / 1000000, pass_names_[id]);
+    }
+    line.pop_back();
+  }
+  reported_pass_ns_ = passes;
   const Textures::Stats& rt = reported_textures_;
   line += fmt::format("; loads new {} ({} MB), changed {} ({} MB), evicted {} ({} MB), {} resolve misses",
                       t.loads[0] - rt.loads[0], (t.load_bytes[0] - rt.load_bytes[0]) >> 20, t.loads[1] - rt.loads[1],
                       (t.load_bytes[1] - rt.load_bytes[1]) >> 20, t.loads[2] - rt.loads[2],
                       (t.load_bytes[2] - rt.load_bytes[2]) >> 20, t.resolve_misses - rt.resolve_misses);
+  line += fmt::format("; stale reads: older images {}, forgotten {}, removed {}, inside ranges {}",
+                      t.stale_reads[1] - rt.stale_reads[1], t.stale_reads[2] - rt.stale_reads[2],
+                      t.stale_reads[3] - rt.stale_reads[3], t.stale_reads[4] - rt.stale_reads[4]);
   constexpr const char* kReasons[] = {"new", "changed", "evicted"};
   const auto top = textures_->TakeTopUploads();
   if (!top.empty()) {

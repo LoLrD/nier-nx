@@ -124,11 +124,15 @@ RenderTargets::Target* RenderTargets::Get(VkCommandBuffer command_buffer, const 
   return &target;
 }
 
+bool RenderTargets::Begins(const TargetSet& set) const {
+  return !rendering_ || !(Bound{set.color, set.depth} == bound_);
+}
+
 void RenderTargets::Begin(VkCommandBuffer command_buffer, const TargetSet& set) {
-  Bound bound{set.color, set.depth};
-  if (rendering_ && bound == bound_) {
+  if (!Begins(set)) {
     return;
   }
+  const Bound bound{set.color, set.depth};
   End(command_buffer);
   BeginRendering(command_buffer, bound);
 }
