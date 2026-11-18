@@ -3,11 +3,9 @@
 #include <algorithm>
 #include <bit>
 #include <cstring>
-#include <utility>
 
 #include <rex/graphics/pipeline/texture/conversion.h>
 #include <rex/graphics/pipeline/texture/util.h>
-#include <rex/hash.h>
 
 namespace nier::native {
 
@@ -19,9 +17,6 @@ namespace {
 constexpr uint32_t kSmallTextureBytes = 65536;
 constexpr uint64_t kRehashFrames = 4;
 constexpr uint64_t kVolatileFrames = 120;
-constexpr uint64_t kFullRehashFrames = 16;
-constexpr uint32_t kSampleChunks = 64;
-constexpr uint32_t kSampleBytes = 256;
 
 struct Storage {
   std::vector<uint8_t> data;
@@ -240,33 +235,6 @@ bool NeedsRehash(uint32_t bytes, uint64_t frame, uint64_t last_checked_frame, bo
 
 bool IsVolatile(uint64_t frame, uint64_t changed_frame) {
   return changed_frame && frame < changed_frame + kVolatileFrames;
-}
-
-RehashKind CheckKind(uint32_t bytes, uint64_t frame, bool checked_this_frame, bool is_volatile, uint32_t phase) {
-  if (bytes <= kSmallTextureBytes) {
-    return is_volatile || !checked_this_frame ? RehashKind::kFull : RehashKind::kNone;
-  }
-  if (checked_this_frame) {
-    return RehashKind::kNone;
-  }
-  return (frame + phase) % kFullRehashFrames == 0 ? RehashKind::kFull : RehashKind::kSampled;
-}
-
-uint64_t SampledHash(const uint8_t* physical_base, const TextureFootprint& footprint) {
-  XXH3_state_t state;
-  XXH3_64bits_reset(&state);
-  for (const auto& [address, size] : {std::pair{footprint.base_address, footprint.base_size},
-                                      std::pair{footprint.mip_address, footprint.mip_size}}) {
-    if (size <= kSampleChunks * kSampleBytes) {
-      XXH3_64bits_update(&state, physical_base + address, size);
-      continue;
-    }
-    for (uint32_t i = 0; i < kSampleChunks; ++i) {
-      const uint32_t offset = uint32_t(uint64_t(i) * (size - kSampleBytes) / (kSampleChunks - 1));
-      XXH3_64bits_update(&state, physical_base + address + offset, kSampleBytes);
-    }
-  }
-  return XXH3_64bits_digest(&state);
 }
 
 bool ResolveImageMatches(VkFormat image_format, uint32_t image_width, uint32_t image_height, VkFormat wanted_format,

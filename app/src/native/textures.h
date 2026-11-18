@@ -77,7 +77,6 @@ class Textures {
     uint64_t shape = 0;
     uint64_t changed_frame = 0;
     TextureFootprint footprint{};
-    uint64_t sample_hash = 0;
   };
   struct Retired {
     Image image;
