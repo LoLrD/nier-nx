@@ -21,6 +21,7 @@ class PhasedHash {
   struct Result {
     bool changed;
     bool sampled;
+    bool possibly_late;
     uint32_t hashed_bytes;
   };
 

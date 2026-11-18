@@ -54,6 +54,7 @@ int main() {
     }
     const auto rewritten = hash.Check({&span, 1});
     Check(rewritten.changed, "broad_rewrite_found_by_next_check");
+    Check(rewritten.sampled && !rewritten.possibly_late, "broad_rewrite_not_counted_late");
     for (uint32_t i = 0; i < kBytes; i += 512) {
       memory[i] = 0x11;
     }
@@ -64,10 +65,14 @@ int main() {
     Settle(hash, span);
     memory[20 * PhasedHash::kBlockBytes + 7] = 0x44;
     bool found = false;
+    bool late = false;
     for (uint32_t i = 0; i < PhasedHash::kPhases && !found; ++i) {
-      found = hash.Check({&span, 1}).changed;
+      const auto result = hash.Check({&span, 1});
+      found = result.changed;
+      late = result.possibly_late;
     }
     Check(found, "single_block_change_found_within_all_phases");
+    Check(late, "single_block_change_counted_possibly_late");
     const auto after = hash.Check({&span, 1});
     Check(!after.changed && after.hashed_bytes == kBytes, "changed_content_stays_on_full_checks");
     memory[20 * PhasedHash::kBlockBytes + 7] = 0x11;

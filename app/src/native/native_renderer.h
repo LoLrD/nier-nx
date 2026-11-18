@@ -150,7 +150,8 @@ class NativeRenderer {
   struct MirrorCounters {
     uint64_t hashed = 0;
     uint64_t sampled = 0;
-    uint64_t late = 0;
+    uint64_t sampled_changes = 0;
+    uint64_t possibly_late = 0;
   };
   MirrorCounters reported_mirror_;
   Textures::Stats reported_textures_;

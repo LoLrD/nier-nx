@@ -30,7 +30,8 @@ MirrorDecision MirrorSync::Use(uint32_t address, uint32_t size, const uint8_t* p
       Record(range, key, submission);
       return {MirrorAction::kNone, 0};
     }
-    late_changes_ += result.sampled;
+    sampled_changes_ += result.sampled;
+    possibly_late_ += result.possibly_late;
   } else {
     hashed_bytes_ += range.content.Reset({&span, 1});
   }

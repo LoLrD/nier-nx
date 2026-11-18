@@ -159,7 +159,8 @@ bool Textures::Changed(PhasedHash& content, std::span<const HashSpan> spans) {
   const PhasedHash::Result result = content.Check(spans);
   stats_.hashed_bytes += result.hashed_bytes;
   stats_.sampled_checks += result.sampled;
-  stats_.late_changes += result.changed && result.sampled;
+  stats_.sampled_changes += result.changed && result.sampled;
+  stats_.possibly_late += result.possibly_late;
   return result.changed;
 }
 

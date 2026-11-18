@@ -27,7 +27,8 @@ class MirrorSync {
   uint64_t hashed_bytes() const { return hashed_bytes_; }
   uint64_t overlap_visits() const { return overlap_visits_; }
   uint64_t sampled_checks() const { return sampled_checks_; }
-  uint64_t late_changes() const { return late_changes_; }
+  uint64_t sampled_changes() const { return sampled_changes_; }
+  uint64_t possibly_late() const { return possibly_late_; }
 
  private:
   struct Range {
@@ -63,7 +64,8 @@ class MirrorSync {
   uint64_t hashed_bytes_ = 0;
   uint64_t overlap_visits_ = 0;
   uint64_t sampled_checks_ = 0;
-  uint64_t late_changes_ = 0;
+  uint64_t sampled_changes_ = 0;
+  uint64_t possibly_late_ = 0;
 };
 
 }  // namespace nier::native

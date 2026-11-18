@@ -90,22 +90,28 @@ PhasedHash::Result PhasedHash::Check(std::span<const HashSpan> spans) {
     const uint64_t edges = Edges(spans, total);
     hashed += std::min(total, 2 * kBlockBytes * uint32_t(spans.size()));
     if (edges == digest_.edges && Phase(spans, phase, hashed) == digest_.phases[phase]) {
-      return {false, true, hashed};
+      return {false, true, false, hashed};
     }
-    digest_ = Full(spans, total);
+    const Digest digest = Full(spans, total);
+    uint32_t changed_phases = 0;
+    for (uint32_t i = 0; i < kPhases; ++i) {
+      changed_phases += digest.phases[i] != digest_.phases[i];
+    }
+    const bool possibly_late = digest.edges == digest_.edges && changed_phases == 1;
+    digest_ = digest;
     volatile_ = true;
     unchanged_ = 0;
-    return {true, true, hashed + total};
+    return {true, true, possibly_late, hashed + total};
   }
   const Digest digest = Full(spans, total);
   if (digest == digest_) {
     unchanged_ = uint8_t(std::min<uint32_t>(unchanged_ + 1, kStableChecks));
-    return {false, false, total};
+    return {false, false, false, total};
   }
   digest_ = digest;
   volatile_ = true;
   unchanged_ = 0;
-  return {true, false, total};
+  return {true, false, false, total};
 }
 
 bool PhasedHash::Matches(std::span<const HashSpan> spans) const { return Full(spans, Total(spans)) == digest_; }

@@ -55,7 +55,8 @@ class Textures {
     uint64_t stale_reads[5] = {};
     uint64_t hashed_bytes = 0;
     uint64_t sampled_checks = 0;
-    uint64_t late_changes = 0;
+    uint64_t sampled_changes = 0;
+    uint64_t possibly_late = 0;
   };
   static constexpr size_t kTopUploads = 5;
 
