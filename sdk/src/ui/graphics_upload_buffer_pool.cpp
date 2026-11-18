@@ -64,6 +64,7 @@ void GraphicsUploadBufferPool::ClearCache() {
   // Called from the destructor - must not call virtual functions here.
   current_page_flushed_ = 0;
   current_page_used_ = 0;
+  page_count_ = 0;
   while (submitted_first_) {
     Page* next_ = submitted_first_->next_;
     delete submitted_first_;
@@ -127,6 +128,7 @@ GraphicsUploadBufferPool::Page* GraphicsUploadBufferPool::Request(uint64_t submi
         // Failed to create.
         return nullptr;
       }
+      ++page_count_;
       writable_first_->last_submission_index_ = submission_index;
       writable_first_->next_ = nullptr;
       writable_last_ = writable_first_;

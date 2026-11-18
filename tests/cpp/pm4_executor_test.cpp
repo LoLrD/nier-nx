@@ -341,5 +341,18 @@ int main() {
     Check(bus.shader_loads.size() == 1 && bus.shader_loads[0].first == 0 && bus.shader_loads[0].second == expected,
           "im_load_immediate_reports_inline_words");
   }
+  {
+    GpuRegisters regs;
+    FakeBus bus;
+    Pm4Executor exec(regs, bus);
+    Stream s;
+    s << uint32_t(XE_GPU_REG_COHER_SIZE_HOST) << 0x2000u;
+    s << uint32_t(XE_GPU_REG_COHER_BASE_HOST) << 0x100u;
+    s << uint32_t(XE_GPU_REG_COHER_STATUS_HOST) << 0x1u;
+    s << uint32_t(XE_GPU_REG_COHER_SIZE_HOST) << 0x40u;
+    auto reader = s.Reader();
+    exec.Execute(reader);
+    Check(exec.stats().coher_events == 1 && exec.stats().coher_bytes == 0x2000u, "coher_base_write_counted_with_size_in_bytes");
+  }
   return failures ? 1 : 0;
 }

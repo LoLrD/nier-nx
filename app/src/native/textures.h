@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include <rex/graphics/pipeline/shader/spirv.h>
@@ -24,13 +25,26 @@ class Textures {
     uint16_t host_swizzle = 0;
     uint8_t swizzled_signs = 0;
   };
+  enum class UploadReason : uint8_t { kNew, kChanged, kEvicted };
+  struct UploadRecord {
+    uint32_t address;
+    uint32_t format;
+    uint32_t width;
+    uint32_t height;
+    uint32_t bytes;
+    UploadReason reason;
+  };
   struct Stats {
     uint64_t uploads = 0;
     uint64_t upload_bytes = 0;
     uint64_t unsupported = 0;
     uint64_t resolve_hits = 0;
+    uint64_t resolve_misses = 0;
     uint64_t reused = 0;
+    uint64_t loads[3] = {};
+    uint64_t load_bytes[3] = {};
   };
+  static constexpr size_t kTopUploads = 5;
 
   Textures(const rex::ui::vulkan::VulkanDevice* device, const uint8_t* physical_base,
            rex::ui::vulkan::VulkanUploadBufferPool& staging);
@@ -51,8 +65,10 @@ class Textures {
   void Evict(uint64_t unused_frames);
   void Completed(uint64_t submission);
   const Stats& stats() const { return stats_; }
+  std::vector<UploadRecord> TakeTopUploads();
   size_t live_images() const { return textures_.size() + retired_.size(); }
   uint64_t live_bytes() const { return live_bytes_; }
+  uint64_t free_bytes() const { return free_bytes_; }
   uint64_t staged_bytes() const { return staged_bytes_; }
   void ResetStaged() { staged_bytes_ = 0; }
 
@@ -104,6 +120,12 @@ class Textures {
   void EnforceBudget();
   VkImageView NullView(rex::graphics::xenos::FetchOpDimension dimension) const;
   uint64_t DataHash(const rex::graphics::xenos::xe_gpu_texture_fetch_t& fetch) const;
+  void RecordLoad(const rex::graphics::xenos::xe_gpu_texture_fetch_t& fetch, const LoadedTexture& loaded, uint32_t bytes,
+                  UploadReason reason);
+  void NoteResolveMiss(uint32_t address, const rex::graphics::xenos::xe_gpu_texture_fetch_t& fetch, VkFormat format,
+                       uint32_t width, uint32_t height);
+  void ForgetResolveImage(uint64_t key);
+  void NoteEvicted(uint64_t key);
 
   const rex::ui::vulkan::VulkanDevice* device_;
   const uint8_t* physical_base_;
@@ -115,6 +137,9 @@ class Textures {
   std::unordered_map<uint64_t, Texture> textures_;
   std::vector<Retired> retired_;
   std::unordered_map<uint64_t, ResolveImage> resolve_images_;
+  std::unordered_map<uint32_t, uint32_t> resolve_addresses_;
+  std::unordered_set<uint64_t> evicted_keys_;
+  std::vector<UploadRecord> top_uploads_;
   std::unordered_map<uint64_t, VkSampler> samplers_;
   uint64_t live_bytes_ = 0;
   uint64_t free_bytes_ = 0;

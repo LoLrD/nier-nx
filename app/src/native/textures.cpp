@@ -3,6 +3,10 @@
 #include <algorithm>
 #include <array>
 #include <cstring>
+#include <string>
+#include <utility>
+
+#include <fmt/format.h>
 
 #include <rex/graphics/pipeline/texture/cache.h>
 #include <rex/graphics/pipeline/texture/util.h>
@@ -163,7 +167,7 @@ Textures::Binding Textures::View(VkCommandBuffer upload, const xenos::xe_gpu_tex
       if (NeedsRehash(resolved.guest_bytes, frame_, resolved.checked_frame, resolved.checked_frame == frame_)) {
         resolved.checked_frame = frame_;
         if (XXH3_64bits(physical_base_ + address, resolved.guest_bytes) != resolved.guest_hash) {
-          resolve_images_.erase(it);
+          ForgetResolveImage(it->first);
           it = resolve_images_.end();
         }
       }
@@ -174,6 +178,9 @@ Textures::Binding Textures::View(VkCommandBuffer upload, const xenos::xe_gpu_tex
         return result;
       }
     }
+    if (resolve_addresses_.contains(address)) {
+      NoteResolveMiss(address, fetch, host->format, width, height);
+    }
   }
   if (binding.dimension == xenos::FetchOpDimension::k3DOrStacked) {
     ++stats_.unsupported;
@@ -183,6 +190,7 @@ Textures::Binding Textures::View(VkCommandBuffer upload, const xenos::xe_gpu_tex
   auto it = textures_.find(key);
   bool reload = it == textures_.end();
   uint64_t hash = 0;
+  UploadReason reason = UploadReason::kNew;
   if (!reload) {
     Texture& texture = it->second;
     if (NeedsRehash(texture.bytes, frame_, texture.checked_frame, texture.used_frame == frame_)) {
@@ -192,10 +200,14 @@ Textures::Binding Textures::View(VkCommandBuffer upload, const xenos::xe_gpu_tex
         Retire(texture);
         textures_.erase(it);
         reload = true;
+        reason = UploadReason::kChanged;
       }
     }
   } else {
     hash = DataHash(fetch);
+    if (evicted_keys_.erase(key)) {
+      reason = UploadReason::kEvicted;
+    }
   }
   if (reload) {
     auto loaded = LoadTexture(fetch, physical_base_);
@@ -214,6 +226,7 @@ Textures::Binding Textures::View(VkCommandBuffer upload, const xenos::xe_gpu_tex
     }
     texture.shape = ShapeKey(*loaded);
     Upload(upload, texture.image, *loaded, submission);
+    RecordLoad(fetch, *loaded, texture.bytes, reason);
     live_bytes_ += texture.bytes;
     it = textures_.emplace(key, texture).first;
     it->second.used_frame = frame_;
@@ -383,6 +396,9 @@ VkSampler Textures::Sampler(const xenos::xe_gpu_texture_fetch_t& fetch, const Sp
 void Textures::AddResolveImage(uint32_t address, VkFormat format, uint32_t width, uint32_t height, VkImageView view,
                                uint32_t guest_bytes) {
   auto [it, inserted] = resolve_images_.try_emplace(ResolveKey(address, format));
+  if (inserted) {
+    ++resolve_addresses_[address];
+  }
   ResolveImage& resolved = it->second;
   if (!inserted && resolved.view == view && resolved.guest_bytes == guest_bytes) {
     return;
@@ -402,8 +418,56 @@ void Textures::RefreshResolveHash(uint32_t address) {
 void Textures::RemoveResolveImage(uint32_t address, VkFormat format, VkImageView view) {
   if (auto it = resolve_images_.find(ResolveKey(address, format));
       it != resolve_images_.end() && it->second.view == view) {
-    resolve_images_.erase(it);
+    ForgetResolveImage(it->first);
   }
+}
+
+void Textures::ForgetResolveImage(uint64_t key) {
+  const uint32_t address = uint32_t(key >> 32);
+  if (auto count = resolve_addresses_.find(address); count != resolve_addresses_.end() && !--count->second) {
+    resolve_addresses_.erase(count);
+  }
+  resolve_images_.erase(key);
+}
+
+void Textures::NoteResolveMiss(uint32_t address, const xenos::xe_gpu_texture_fetch_t& fetch, VkFormat format,
+                               uint32_t width, uint32_t height) {
+  if (++stats_.resolve_misses > 20) {
+    return;
+  }
+  std::string images;
+  for (const auto& [key, resolved] : resolve_images_) {
+    if (uint32_t(key >> 32) == address) {
+      images += fmt::format(" {}x{} format {}", resolved.width, resolved.height, uint32_t(resolved.format));
+    }
+  }
+  REXLOG_INFO("[native] texture {:08X} {}x{} guest format {} host {} read from guest memory; resolve images:{}",
+              address, width, height, uint32_t(fetch.format), uint32_t(format), images);
+}
+
+void Textures::RecordLoad(const xenos::xe_gpu_texture_fetch_t& fetch, const LoadedTexture& loaded, uint32_t bytes,
+                          UploadReason reason) {
+  ++stats_.loads[size_t(reason)];
+  stats_.load_bytes[size_t(reason)] += bytes;
+  const UploadRecord record{uint32_t(fetch.base_address) << 12, uint32_t(fetch.format), loaded.width, loaded.height, bytes,
+                            reason};
+  const auto smaller = std::find_if(top_uploads_.begin(), top_uploads_.end(),
+                                    [&](const UploadRecord& other) { return other.bytes < bytes; });
+  if (top_uploads_.size() < kTopUploads) {
+    top_uploads_.insert(smaller, record);
+  } else if (smaller != top_uploads_.end()) {
+    top_uploads_.insert(smaller, record);
+    top_uploads_.pop_back();
+  }
+}
+
+std::vector<Textures::UploadRecord> Textures::TakeTopUploads() { return std::exchange(top_uploads_, {}); }
+
+void Textures::NoteEvicted(uint64_t key) {
+  if (evicted_keys_.size() >= 65536) {
+    evicted_keys_.clear();
+  }
+  evicted_keys_.insert(key);
 }
 
 void Textures::Retire(Texture& texture) {
@@ -448,6 +512,7 @@ void Textures::EnforceBudget() {
     if (oldest == textures_.end()) {
       return;
     }
+    NoteEvicted(oldest->first);
     Retire(oldest->second);
     textures_.erase(oldest);
   }
@@ -459,6 +524,7 @@ void Textures::Evict(uint64_t unused_frames) {
     if (texture.used_frame + unused_frames >= frame_) {
       return false;
     }
+    NoteEvicted(entry.first);
     Retire(texture);
     return true;
   });

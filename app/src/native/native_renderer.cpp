@@ -551,7 +551,16 @@ void NativeRenderer::PresentInto(VkCommandBuffer cmd, VkImage output, VkImageVie
                            nullptr, 1, &barrier);
   uint32_t source_width = 0, source_height = 0;
   VkImageView source_view = VK_NULL_HANDLE;
-  const VkImage source = resolves_->FindImage(frontbuffer, source_width, source_height, &source_view);
+  VkFormat source_format = VK_FORMAT_UNDEFINED;
+  const VkImage source =
+      resolves_->FindImage(frontbuffer, source_width, source_height, &source_view, &source_format);
+  const Presented presented{source != VK_NULL_HANDLE, source_format, source_width, source_height};
+  if (presented != presented_ && ++stats_.presented_changes <= 200) {
+    REXLOG_INFO("[native] swap {} presents {:08X}: {}", stats_.swaps, frontbuffer,
+                presented.found ? fmt::format("{}x{} format {}", source_width, source_height, uint32_t(source_format))
+                                : "no image");
+  }
+  presented_ = presented;
   uint32_t ramp_offset = 0;
   const VkDescriptorSet set = source != VK_NULL_HANDLE ? submissions_->Allocate(gamma_set_layout_) : VK_NULL_HANDLE;
   if (set != VK_NULL_HANDLE &&
@@ -712,6 +721,26 @@ std::string NativeRenderer::Report() {
   line += fmt::format("; gpu ms draws {}, resolves {}, uploads {}, present {}", gpu_ms(GpuCategory::kDraws),
                       gpu_ms(GpuCategory::kResolves), gpu_ms(GpuCategory::kUploads), gpu_ms(GpuCategory::kPresent));
   reported_gpu_ns_ = gpu;
+  const Textures::Stats& rt = reported_textures_;
+  line += fmt::format("; loads new {} ({} MB), changed {} ({} MB), evicted {} ({} MB), {} resolve misses",
+                      t.loads[0] - rt.loads[0], (t.load_bytes[0] - rt.load_bytes[0]) >> 20, t.loads[1] - rt.loads[1],
+                      (t.load_bytes[1] - rt.load_bytes[1]) >> 20, t.loads[2] - rt.loads[2],
+                      (t.load_bytes[2] - rt.load_bytes[2]) >> 20, t.resolve_misses - rt.resolve_misses);
+  constexpr const char* kReasons[] = {"new", "changed", "evicted"};
+  const auto top = textures_->TakeTopUploads();
+  if (!top.empty()) {
+    line += "; top uploads:";
+    for (const auto& upload : top) {
+      line += fmt::format(" {:08X} format {} {}x{} {} KB {},", upload.address, upload.format, upload.width,
+                          upload.height, upload.bytes >> 10, kReasons[size_t(upload.reason)]);
+    }
+    line.pop_back();
+  }
+  line += fmt::format("; memory MB: mirror {}, textures {} (free {}), resolve images {}, targets {}, staging {}, uniforms {}",
+                      GuestMirror::kSize >> 20, textures_->live_bytes() >> 20, textures_->free_bytes() >> 20,
+                      resolves_->bytes() >> 20, targets_->bytes() >> 20,
+                      (staging_->page_count() * staging_->page_size()) >> 20,
+                      (Submissions::kSlots * Submissions::kUniformBytes) >> 20);
   reported_ = s;
   reported_textures_ = t;
   reported_resolves_ = v;

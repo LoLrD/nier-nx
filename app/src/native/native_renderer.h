@@ -48,6 +48,7 @@ class NativeRenderer {
     uint64_t resolves = 0;
     uint64_t swaps = 0;
     uint64_t black_frames = 0;
+    uint64_t presented_changes = 0;
     uint64_t mirror_copies = 0;
     uint64_t mirror_bytes = 0;
     uint64_t mirror_waits = 0;
@@ -73,6 +74,14 @@ class NativeRenderer {
   std::string Report();
 
  private:
+  struct Presented {
+    bool found = false;
+    VkFormat format = VK_FORMAT_UNDEFINED;
+    uint32_t width = 0;
+    uint32_t height = 0;
+    bool operator==(const Presented&) const = default;
+  };
+
   void BeginSubmission();
   void Flush();
   void WaitFor(uint64_t submission);
@@ -113,6 +122,7 @@ class NativeRenderer {
   std::string dump_directory_;
   uint32_t dump_interval_ = 0;
   uint64_t processed_ = 0;
+  Presented presented_;
   Stats stats_;
   Stats reported_;
   Textures::Stats reported_textures_;

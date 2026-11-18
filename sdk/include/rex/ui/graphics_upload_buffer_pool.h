@@ -39,6 +39,9 @@ class GraphicsUploadBufferPool {
   // implementation doesn't require explicit flushing.
   void FlushWrites();
 
+  size_t page_count() const { return page_count_; }
+  size_t page_size() const { return page_size_; }
+
  protected:
   // Extended by the implementation.
   struct Page {
@@ -76,6 +79,7 @@ class GraphicsUploadBufferPool {
 
   size_t current_page_used_ = 0;
   size_t current_page_flushed_ = 0;
+  size_t page_count_ = 0;
 };
 
 }  // namespace ui

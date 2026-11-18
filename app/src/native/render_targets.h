@@ -24,6 +24,7 @@ class RenderTargets {
     VkImageView sampled_view = VK_NULL_HANDLE;
     VkFormat format = VK_FORMAT_UNDEFINED;
     TargetExtent extent{};
+    VkDeviceSize bytes = 0;
   };
 
   explicit RenderTargets(const rex::ui::vulkan::VulkanDevice* device);
@@ -34,6 +35,7 @@ class RenderTargets {
   static bool Supported(const TargetKey& key);
   VkFormat depth_format() const { return depth_format_; }
   size_t count() const { return targets_.size(); }
+  uint64_t bytes() const { return bytes_; }
   bool rendering() const { return rendering_; }
   VkExtent2D render_area() const { return render_area_; }
 
@@ -58,6 +60,7 @@ class RenderTargets {
   std::unordered_map<TargetKey, Target, TargetKeyHash> targets_;
   bool rendering_ = false;
   VkExtent2D render_area_{};
+  uint64_t bytes_ = 0;
   Bound bound_;
 };
 

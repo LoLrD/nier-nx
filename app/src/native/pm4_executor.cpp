@@ -193,6 +193,10 @@ void Pm4Executor::SetRegister(uint32_t index, uint32_t value) {
   if (index == XE_GPU_REG_COHER_STATUS_HOST) {
     value |= 0x80000000u;
   }
+  if (index == XE_GPU_REG_COHER_BASE_HOST) {
+    ++stats_.coher_events;
+    stats_.coher_bytes += registers_.Get(XE_GPU_REG_COHER_SIZE_HOST);
+  }
   if (const auto store = registers_.Set(index, value)) {
     bus_.StoreWord(store->address & ~3u, __builtin_bswap32(store->value));
   }

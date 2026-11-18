@@ -38,7 +38,9 @@ class Resolves {
   void Evict(uint64_t unused_frames, uint64_t submission);
   void Completed(uint64_t submission);
   size_t image_count() const { return images_.size(); }
-  VkImage FindImage(uint32_t address, uint32_t& width, uint32_t& height, VkImageView* view = nullptr) const;
+  uint64_t bytes() const { return bytes_; }
+  VkImage FindImage(uint32_t address, uint32_t& width, uint32_t& height, VkImageView* view = nullptr,
+                    VkFormat* format = nullptr) const;
   const Stats& stats() const { return stats_; }
 
  private:
@@ -53,6 +55,7 @@ class Resolves {
     uint32_t address = 0;
     uint64_t last_frame = 0;
     uint64_t last_submission = 0;
+    VkDeviceSize bytes = 0;
   };
   struct RetiredImage {
     DestImage image;
@@ -101,6 +104,7 @@ class Resolves {
   std::unordered_map<uint64_t, DepthSet> depth_sets_;
   std::vector<RetiredImage> retired_;
   uint64_t frame_ = 0;
+  uint64_t bytes_ = 0;
   Stats stats_;
 };
 

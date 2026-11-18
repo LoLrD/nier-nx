@@ -190,7 +190,8 @@ Resolves::DestImage& Resolves::Dest(VkCommandBuffer command_buffer, const Resolv
   info.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
                (storage ? VK_IMAGE_USAGE_STORAGE_BIT : 0);
   vk::util::CreateDedicatedAllocationImage(device_, info, vk::util::MemoryPurpose::kDeviceLocal, dest.image,
-                                           dest.memory);
+                                           dest.memory, nullptr, &dest.bytes);
+  bytes_ += dest.bytes;
   VkImageViewCreateInfo view{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
   view.image = dest.image;
   view.viewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
@@ -393,9 +394,11 @@ void Resolves::Destroy(DestImage& image) {
   dfn.vkDestroyImageView(d, image.view, nullptr);
   dfn.vkDestroyImage(d, image.image, nullptr);
   dfn.vkFreeMemory(d, image.memory, nullptr);
+  bytes_ -= image.bytes;
 }
 
-VkImage Resolves::FindImage(uint32_t address, uint32_t& width, uint32_t& height, VkImageView* view) const {
+VkImage Resolves::FindImage(uint32_t address, uint32_t& width, uint32_t& height, VkImageView* view,
+                            VkFormat* format) const {
   const auto key = latest_by_address_.find(address);
   if (key == latest_by_address_.end()) {
     return VK_NULL_HANDLE;
@@ -405,6 +408,9 @@ VkImage Resolves::FindImage(uint32_t address, uint32_t& width, uint32_t& height,
   height = image.height;
   if (view) {
     *view = image.view;
+  }
+  if (format) {
+    *format = image.format;
   }
   return image.image;
 }
