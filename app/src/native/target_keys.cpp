@@ -76,16 +76,21 @@ void EdramOwnership::ForTiles(const TargetKey& key, uint32_t x0, uint32_t y0, ui
   const uint32_t row_end = (y1 + xenos::kEdramTileHeightSamples - 1) / xenos::kEdramTileHeightSamples;
   for (uint32_t row = y0 / xenos::kEdramTileHeightSamples; row < row_end; ++row) {
     for (uint32_t col = x0 / xenos::kEdramTileWidthSamples; col < col_end; ++col) {
-      if (!visit((key.base_tiles + row * key.pitch_tiles + col) % xenos::kEdramTileCount)) {
+      const uint32_t offset = row * key.pitch_tiles + col;
+      if (offset >= xenos::kEdramTileCount) {
+        return;
+      }
+      if (!visit((key.base_tiles + offset) % xenos::kEdramTileCount)) {
         return;
       }
     }
   }
 }
 
-void EdramOwnership::Write(const TargetKey& key, uint32_t x0, uint32_t y0, uint32_t x1, uint32_t y1, uint32_t owner) {
+void EdramOwnership::Write(const TargetKey& key, uint32_t x0, uint32_t y0, uint32_t x1, uint32_t y1, uint32_t owner,
+                           uint64_t sequence) {
   ForTiles(key, x0, y0, x1, y1, [&](uint32_t tile) {
-    owners_[tile] = owner;
+    tiles_[tile] = {owner, sequence};
     return true;
   });
 }
@@ -94,8 +99,8 @@ std::vector<ForeignTile> EdramOwnership::ForeignTiles(const TargetKey& key, uint
                                                       uint32_t y1, uint32_t owner) const {
   std::vector<ForeignTile> foreign;
   ForTiles(key, x0, y0, x1, y1, [&](uint32_t tile) {
-    if (owners_[tile] && owners_[tile] != owner) {
-      foreign.push_back({tile, owners_[tile]});
+    if (tiles_[tile].owner && tiles_[tile].owner != owner) {
+      foreign.push_back({tile, tiles_[tile].owner, tiles_[tile].sequence});
     }
     return true;
   });

@@ -126,7 +126,7 @@ void Resolves::Resolve(VkCommandBuffer command_buffer, const ResolvePlan& plan, 
   if (plan.copy) {
     const auto host = HostFormatFor(plan.dest_format);
     targets_.Claim(command_buffer, plan.source, plan.source_x, plan.source_y, plan.source_x + plan.source_width,
-                   plan.source_y + plan.source_height);
+                   plan.source_y + plan.source_height, true);
     RenderTargets::Target* source = targets_.Get(command_buffer, plan.source);
     DestImage* dest = source ? Dest(command_buffer, plan, host->format) : nullptr;
     DestImage* raw = dest && plan.depth ? Dest(command_buffer, plan, VK_FORMAT_R8G8B8A8_UNORM) : nullptr;

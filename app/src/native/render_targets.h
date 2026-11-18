@@ -29,6 +29,7 @@ class RenderTargets {
     TargetExtent extent{};
     VkDeviceSize bytes = 0;
     uint32_t owner = 0;
+    uint64_t rendered = 0;
   };
   struct Stats {
     uint64_t transfers = 0;
@@ -51,7 +52,8 @@ class RenderTargets {
   const Stats& stats() const { return stats_; }
 
   Target* Get(VkCommandBuffer command_buffer, const TargetKey& key);
-  void Claim(VkCommandBuffer command_buffer, const TargetKey& key, uint32_t x0, uint32_t y0, uint32_t x1, uint32_t y1);
+  void Claim(VkCommandBuffer command_buffer, const TargetKey& key, uint32_t x0, uint32_t y0, uint32_t x1, uint32_t y1,
+             bool newer_than_rendering);
   bool Begins(const TargetSet& set) const;
   void Begin(VkCommandBuffer command_buffer, const TargetSet& set);
   void End(VkCommandBuffer command_buffer);
@@ -81,6 +83,7 @@ class RenderTargets {
   std::vector<TargetKey> owner_keys_{TargetKey{}};
   std::set<std::pair<uint32_t, uint32_t>> logged_incompatible_;
   Stats stats_;
+  uint64_t sequence_ = 0;
 };
 
 void FullBarrier(const rex::ui::vulkan::VulkanDevice* device, VkCommandBuffer command_buffer);

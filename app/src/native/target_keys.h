@@ -47,6 +47,7 @@ TargetSet TargetsFor(const rex::graphics::RegisterFile& regs, uint32_t normalize
 struct ForeignTile {
   uint32_t tile;
   uint32_t owner;
+  uint64_t sequence;
 
   bool operator==(const ForeignTile&) const = default;
 };
@@ -61,7 +62,8 @@ uint32_t AssumedHeight(uint32_t width_samples);
 
 class EdramOwnership {
  public:
-  void Write(const TargetKey& key, uint32_t x0, uint32_t y0, uint32_t x1, uint32_t y1, uint32_t owner);
+  void Write(const TargetKey& key, uint32_t x0, uint32_t y0, uint32_t x1, uint32_t y1, uint32_t owner,
+             uint64_t sequence);
   std::vector<ForeignTile> ForeignTiles(const TargetKey& key, uint32_t x0, uint32_t y0, uint32_t x1, uint32_t y1,
                                         uint32_t owner) const;
 
@@ -69,7 +71,12 @@ class EdramOwnership {
   template <typename Visit>
   static void ForTiles(const TargetKey& key, uint32_t x0, uint32_t y0, uint32_t x1, uint32_t y1, Visit visit);
 
-  std::array<uint32_t, rex::graphics::xenos::kEdramTileCount> owners_{};
+  struct Tile {
+    uint32_t owner = 0;
+    uint64_t sequence = 0;
+  };
+
+  std::array<Tile, rex::graphics::xenos::kEdramTileCount> tiles_{};
 };
 
 }  // namespace nier::native

@@ -160,12 +160,12 @@ void RenderTargets::BeginRendering(VkCommandBuffer command_buffer, const Bound& 
   for (uint32_t i = 0; i < 4; ++i) {
     if (const Target* target = color_targets[i]) {
       Claim(command_buffer, *bound.color[i], 0, 0, target->extent.width,
-            std::min(target->extent.height, AssumedHeight(target->extent.width)));
+            std::min(target->extent.height, AssumedHeight(target->extent.width)), false);
     }
   }
   if (depth) {
     Claim(command_buffer, *bound.depth, 0, 0, depth->extent.width,
-          std::min(depth->extent.height, AssumedHeight(depth->extent.width)));
+          std::min(depth->extent.height, AssumedHeight(depth->extent.width)), false);
   }
   for (uint32_t i = 0; i < 4; ++i) {
     colors[i] = {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR};
@@ -248,7 +248,7 @@ void RenderTargets::ClearDepth(VkCommandBuffer command_buffer, const TargetKey& 
 }
 
 void RenderTargets::Claim(VkCommandBuffer command_buffer, const TargetKey& key, uint32_t x0, uint32_t y0, uint32_t x1,
-                          uint32_t y1) {
+                          uint32_t y1, bool newer_than_rendering) {
   Target* target = Get(command_buffer, key);
   if (!target) {
     return;
@@ -257,6 +257,9 @@ void RenderTargets::Claim(VkCommandBuffer command_buffer, const TargetKey& key, 
       key.is_depth ? VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
   std::unordered_map<uint32_t, std::vector<VkImageCopy>> copies;
   for (const ForeignTile& foreign : edram_.ForeignTiles(key, x0, y0, x1, y1, target->owner)) {
+    if (newer_than_rendering && foreign.sequence < target->rendered) {
+      continue;
+    }
     const TargetKey& source_key = owner_keys_[foreign.owner];
     if (source_key.is_depth != key.is_depth || source_key.format != key.format) {
       ++stats_.incompatible_tiles;
@@ -304,7 +307,10 @@ void RenderTargets::Claim(VkCommandBuffer command_buffer, const TargetKey& key, 
     ++stats_.transfers;
     FullBarrier(device_, command_buffer);
   }
-  edram_.Write(key, x0, y0, x1, y1, target->owner);
+  edram_.Write(key, x0, y0, x1, y1, target->owner, ++sequence_);
+  if (!newer_than_rendering) {
+    target->rendered = sequence_;
+  }
 }
 
 void RenderTargets::Discard(const TargetKey& key, const VkRect2D& rect) {
@@ -321,7 +327,7 @@ void RenderTargets::Discard(const TargetKey& key, const VkRect2D& rect) {
   const uint32_t y1 = (uint32_t(rect.offset.y) + rect.extent.height) / xenos::kEdramTileHeightSamples *
                       xenos::kEdramTileHeightSamples;
   if (x1 > x0 && y1 > y0) {
-    edram_.Write(key, x0, y0, x1, y1, it->second.owner);
+    edram_.Write(key, x0, y0, x1, y1, it->second.owner, ++sequence_);
   }
 }
 
