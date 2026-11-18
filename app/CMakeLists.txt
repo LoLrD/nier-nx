@@ -10,9 +10,11 @@ include(generated/rexglue.cmake)
 
 set(NIER_SOURCES
     src/main.cpp
+    src/nier_d3d_wait.cpp
     src/nier_input_driver.cpp
     src/nier_input_script.cpp
     src/native/draw_constants.cpp
+    src/native/gpu_progress.cpp
     src/native/gpu_registers.cpp
     src/native/gpu_times.cpp
     src/native/guest_mirror.cpp

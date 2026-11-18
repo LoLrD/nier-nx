@@ -24,6 +24,7 @@
 #include <rex/ui/vulkan/provider.h>
 #include <rex/ui/windowed_app_context.h>
 
+#include "gpu_progress.h"
 #include "gpu_registers.h"
 #include "pm4_executor.h"
 #include "pm4_reader.h"
@@ -109,6 +110,7 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem, private 
       REXLOG_INFO("[native] shader discovery into {}", dir);
     }
     active_.store(true, std::memory_order_release);
+    EnableGpuProgress(true);
     report_start_ = Clock::now();
     vblank_thread_ = rex::system::object_ref<rex::system::XHostThread>(
         new rex::system::XHostThread(kernel_state_, 128 * 1024, 0, [this]() { return VblankLoop(); }));
@@ -145,6 +147,7 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem, private 
 
   void Shutdown() override {
     if (active_.exchange(false, std::memory_order_acq_rel)) {
+      EnableGpuProgress(false);
       { std::lock_guard<std::mutex> lock(ring_mutex_); }
       ring_cv_.notify_all();
       if (ring_thread_) {
@@ -203,6 +206,7 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem, private 
 
   void StoreWord(uint32_t physical, uint32_t raw) override {
     std::memcpy(memory_->TranslatePhysical(physical), &raw, 4);
+    SharedGpuProgress().Advance();
   }
 
   const uint32_t* Words(uint32_t physical) override {
@@ -218,6 +222,7 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem, private 
     thread->SetActiveCpu(cpu == 0xFFFFFFFF ? 2 : cpu);
     uint64_t args[] = {source, callback_data_.load(std::memory_order_acquire)};
     dispatcher_->ExecuteInterrupt(thread->thread_state(), callback, args, 2);
+    SharedGpuProgress().Advance();
   }
 
   void Swap(uint32_t frontbuffer, uint32_t width, uint32_t height) override {

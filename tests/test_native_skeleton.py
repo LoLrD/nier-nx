@@ -82,6 +82,9 @@ class NativeSkeletonTest(unittest.TestCase):
     def test_gpu_times(self) -> None:
         self.check("gpu_times", ["gpu_times.cpp"])
 
+    def test_gpu_progress(self) -> None:
+        self.check("gpu_progress", ["gpu_progress.cpp"])
+
     def test_sdk_link(self) -> None:
         self.check("sdk_link", [], link_sdk=True)
 
