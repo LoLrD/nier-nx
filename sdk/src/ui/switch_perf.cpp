@@ -265,6 +265,18 @@ constexpr Mode kModes[] = {
     {4095, "nothing"},
 };
 constexpr size_t kModeCount = sizeof(kModes) / sizeof(kModes[0]);
+constexpr size_t kMaxModes = 16;
+Mode g_custom_modes[kMaxModes];
+std::atomic<size_t> g_custom_mode_count{0};
+
+const Mode& ModeAt(size_t index) {
+  return g_custom_mode_count.load(std::memory_order_acquire) ? g_custom_modes[index] : kModes[index];
+}
+
+size_t ModeCount() {
+  const size_t custom = g_custom_mode_count.load(std::memory_order_acquire);
+  return custom ? custom : kModeCount;
+}
 
 /*
  * A/B tests, started by hand
@@ -283,6 +295,14 @@ constexpr size_t kModeCount = sizeof(kModes) / sizeof(kModes[0]);
  */
 std::atomic<bool> g_ab_active{false};
 std::atomic<u32> g_skip_mask{0};
+
+extern "C" void RexSwitchPerfUseModes(const u32* masks, const char* const* names, size_t count) {
+  count = std::min(count, kMaxModes);
+  for (size_t i = 0; i < count; ++i) {
+    g_custom_modes[i] = {masks[i], names[i]};
+  }
+  g_custom_mode_count.store(count, std::memory_order_release);
+}
 
 extern "C" void RexSwitchPerfToggleAb(void) {
   const bool new_value = !g_ab_active.load(std::memory_order_relaxed);
@@ -1147,10 +1167,10 @@ void ProfilerMain(void*) {
     // Once per second, FPS and resolution for the overlay (the profile report runs every 10 s).
     overlay.Step(now, tick_freq, true);
     if (now - report_start >= kReportSeconds * tick_freq) {
-      Report(now - report_start, tick_freq, counters_last, kModes[mode_index].name);
+      Report(now - report_start, tick_freq, counters_last, ModeAt(mode_index).name);
       if (g_ab_active.load(std::memory_order_relaxed)) {
-        mode_index = (mode_index + 1) % kModeCount;
-        g_skip_mask.store(kModes[mode_index].mask, std::memory_order_relaxed);
+        mode_index = (mode_index + 1) % ModeCount();
+        g_skip_mask.store(ModeAt(mode_index).mask, std::memory_order_relaxed);
         if (mode_index == 0) {
           // Full cycle: it turns itself off and the game looks right again.
           g_ab_active.store(false, std::memory_order_relaxed);

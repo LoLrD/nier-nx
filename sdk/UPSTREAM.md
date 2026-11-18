@@ -75,3 +75,5 @@ code generator and runtime changes of masseffect-nx. The third-party sources are
 - `include/rex/ui/vulkan/upload_buffer_pool.h`, `src/ui/vulkan/vulkan_upload_buffer_pool.cpp`: an upload buffer pool can
   ask for host-cached memory (flushed explicitly when not coherent). On the Switch, CPU writes to the uncached
   upload memory NVK exposes ran at ~100-180 MB/s in NieR's native renderer.
+- `src/ui/switch_perf.cpp`: `RexSwitchPerfUseModes(masks, names, count)` replaces the A/B lap's mode table (up to 16
+  modes), so a graphics system with its own skip bits (NieR's native renderer) gets a short lap of its own modes.
