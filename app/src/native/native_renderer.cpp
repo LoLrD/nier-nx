@@ -530,7 +530,9 @@ void NativeRenderer::PresentInto(VkCommandBuffer cmd, VkImage output, VkImageVie
     dfn.vkCmdPushConstants(cmd, gamma_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(size), size);
     dfn.vkCmdDispatch(cmd, (uint32_t(size[0]) + 7) / 8, (uint32_t(size[1]) + 7) / 8, 1);
   } else {
-    ++stats_.black_frames;
+    if (++stats_.black_frames <= 20) {
+      REXLOG_INFO("[native] no frontbuffer image at {:08X} for swap {}", frontbuffer, stats_.swaps);
+    }
     const VkClearColorValue black{{0.0f, 0.0f, 0.0f, 1.0f}};
     const VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
     dfn.vkCmdClearColorImage(cmd, output, VK_IMAGE_LAYOUT_GENERAL, &black, 1, &range);
