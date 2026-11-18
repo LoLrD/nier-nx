@@ -17,7 +17,7 @@ uint64_t MirrorSync::Hash(const uint8_t* physical_base, uint64_t key) {
 
 MirrorDecision MirrorSync::Use(uint32_t address, uint32_t size, const uint8_t* physical_base, uint64_t submission) {
   const uint64_t key = Key(address, size);
-  auto [it, inserted] = ranges_.try_emplace(key);
+  auto [it, inserted] = RangesFor(size).try_emplace(key);
   Range& range = it->second;
   if (!inserted && !range.stale && size > small_range_bytes_ && range.checked_frame == frame_) {
     Record(range, key, submission);
@@ -32,17 +32,25 @@ MirrorDecision MirrorSync::Use(uint32_t address, uint32_t size, const uint8_t* p
   const uint64_t wait = PendingWait(key, physical_base);
   range.hash = hash;
   range.stale = false;
-  max_size_ = std::max(max_size_, size);
+  if (size > small_range_bytes_) {
+    max_large_size_ = std::max(max_large_size_, size);
+  }
   InvalidateOverlaps(key);
   Record(range, key, submission);
   return {MirrorAction::kCopy, wait};
 }
 
 void MirrorSync::InvalidateOverlaps(uint64_t key) {
+  InvalidateOverlaps(small_, key, small_range_bytes_);
+  InvalidateOverlaps(large_, key, max_large_size_);
+}
+
+void MirrorSync::InvalidateOverlaps(Ranges& ranges, uint64_t key, uint32_t reach) {
   const uint32_t begin = uint32_t(key >> 32);
   const uint32_t end = begin + uint32_t(key);
-  const uint32_t first = begin > max_size_ ? begin - max_size_ : 0;
-  for (auto it = ranges_.lower_bound(Key(first, 0)); it != ranges_.end() && uint32_t(it->first >> 32) < end; ++it) {
+  const uint32_t first = begin > reach ? begin - reach : 0;
+  for (auto it = ranges.lower_bound(Key(first, 0)); it != ranges.end() && uint32_t(it->first >> 32) < end; ++it) {
+    ++overlap_visits_;
     const uint32_t other_begin = uint32_t(it->first >> 32);
     if (it->first != key && other_begin + uint32_t(it->first) > begin) {
       it->second.stale = true;
@@ -59,7 +67,8 @@ uint64_t MirrorSync::PendingWait(uint64_t key, const uint8_t* physical_base) {
         interval.begin >= end) {
       continue;
     }
-    if (interval.key == key || Hash(physical_base, interval.key) != ranges_.at(interval.key).hash) {
+    if (interval.key == key ||
+        Hash(physical_base, interval.key) != RangesFor(uint32_t(interval.key)).at(interval.key).hash) {
       wait = interval.submission;
     }
   }
@@ -80,10 +89,12 @@ void MirrorSync::Completed(uint64_t submission) {
 }
 
 void MirrorSync::Prune(uint64_t unused_frames) {
-  std::erase_if(ranges_, [&](const auto& entry) {
+  auto unused = [&](const auto& entry) {
     const Range& range = entry.second;
     return range.used_submission <= completed_ && range.checked_frame + unused_frames < frame_;
-  });
+  };
+  std::erase_if(small_, unused);
+  std::erase_if(large_, unused);
 }
 
 }  // namespace nier::native

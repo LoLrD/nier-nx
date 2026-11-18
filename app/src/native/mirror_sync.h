@@ -21,8 +21,9 @@ class MirrorSync {
   MirrorDecision Use(uint32_t address, uint32_t size, const uint8_t* physical_base, uint64_t submission);
   void Completed(uint64_t submission);
   void Prune(uint64_t unused_frames);
-  size_t key_count() const { return ranges_.size(); }
+  size_t key_count() const { return small_.size() + large_.size(); }
   uint64_t hashed_bytes() const { return hashed_bytes_; }
+  uint64_t overlap_visits() const { return overlap_visits_; }
 
  private:
   struct Range {
@@ -38,19 +39,25 @@ class MirrorSync {
     uint64_t key;
   };
 
+  using Ranges = std::map<uint64_t, Range>;
+
   static uint64_t Key(uint32_t address, uint32_t size) { return uint64_t(address) << 32 | size; }
+  Ranges& RangesFor(uint32_t size) { return size > small_range_bytes_ ? large_ : small_; }
   uint64_t Hash(const uint8_t* physical_base, uint64_t key);
   uint64_t PendingWait(uint64_t key, const uint8_t* physical_base);
   void Record(Range& range, uint64_t key, uint64_t submission);
   void InvalidateOverlaps(uint64_t key);
+  void InvalidateOverlaps(Ranges& ranges, uint64_t key, uint32_t reach);
 
   uint32_t small_range_bytes_;
   uint64_t frame_ = 0;
   uint64_t completed_ = 0;
-  std::map<uint64_t, Range> ranges_;
-  uint32_t max_size_ = 0;
+  Ranges small_;
+  Ranges large_;
+  uint32_t max_large_size_ = 0;
   std::vector<Interval> intervals_;
   uint64_t hashed_bytes_ = 0;
+  uint64_t overlap_visits_ = 0;
 };
 
 }  // namespace nier::native

@@ -98,5 +98,42 @@ int main() {
     sync.Prune(0);
     Check(sync.key_count() == 1, "keys_read_by_pending_submission_kept");
   }
+  {
+    MirrorSync sync;
+    sync.Use(0x10100, 0x40, base, 1);
+    sync.Completed(1);
+    memory[0x10110] = 0x88;
+    sync.BeginFrame();
+    sync.Use(0x10000, 0x20000, base, 2);
+    sync.Completed(2);
+    memory[0x10110] = 0x11;
+    auto reverted = sync.Use(0x10100, 0x40, base, 3);
+    Check(reverted.action == MirrorAction::kCopy, "large_copy_invalidates_small_keys");
+  }
+  {
+    MirrorSync sync;
+    sync.Use(0x10000, 0x20000, base, 1);
+    sync.Completed(1);
+    memory[0x10110] = 0x99;
+    sync.Use(0x10100, 0x40, base, 2);
+    sync.Completed(2);
+    memory[0x10110] = 0x11;
+    sync.BeginFrame();
+    auto reverted = sync.Use(0x10000, 0x20000, base, 3);
+    Check(reverted.action == MirrorAction::kCopy, "small_copy_invalidates_large_keys");
+  }
+  {
+    MirrorSync sync;
+    sync.Use(0, 0x80000, base, 1);
+    for (uint32_t i = 0; i < 1000; ++i) {
+      sync.Use(0x80000 + i * 0x200, 0x100, base, 1);
+    }
+    sync.Completed(1);
+    memory[0x80000 + 999 * 0x200] = 0xAA;
+    const uint64_t before = sync.overlap_visits();
+    sync.Use(0x80000 + 999 * 0x200, 0x100, base, 2);
+    Check(sync.overlap_visits() - before < 200, "copy_visits_only_nearby_keys");
+    memory[0x80000 + 999 * 0x200] = 0x11;
+  }
   return failures ? 1 : 0;
 }
