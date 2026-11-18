@@ -82,8 +82,12 @@ RenderTargets::Target* RenderTargets::Get(VkCommandBuffer command_buffer, const 
   info.tiling = VK_IMAGE_TILING_OPTIMAL;
   info.usage = (key.is_depth ? VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT : VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT) |
                VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-  vk::util::CreateDedicatedAllocationImage(device_, info, vk::util::MemoryPurpose::kDeviceLocal, target.image,
-                                           target.memory, nullptr, &target.bytes);
+  if (!vk::util::CreateDedicatedAllocationImage(device_, info, vk::util::MemoryPurpose::kDeviceLocal, target.image,
+                                                target.memory, nullptr, &target.bytes)) {
+    REXLOG_ERROR("[native] could not create a {}x{} render target", target.extent.width, target.extent.height);
+    targets_.erase(it);
+    return nullptr;
+  }
   bytes_ += target.bytes;
   const VkImageAspectFlags aspects =
       key.is_depth ? VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT : VK_IMAGE_ASPECT_COLOR_BIT;

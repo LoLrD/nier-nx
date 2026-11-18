@@ -24,6 +24,7 @@ class Resolves {
     uint64_t depth_copies = 0;
     uint64_t clears = 0;
     uint64_t readbacks = 0;
+    uint64_t stale_readbacks = 0;
     uint64_t skipped = 0;
   };
 
@@ -56,6 +57,7 @@ class Resolves {
     uint64_t last_frame = 0;
     uint64_t last_submission = 0;
     VkDeviceSize bytes = 0;
+    uint64_t key = 0;
   };
   struct RetiredImage {
     DestImage image;
@@ -70,9 +72,14 @@ class Resolves {
     uint64_t submission;
     ReadbackBuffer buffer;
     ResolvePlan plan;
+    PendingRange range;
+  };
+  struct RetiredSet {
+    VkDescriptorSet set;
+    uint64_t submission;
   };
 
-  DestImage& Dest(VkCommandBuffer command_buffer, const ResolvePlan& plan, VkFormat format);
+  DestImage* Dest(VkCommandBuffer command_buffer, const ResolvePlan& plan, VkFormat format);
   void CopyColor(VkCommandBuffer command_buffer, const ResolvePlan& plan, const RenderTargets::Target& source,
                  const DestImage& dest);
   void CopyDepth(VkCommandBuffer command_buffer, const ResolvePlan& plan, const RenderTargets::Target& source,
@@ -80,7 +87,7 @@ class Resolves {
   void Readback(VkCommandBuffer command_buffer, const ResolvePlan& plan, const DestImage& dest, uint64_t submission);
   ReadbackBuffer AcquireReadbackBuffer();
   VkDescriptorSet DepthDescriptorSet(VkImageView source, VkImageView dest, VkImageView raw);
-  void Publish(const ResolvePlan& plan, DestImage& dest, uint64_t submission);
+  void Publish(const ResolvePlan& plan, DestImage& dest, uint32_t bytes_per_pixel, uint64_t submission);
   void Destroy(DestImage& image);
 
   const rex::ui::vulkan::VulkanDevice* device_;
@@ -88,7 +95,7 @@ class Resolves {
   Textures& textures_;
   uint8_t* physical_base_;
   std::unordered_map<uint64_t, DestImage> images_;
-  std::unordered_map<uint32_t, uint64_t> latest_by_address_;
+  std::unordered_map<uint32_t, uint64_t> presentable_by_address_;
   std::vector<ReadbackBuffer> free_readbacks_;
   std::vector<PendingReadback> pending_;
   VkDescriptorSetLayout depth_set_layout_ = VK_NULL_HANDLE;
@@ -103,6 +110,7 @@ class Resolves {
   };
   std::unordered_map<uint64_t, DepthSet> depth_sets_;
   std::vector<RetiredImage> retired_;
+  std::vector<RetiredSet> retired_sets_;
   uint64_t frame_ = 0;
   uint64_t bytes_ = 0;
   Stats stats_;

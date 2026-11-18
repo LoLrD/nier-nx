@@ -750,13 +750,14 @@ std::string NativeRenderer::Report() {
   const uint64_t submissions = submissions_->current() - 1;
   std::string line = fmt::format(
       "[native] render: {}/{} draws drawn, skipped raster {} primitive {} target {} shader {} empty {}; {} resolves ({} colour, "
-      "{} depth, {} clears, {} readbacks, {} skipped); mirror {} copies {} MB {} waits; textures {} uploads {} MB {} "
+      "{} depth, {} clears, {} readbacks, {} stale, {} skipped); mirror {} copies {} MB {} waits; textures {} uploads {} MB {} "
       "unsupported {} resolve hits {} reused, {} live {} MB; {} resolve images, {} mirror keys; {} targets, {} pipelines, {} submissions, {} black frames",
       s.drawn - r.drawn, s.draws - r.draws, s.skipped_raster - r.skipped_raster,
       s.skipped_primitive - r.skipped_primitive, s.skipped_target - r.skipped_target,
       s.skipped_shader - r.skipped_shader, s.skipped_empty - r.skipped_empty, s.resolves - r.resolves, v.copies - reported_resolves_.copies,
       v.depth_copies - reported_resolves_.depth_copies, v.clears - reported_resolves_.clears,
-      v.readbacks - reported_resolves_.readbacks, v.skipped - reported_resolves_.skipped,
+      v.readbacks - reported_resolves_.readbacks, v.stale_readbacks - reported_resolves_.stale_readbacks,
+      v.skipped - reported_resolves_.skipped,
       s.mirror_copies - r.mirror_copies, (s.mirror_bytes - r.mirror_bytes) >> 20, s.mirror_waits - r.mirror_waits,
       t.uploads - reported_textures_.uploads, (t.upload_bytes - reported_textures_.upload_bytes) >> 20,
       t.unsupported - reported_textures_.unsupported, t.resolve_hits - reported_textures_.resolve_hits,

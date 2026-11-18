@@ -143,5 +143,37 @@ int main() {
     const uint8_t* source = host.data() + (1 * 8 + 3) * 4;
     Check(texel[0] == source[2] && texel[2] == source[0] && texel[1] == source[1], "write_tiled_swaps_red_blue");
   }
+  {
+    Check(ResolveGuestBytes(1280, 720, 1, 0x0A000000) == 1280u * 736u &&
+              ResolveGuestBytes(1280, 720, 4, 0x0A000000) == 1280u * 736u * 4u &&
+              ResolveGuestBytes(100, 10, 2, 0) == 128u * 32u * 2u,
+          "guest_bytes_by_bpp");
+    Check(ResolveGuestBytes(1280, 720, 4, 0x1FFFF000) == 0x1000u, "guest_bytes_clipped_at_end_of_memory");
+  }
+  {
+    Dest(r, 0x0A000000, 1280, 720);
+    const ResolvePlan color = PlanResolve(ColorResolve(1280, 720), r);
+    auto single = ColorResolve(1280, 720);
+    single.copy_dest_info.copy_dest_format = xenos::ColorFormat(xenos::TextureFormat::k_8);
+    const ResolvePlan red = PlanResolve(single, r);
+    ResolvePlan depth = color;
+    depth.depth = true;
+    ResolvePlan skipped = color;
+    skipped.copy = false;
+    Check(PresentableResolve(color) && !PresentableResolve(red) && !PresentableResolve(depth) &&
+              !PresentableResolve(skipped),
+          "only_colour_rgba8_presentable");
+  }
+  {
+    Check(ShouldWriteBack(PendingRange{0x1000, 256, 11}, 11) && !ShouldWriteBack(PendingRange{0x1000, 256, 11}, 12),
+          "changed_guest_range_not_written");
+    std::vector<PendingRange> later = {{0x1000, 256, 11}, {0x2000, 256, 11}, {0x1000, 256, 99}, {0x1000, 512, 11}};
+    for (PendingRange& range : later) {
+      CarryWrittenHash(range, PendingRange{0x1000, 256, 11}, 33);
+    }
+    Check(later[0].guest_hash == 33 && later[1].guest_hash == 11 && later[2].guest_hash == 99 &&
+              later[3].guest_hash == 11,
+          "later_readback_to_same_range_expects_written_bytes");
+  }
   return failures ? 1 : 0;
 }

@@ -110,22 +110,25 @@ void Resolves::Resolve(VkCommandBuffer command_buffer, const ResolvePlan& plan, 
   if (plan.copy) {
     const auto host = HostFormatFor(plan.dest_format);
     RenderTargets::Target* source = targets_.Get(command_buffer, plan.source);
-    if (source) {
-      DestImage& dest = Dest(command_buffer, plan, host->format);
+    DestImage* dest = source ? Dest(command_buffer, plan, host->format) : nullptr;
+    DestImage* raw = dest && plan.depth ? Dest(command_buffer, plan, VK_FORMAT_R8G8B8A8_UNORM) : nullptr;
+    if (dest && (raw || !plan.depth)) {
       if (plan.depth) {
-        DestImage& raw = Dest(command_buffer, plan, VK_FORMAT_R8G8B8A8_UNORM);
-        CopyDepth(command_buffer, plan, *source, dest, raw);
+        CopyDepth(command_buffer, plan, *source, *dest, *raw);
         FullBarrier(device_, command_buffer);
-        Publish(plan, raw, submission);
+        Publish(plan, *raw, 4, submission);
         ++stats_.depth_copies;
       } else {
-        CopyColor(command_buffer, plan, *source, dest);
+        CopyColor(command_buffer, plan, *source, *dest);
         FullBarrier(device_, command_buffer);
         ++stats_.copies;
       }
-      Publish(plan, dest, submission);
+      Publish(plan, *dest, host->bytes_per_block, submission);
+      if (PresentableResolve(plan)) {
+        presentable_by_address_[plan.dest_address] = dest->key;
+      }
       if (plan.readback) {
-        Readback(command_buffer, plan, dest, submission);
+        Readback(command_buffer, plan, *dest, submission);
       }
     } else {
       ++stats_.skipped;
@@ -162,16 +165,16 @@ void Resolves::Resolve(VkCommandBuffer command_buffer, const ResolvePlan& plan, 
   }
 }
 
-Resolves::DestImage& Resolves::Dest(VkCommandBuffer command_buffer, const ResolvePlan& plan, VkFormat format) {
+Resolves::DestImage* Resolves::Dest(VkCommandBuffer command_buffer, const ResolvePlan& plan, VkFormat format) {
   const uint32_t width = std::max(plan.dest_pitch, plan.dest_x + plan.dest_width);
   const uint32_t height = std::max(plan.dest_texture_height, plan.dest_y + plan.dest_height);
   const uint64_t key = ImageKey(plan.dest_address, format, width, height);
-  latest_by_address_[plan.dest_address] = key;
   auto [it, inserted] = images_.try_emplace(key);
   DestImage& dest = it->second;
   if (!inserted) {
-    return dest;
+    return &dest;
   }
+  dest.key = key;
   const auto& dfn = device_->functions();
   const VkDevice d = device_->device();
   dest.format = format;
@@ -189,8 +192,12 @@ Resolves::DestImage& Resolves::Dest(VkCommandBuffer command_buffer, const Resolv
   info.tiling = VK_IMAGE_TILING_OPTIMAL;
   info.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
                (storage ? VK_IMAGE_USAGE_STORAGE_BIT : 0);
-  vk::util::CreateDedicatedAllocationImage(device_, info, vk::util::MemoryPurpose::kDeviceLocal, dest.image,
-                                           dest.memory, nullptr, &dest.bytes);
+  if (!vk::util::CreateDedicatedAllocationImage(device_, info, vk::util::MemoryPurpose::kDeviceLocal, dest.image,
+                                                dest.memory, nullptr, &dest.bytes)) {
+    REXLOG_ERROR("[native] could not create a {}x{} resolve image", width, height);
+    images_.erase(it);
+    return nullptr;
+  }
   bytes_ += dest.bytes;
   VkImageViewCreateInfo view{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
   view.image = dest.image;
@@ -216,7 +223,7 @@ Resolves::DestImage& Resolves::Dest(VkCommandBuffer command_buffer, const Resolv
   const VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
   dfn.vkCmdClearColorImage(command_buffer, dest.image, VK_IMAGE_LAYOUT_GENERAL, &zero, 1, &range);
   FullBarrier(device_, command_buffer);
-  return dest;
+  return &dest;
 }
 
 void Resolves::CopyColor(VkCommandBuffer command_buffer, const ResolvePlan& plan, const RenderTargets::Target& source,
@@ -241,11 +248,10 @@ void Resolves::CopyColor(VkCommandBuffer command_buffer, const ResolvePlan& plan
                                       scaled ? VK_FILTER_LINEAR : VK_FILTER_NEAREST);
 }
 
-void Resolves::Publish(const ResolvePlan& plan, DestImage& dest, uint64_t submission) {
+void Resolves::Publish(const ResolvePlan& plan, DestImage& dest, uint32_t bytes_per_pixel, uint64_t submission) {
   dest.last_frame = frame_;
   dest.last_submission = submission;
-  const uint32_t guest_bytes = std::min<uint32_t>(rex::align(dest.width, 32u) * rex::align(dest.height, 32u) * 4,
-                                                  0x20000000u - std::min(plan.dest_address, 0x20000000u));
+  const uint32_t guest_bytes = ResolveGuestBytes(dest.width, dest.height, bytes_per_pixel, plan.dest_address);
   textures_.AddResolveImage(plan.dest_address, dest.format, dest.width, dest.height, dest.view, guest_bytes);
 }
 
@@ -315,7 +321,10 @@ void Resolves::Readback(VkCommandBuffer command_buffer, const ResolvePlan& plan,
   device_->functions().vkCmdCopyImageToBuffer(command_buffer, dest.image, VK_IMAGE_LAYOUT_GENERAL, buffer.buffer, 1,
                                               &region);
   FullBarrier(device_, command_buffer);
-  pending_.push_back({submission, buffer, plan});
+  PendingRange range{plan.dest_address,
+                     ResolveGuestBytes(plan.dest_pitch, plan.dest_y + plan.dest_height, 4, plan.dest_address), 0};
+  range.guest_hash = XXH3_64bits(physical_base_ + range.address, range.bytes);
+  pending_.push_back({submission, buffer, plan, range});
   ++stats_.readbacks;
 }
 
@@ -337,19 +346,33 @@ Resolves::ReadbackBuffer Resolves::AcquireReadbackBuffer() {
 
 void Resolves::Completed(uint64_t submission) {
   const auto& dfn = device_->functions();
-  std::erase_if(pending_, [&](const PendingReadback& pending) {
-    if (pending.submission > submission) {
+  size_t done = 0;
+  for (; done < pending_.size() && pending_[done].submission <= submission; ++done) {
+    const PendingReadback& pending = pending_[done];
+    const VkMappedMemoryRange mapped{VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE, nullptr, pending.buffer.memory, 0,
+                                     VK_WHOLE_SIZE};
+    dfn.vkInvalidateMappedMemoryRanges(device_->device(), 1, &mapped);
+    const ResolvePlan& plan = pending.plan;
+    uint8_t* guest = physical_base_ + pending.range.address;
+    if (ShouldWriteBack(pending.range, XXH3_64bits(guest, pending.range.bytes))) {
+      WriteTiled(static_cast<const uint8_t*>(pending.buffer.mapping), plan.dest_x, plan.dest_y, plan.dest_width,
+                 plan.dest_height, rex::align(plan.dest_pitch, 32u), plan.dest_endian, plan.dest_swap, guest);
+      const uint64_t written = XXH3_64bits(guest, pending.range.bytes);
+      for (size_t later = done + 1; later < pending_.size(); ++later) {
+        CarryWrittenHash(pending_[later].range, pending.range, written);
+      }
+      textures_.RefreshResolveHash(pending.range.address);
+    } else {
+      ++stats_.stale_readbacks;
+    }
+    free_readbacks_.push_back(pending.buffer);
+  }
+  pending_.erase(pending_.begin(), pending_.begin() + ptrdiff_t(done));
+  std::erase_if(retired_sets_, [&](const RetiredSet& retired) {
+    if (retired.submission > submission) {
       return false;
     }
-    const VkMappedMemoryRange range{VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE, nullptr, pending.buffer.memory, 0,
-                                    VK_WHOLE_SIZE};
-    dfn.vkInvalidateMappedMemoryRanges(device_->device(), 1, &range);
-    const ResolvePlan& plan = pending.plan;
-    WriteTiled(static_cast<const uint8_t*>(pending.buffer.mapping), plan.dest_x, plan.dest_y, plan.dest_width,
-               plan.dest_height, rex::align(plan.dest_pitch, 32u), plan.dest_endian, plan.dest_swap,
-               physical_base_ + plan.dest_address);
-    textures_.RefreshResolveHash(plan.dest_address);
-    free_readbacks_.push_back(pending.buffer);
+    dfn.vkFreeDescriptorSets(device_->device(), depth_pool_, 1, &retired.set);
     return true;
   });
   std::erase_if(retired_, [&](RetiredImage& retired) {
@@ -362,25 +385,25 @@ void Resolves::Completed(uint64_t submission) {
 }
 
 void Resolves::Evict(uint64_t unused_frames, uint64_t submission) {
-  const auto& dfn = device_->functions();
   std::erase_if(images_, [&](auto& entry) {
     DestImage& image = entry.second;
     if (image.last_frame + unused_frames >= frame_) {
       return false;
     }
+    const uint64_t retire = std::max(image.last_submission, submission);
     textures_.RemoveResolveImage(image.address, image.format, image.view);
-    if (auto latest = latest_by_address_.find(image.address);
-        latest != latest_by_address_.end() && latest->second == entry.first) {
-      latest_by_address_.erase(latest);
+    if (auto presentable = presentable_by_address_.find(image.address);
+        presentable != presentable_by_address_.end() && presentable->second == entry.first) {
+      presentable_by_address_.erase(presentable);
     }
     std::erase_if(depth_sets_, [&](auto& set) {
       if (set.second.dest != image.storage_view && set.second.raw != image.storage_view) {
         return false;
       }
-      dfn.vkFreeDescriptorSets(device_->device(), depth_pool_, 1, &set.second.set);
+      retired_sets_.push_back({set.second.set, retire});
       return true;
     });
-    retired_.push_back({image, std::max(image.last_submission, submission)});
+    retired_.push_back({image, retire});
     return true;
   });
 }
@@ -399,8 +422,8 @@ void Resolves::Destroy(DestImage& image) {
 
 VkImage Resolves::FindImage(uint32_t address, uint32_t& width, uint32_t& height, VkImageView* view,
                             VkFormat* format) const {
-  const auto key = latest_by_address_.find(address);
-  if (key == latest_by_address_.end()) {
+  const auto key = presentable_by_address_.find(address);
+  if (key == presentable_by_address_.end()) {
     return VK_NULL_HANDLE;
   }
   const DestImage& image = images_.at(key->second);

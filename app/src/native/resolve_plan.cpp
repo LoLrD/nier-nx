@@ -1,11 +1,13 @@
 #include "resolve_plan.h"
 
+#include <algorithm>
 #include <cstring>
 #include <utility>
 
 #include <rex/graphics/pipeline/texture/info.h>
 #include <rex/graphics/pipeline/texture/util.h>
 #include <rex/graphics/registers.h>
+#include <rex/math.h>
 
 #include "texture_loader.h"
 
@@ -16,6 +18,7 @@ using namespace rex::graphics;
 namespace {
 
 constexpr uint32_t kReadbackLimitBytes = 256 * 1024;
+constexpr uint64_t kPhysicalBytes = 0x20000000ull;
 
 xenos::Endian Endian32(xenos::Endian128 endian) {
   switch (endian) {
@@ -79,6 +82,23 @@ ResolvePlan PlanResolve(const draw_util::ResolveInfo& info, const RegisterFile& 
   plan.depth_clear = xenos::UNorm24To32((info.rb_depth_clear >> 8) & 0xFFFFFF);
   plan.stencil_clear = info.rb_depth_clear & 0xFF;
   return plan;
+}
+
+uint32_t ResolveGuestBytes(uint32_t width, uint32_t height, uint32_t bytes_per_pixel, uint32_t address) {
+  const uint64_t bytes = uint64_t(rex::align(width, 32u)) * rex::align(height, 32u) * bytes_per_pixel;
+  return uint32_t(std::min(bytes, kPhysicalBytes - std::min<uint64_t>(address, kPhysicalBytes)));
+}
+
+bool PresentableResolve(const ResolvePlan& plan) {
+  return plan.copy && !plan.depth && plan.dest_format == xenos::TextureFormat::k_8_8_8_8;
+}
+
+bool ShouldWriteBack(const PendingRange& range, uint64_t current_hash) { return range.guest_hash == current_hash; }
+
+void CarryWrittenHash(PendingRange& later, const PendingRange& written, uint64_t written_hash) {
+  if (later.address == written.address && later.bytes == written.bytes && later.guest_hash == written.guest_hash) {
+    later.guest_hash = written_hash;
+  }
 }
 
 void WriteTiled(const uint8_t* host_rgba, uint32_t x, uint32_t y, uint32_t width, uint32_t height,
