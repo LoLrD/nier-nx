@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <span>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -12,6 +13,9 @@
 #include <rex/graphics/register_file.h>
 #include <rex/graphics/vulkan/shader.h>
 #include <rex/string/buffer.h>
+#include <rex/ui/vulkan/api.h>
+
+#include "spirv_specialize.h"
 
 namespace rex::ui::vulkan {
 class VulkanDevice;
@@ -26,6 +30,7 @@ class NativeShaders {
     uint64_t failures = 0;
     uint64_t translate_us = 0;
     uint64_t max_translate_us = 0;
+    uint64_t specialized = 0;
   };
 
   struct PreparedDraw {
@@ -36,14 +41,25 @@ class NativeShaders {
   };
 
   explicit NativeShaders(const rex::ui::vulkan::VulkanDevice* device);
+  ~NativeShaders();
+  NativeShaders(const NativeShaders&) = delete;
+  NativeShaders& operator=(const NativeShaders&) = delete;
 
   void Load(uint32_t type, const uint32_t* words_big_endian, uint32_t size_words);
   std::optional<PreparedDraw> PrepareDraw(const rex::graphics::RegisterFile& regs,
                                           rex::graphics::Shader::HostVertexShaderType host_type, uint32_t scale_x,
                                           uint32_t scale_y);
+  VkShaderModule PixelModule(rex::graphics::vulkan::VulkanShader::VulkanTranslation& translation,
+                             const rex::graphics::SpirvShaderTranslator::SystemConstants& system,
+                             std::span<const uint32_t> fetch_constants);
   const Stats& stats() const { return stats_; }
 
  private:
+  struct Specialization {
+    std::vector<UniformSlot> slots;
+    std::unordered_map<uint64_t, VkShaderModule> modules;
+  };
+
   using Modification = rex::graphics::SpirvShaderTranslator::Modification;
 
   Modification VertexModification(const rex::graphics::Shader& shader,
@@ -68,6 +84,7 @@ class NativeShaders {
   std::array<std::unordered_map<uint64_t, std::unique_ptr<rex::graphics::vulkan::VulkanShader>>, kScales> shaders_;
   uint64_t vertex_hash_ = 0;
   uint64_t pixel_hash_ = 0;
+  std::unordered_map<const rex::graphics::vulkan::VulkanShader::VulkanTranslation*, Specialization> specializations_;
   Stats stats_;
 };
 

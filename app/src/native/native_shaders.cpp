@@ -7,6 +7,7 @@
 #include <rex/logging.h>
 #include <rex/math.h>
 #include <rex/ui/vulkan/device.h>
+#include <rex/ui/vulkan/util.h>
 #include <rex/graphics/util/draw.h>
 
 
@@ -16,6 +17,18 @@ using namespace rex::graphics;
 using rex::graphics::vulkan::VulkanShader;
 
 namespace {
+
+using SystemConstants = SpirvShaderTranslator::SystemConstants;
+
+constexpr ByteRange FieldRange(size_t offset, size_t size) {
+  return {uint32_t(offset), uint32_t(offset + size)};
+}
+
+constexpr std::array<ByteRange, 3> kSpecializedSystemFields = {{
+    FieldRange(offsetof(SystemConstants, flags), sizeof(SystemConstants::flags)),
+    FieldRange(offsetof(SystemConstants, texture_swizzled_signs), sizeof(SystemConstants::texture_swizzled_signs)),
+    FieldRange(offsetof(SystemConstants, texture_swizzles), sizeof(SystemConstants::texture_swizzles)),
+}};
 
 SpirvShaderTranslator::Features TranslatorFeatures(const rex::ui::vulkan::VulkanDevice* device) {
   SpirvShaderTranslator::Features features(device);
@@ -31,6 +44,44 @@ NativeShaders::NativeShaders(const rex::ui::vulkan::VulkanDevice* device) : devi
     translators_[i] = std::make_unique<SpirvShaderTranslator>(TranslatorFeatures(device), false, false, false,
                                                               scales[i].first, scales[i].second);
   }
+}
+
+NativeShaders::~NativeShaders() {
+  for (auto& [translation, specialization] : specializations_) {
+    for (auto& [key, module] : specialization.modules) {
+      device_->functions().vkDestroyShaderModule(device_->device(), module, nullptr);
+    }
+  }
+}
+
+VkShaderModule NativeShaders::PixelModule(VulkanShader::VulkanTranslation& translation,
+                                          const SystemConstants& system, std::span<const uint32_t> fetch_constants) {
+  const std::vector<uint8_t>& binary = translation.translated_binary();
+  const std::span<const uint32_t> words(reinterpret_cast<const uint32_t*>(binary.data()), binary.size() / 4);
+  auto [it, inserted] = specializations_.try_emplace(&translation);
+  Specialization& specialization = it->second;
+  if (inserted) {
+    specialization.slots = SpecializableSlots(words, kSpecializedSystemFields);
+  }
+  if (specialization.slots.empty()) {
+    return translation.shader_module();
+  }
+  const auto* system_words = reinterpret_cast<const uint32_t*>(&system);
+  std::vector<uint32_t> values;
+  values.reserve(specialization.slots.size());
+  for (const UniformSlot& slot : specialization.slots) {
+    values.push_back(slot.fetch ? fetch_constants[slot.offset / 4] : system_words[slot.offset / 4]);
+  }
+  auto [module, created] =
+      specialization.modules.try_emplace(XXH3_64bits(values.data(), values.size() * sizeof(uint32_t)), VK_NULL_HANDLE);
+  if (created) {
+    const std::vector<uint32_t> specialized =
+        Specialize(words, kSpecializedSystemFields, specialization.slots, values);
+    module->second =
+        rex::ui::vulkan::util::CreateShaderModule(device_, specialized.data(), specialized.size() * sizeof(uint32_t));
+    ++stats_.specialized;
+  }
+  return module->second != VK_NULL_HANDLE ? module->second : translation.shader_module();
 }
 
 uint32_t NativeShaders::ScaleIndex(uint32_t scale_x, uint32_t scale_y) {

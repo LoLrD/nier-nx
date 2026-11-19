@@ -32,6 +32,7 @@ set(NIER_SOURCES
     src/native/resolve_plan.cpp
     src/native/resolves.cpp
     src/native/shader_dump.cpp
+    src/native/spirv_specialize.cpp
     src/native/submissions.cpp
     src/native/target_keys.cpp
     src/native/texture_loader.cpp

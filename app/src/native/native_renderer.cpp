@@ -511,9 +511,22 @@ NativeRenderer::DrawResult NativeRenderer::RecordDraw(const RegisterFile& regs) 
   if (ps_set == VK_NULL_HANDLE) {
     return out_of_memory ? DrawResult::kOutOfMemory : DrawResult::kRetry;
   }
+  const auto& properties = device_->properties();
+  draw_util::ViewportInfo viewport;
+  draw_util::GetHostViewportInfo(regs, targets.scale.x, targets.scale.y, false, properties.maxViewportDimensions[0],
+                                 properties.maxViewportDimensions[1], true, draw_util::GetNormalizedDepthControl(regs),
+                                 false, true, prepared->pixel_shader && prepared->pixel_shader->writes_depth(),
+                                 viewport);
+  Translator::SystemConstants system;
+  FillSystemConstants(regs, draw, viewport, texture_info, system);
+  uint32_t fetches[192];
+  CopyFetchConstants(regs, fetches);
   PipelineState state = BuildPipelineState(regs, draw, targets, color_mask, targets_->depth_format());
   state.vertex_module = prepared->vertex->shader_module();
-  state.pixel_module = prepared->pixel ? prepared->pixel->shader_module() : VK_NULL_HANDLE;
+  if (prepared->pixel) {
+    state.pixel_module = PerfSkip(kGenericShaders) ? prepared->pixel->shader_module()
+                                                   : shaders_.PixelModule(*prepared->pixel, system, fetches);
+  }
   if (PerfSkip(kSkipPixelShaders)) {
     state.pixel_module = VK_NULL_HANDLE;
   }
@@ -523,17 +536,8 @@ NativeRenderer::DrawResult NativeRenderer::RecordDraw(const RegisterFile& regs) 
     ++stats_.skipped_shader;
     return DrawResult::kDone;
   }
-  const auto& properties = device_->properties();
-  draw_util::ViewportInfo viewport;
-  draw_util::GetHostViewportInfo(regs, targets.scale.x, targets.scale.y, false, properties.maxViewportDimensions[0],
-                                 properties.maxViewportDimensions[1], true, draw_util::GetNormalizedDepthControl(regs),
-                                 false, true, prepared->pixel_shader && prepared->pixel_shader->writes_depth(),
-                                 viewport);
-  Translator::SystemConstants system;
-  FillSystemConstants(regs, draw, viewport, texture_info, system);
   alignas(16) uint8_t floats[Submissions::kFloatConstantsBytes];
   uint32_t bools[40];
-  uint32_t fetches[192];
   std::array<uint32_t, Translator::kConstantBufferCount> offsets{};
   submissions_->Uniform(&system, sizeof(system), sizeof(system), offsets[Translator::kConstantBufferSystem]);
   uint32_t size = PackFloatConstants(regs, prepared->vertex_shader->constant_register_map(), false, floats);
@@ -544,7 +548,6 @@ NativeRenderer::DrawResult NativeRenderer::RecordDraw(const RegisterFile& regs) 
   submissions_->Uniform(floats, size, Submissions::kFloatConstantsBytes, offsets[Translator::kConstantBufferFloatPixel]);
   CopyBoolLoopConstants(regs, bools);
   submissions_->Uniform(bools, sizeof(bools), sizeof(bools), offsets[Translator::kConstantBufferBoolLoop]);
-  CopyFetchConstants(regs, fetches);
   submissions_->Uniform(fetches, sizeof(fetches), sizeof(fetches), offsets[Translator::kConstantBufferFetch]);
   const VkCommandBuffer cmd = submissions_->main();
   if (targets_->Begins(targets)) {
