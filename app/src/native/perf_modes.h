@@ -11,5 +11,6 @@ constexpr uint32_t kQuarterScreen = 8192;
 
 void InstallPerfModes();
 bool PerfSkip(uint32_t bit);
+void DelayDraw();
 
 }  // namespace nier::native

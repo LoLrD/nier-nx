@@ -402,6 +402,7 @@ VkRect2D NativeRenderer::SetDynamicState(const RegisterFile& regs, const draw_ut
 
 void NativeRenderer::Draw(const RegisterFile& regs) {
   ++stats_.draws;
+  DelayDraw();
   ScopedMicros timer(stats_.us_draws);
   if (!valid_) {
     return;

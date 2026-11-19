@@ -1,12 +1,15 @@
 #include "perf_modes.h"
 
+#include <chrono>
 #include <cstddef>
 #include <iterator>
+#include <thread>
 
 #include <rex/cvar.h>
 #include <rex/platform.h>
 
 REXCVAR_DEFINE_INT32(nier_perf_skip, 0, "NieR", "Native renderer: A/B skip bits forced on without the console lap");
+REXCVAR_DEFINE_INT32(nier_draw_delay_us, 0, "NieR", "Native renderer: microseconds the ring thread waits on each draw to mimic the console's pace");
 
 #if REX_PLATFORM_SWITCH
 extern "C" bool RexSwitchPerfSkip(unsigned bit);
@@ -37,6 +40,12 @@ bool PerfSkip(uint32_t bit) {
 #else
   return false;
 #endif
+}
+
+void DelayDraw() {
+  if (const int32_t delay = REXCVAR_GET(nier_draw_delay_us); delay > 0) {
+    std::this_thread::sleep_for(std::chrono::microseconds(delay));
+  }
 }
 
 }  // namespace nier::native
