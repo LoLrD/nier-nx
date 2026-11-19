@@ -36,6 +36,7 @@ class RenderTargets {
     uint64_t transfer_tiles = 0;
     uint64_t transfer_regions = 0;
     uint64_t incompatible_tiles = 0;
+    uint64_t depth_tiles = 0;
   };
 
   explicit RenderTargets(const rex::ui::vulkan::VulkanDevice* device);
@@ -55,7 +56,7 @@ class RenderTargets {
   void Claim(VkCommandBuffer command_buffer, const TargetKey& key, uint32_t x0, uint32_t y0, uint32_t x1, uint32_t y1,
              bool newer_than_rendering);
   bool Begins(const TargetSet& set) const;
-  void Begin(VkCommandBuffer command_buffer, const TargetSet& set);
+  void Begin(VkCommandBuffer command_buffer, const TargetSet& set, uint32_t rows);
   void End(VkCommandBuffer command_buffer);
   void ClearColor(VkCommandBuffer command_buffer, const TargetKey& key, const VkRect2D& rect, const float color[4]);
   void ClearDepth(VkCommandBuffer command_buffer, const TargetKey& key, const VkRect2D& rect, float depth,
@@ -68,7 +69,12 @@ class RenderTargets {
     bool operator==(const Bound&) const = default;
   };
 
+  void CreateConverter();
+  void Own(VkCommandBuffer command_buffer, const Bound& bound, uint32_t from_rows, uint32_t to_rows);
   void BeginRendering(VkCommandBuffer command_buffer, const Bound& bound);
+  void ConvertDepth(VkCommandBuffer command_buffer, const Target& depth, const Target& color,
+                    const std::vector<VkImageCopy>& regions);
+  VkDescriptorSet ConvertSet(const Target& depth, const Target& color);
   void Discard(const TargetKey& key, const VkRect2D& rect);
   void NoteIncompatible(uint32_t owner, uint32_t foreign);
 
@@ -79,6 +85,13 @@ class RenderTargets {
   VkExtent2D render_area_{};
   uint64_t bytes_ = 0;
   Bound bound_;
+  uint32_t claimed_rows_ = 0;
+  VkDescriptorSetLayout convert_set_layout_ = VK_NULL_HANDLE;
+  VkPipelineLayout convert_layout_ = VK_NULL_HANDLE;
+  VkPipeline convert_pipeline_ = VK_NULL_HANDLE;
+  VkDescriptorPool convert_pool_ = VK_NULL_HANDLE;
+  VkSampler convert_sampler_ = VK_NULL_HANDLE;
+  std::unordered_map<uint64_t, VkDescriptorSet> convert_sets_;
   EdramOwnership edram_;
   std::vector<TargetKey> owner_keys_{TargetKey{}};
   std::set<std::pair<uint32_t, uint32_t>> logged_incompatible_;

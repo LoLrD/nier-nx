@@ -11,6 +11,8 @@
 #include <rex/ui/vulkan/instance.h>
 #include <rex/ui/vulkan/util.h>
 
+#include "shaders/depth_to_color_cs.h"
+
 namespace nier::native {
 
 namespace vk = rex::ui::vulkan;
@@ -21,6 +23,13 @@ using rex::graphics::xenos::DepthRenderTargetFormat;
 namespace {
 
 constexpr size_t kLoggedIncompatiblePairs = 20;
+constexpr uint32_t kMaxConvertSets = 256;
+
+struct ConvertConstants {
+  int32_t source_offset[2];
+  int32_t dest_offset[2];
+  int32_t size[2];
+};
 
 VkFormat ChooseDepthFormat(const vk::VulkanDevice* device) {
   VkFormatProperties properties{};
@@ -45,6 +54,50 @@ void FullBarrier(const vk::VulkanDevice* device, VkCommandBuffer command_buffer)
 RenderTargets::RenderTargets(const vk::VulkanDevice* device) : device_(device), depth_format_(ChooseDepthFormat(device)) {
   REXLOG_INFO("[native] depth targets use {}",
               depth_format_ == VK_FORMAT_D24_UNORM_S8_UINT ? "D24_UNORM_S8_UINT" : "D32_SFLOAT_S8_UINT");
+  CreateConverter();
+}
+
+void RenderTargets::CreateConverter() {
+  const auto& dfn = device_->functions();
+  const VkDevice d = device_->device();
+  const std::array<VkDescriptorSetLayoutBinding, 2> bindings = {{
+      {0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr},
+      {1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr},
+  }};
+  VkDescriptorSetLayoutCreateInfo set_info{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+  set_info.bindingCount = uint32_t(bindings.size());
+  set_info.pBindings = bindings.data();
+  dfn.vkCreateDescriptorSetLayout(d, &set_info, nullptr, &convert_set_layout_);
+  const VkPushConstantRange push{VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ConvertConstants)};
+  VkPipelineLayoutCreateInfo layout_info{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+  layout_info.setLayoutCount = 1;
+  layout_info.pSetLayouts = &convert_set_layout_;
+  layout_info.pushConstantRangeCount = 1;
+  layout_info.pPushConstantRanges = &push;
+  dfn.vkCreatePipelineLayout(d, &layout_info, nullptr, &convert_layout_);
+  const VkShaderModule module = vk::util::CreateShaderModule(device_, depth_to_color_cs, sizeof(depth_to_color_cs));
+  VkComputePipelineCreateInfo pipeline_info{VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
+  pipeline_info.stage = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_COMPUTE_BIT,
+                         module, "main", nullptr};
+  pipeline_info.layout = convert_layout_;
+  dfn.vkCreateComputePipelines(d, VK_NULL_HANDLE, 1, &pipeline_info, nullptr, &convert_pipeline_);
+  dfn.vkDestroyShaderModule(d, module, nullptr);
+  const std::array<VkDescriptorPoolSize, 2> sizes = {{
+      {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kMaxConvertSets},
+      {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, kMaxConvertSets},
+  }};
+  VkDescriptorPoolCreateInfo pool_info{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+  pool_info.maxSets = kMaxConvertSets;
+  pool_info.poolSizeCount = uint32_t(sizes.size());
+  pool_info.pPoolSizes = sizes.data();
+  dfn.vkCreateDescriptorPool(d, &pool_info, nullptr, &convert_pool_);
+  VkSamplerCreateInfo sampler{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+  sampler.magFilter = VK_FILTER_NEAREST;
+  sampler.minFilter = VK_FILTER_NEAREST;
+  sampler.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+  sampler.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+  sampler.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+  dfn.vkCreateSampler(d, &sampler, nullptr, &convert_sampler_);
 }
 
 RenderTargets::~RenderTargets() {
@@ -58,6 +111,11 @@ RenderTargets::~RenderTargets() {
     dfn.vkDestroyImage(d, target.image, nullptr);
     dfn.vkFreeMemory(d, target.memory, nullptr);
   }
+  dfn.vkDestroySampler(d, convert_sampler_, nullptr);
+  dfn.vkDestroyDescriptorPool(d, convert_pool_, nullptr);
+  dfn.vkDestroyPipeline(d, convert_pipeline_, nullptr);
+  dfn.vkDestroyPipelineLayout(d, convert_layout_, nullptr);
+  dfn.vkDestroyDescriptorSetLayout(d, convert_set_layout_, nullptr);
 }
 
 bool RenderTargets::Supported(const TargetKey& key) {
@@ -86,7 +144,8 @@ RenderTargets::Target* RenderTargets::Get(VkCommandBuffer command_buffer, const 
   info.arrayLayers = 1;
   info.samples = VK_SAMPLE_COUNT_1_BIT;
   info.tiling = VK_IMAGE_TILING_OPTIMAL;
-  info.usage = (key.is_depth ? VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT : VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT) |
+  info.usage = (key.is_depth ? VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT
+                             : VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT) |
                VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
   if (!vk::util::CreateDedicatedAllocationImage(device_, info, vk::util::MemoryPurpose::kDeviceLocal, target.image,
                                                 target.memory, nullptr, &target.bytes)) {
@@ -136,13 +195,37 @@ bool RenderTargets::Begins(const TargetSet& set) const {
   return !rendering_ || !(Bound{set.color, set.depth} == bound_);
 }
 
-void RenderTargets::Begin(VkCommandBuffer command_buffer, const TargetSet& set) {
-  if (!Begins(set)) {
+void RenderTargets::Begin(VkCommandBuffer command_buffer, const TargetSet& set, uint32_t rows) {
+  if (Begins(set)) {
+    End(command_buffer);
+    claimed_rows_ = 0;
+  } else if (rows <= claimed_rows_) {
     return;
+  } else {
+    End(command_buffer);
   }
   const Bound bound{set.color, set.depth};
-  End(command_buffer);
+  Own(command_buffer, bound, claimed_rows_, rows);
+  claimed_rows_ = std::max(claimed_rows_, rows);
   BeginRendering(command_buffer, bound);
+}
+
+void RenderTargets::Own(VkCommandBuffer command_buffer, const Bound& bound, uint32_t from_rows, uint32_t to_rows) {
+  if (bound.depth) {
+    if (const Target* depth = Get(command_buffer, *bound.depth)) {
+      edram_.Write(*bound.depth, 0, from_rows, depth->extent.width, std::min(to_rows, depth->extent.height),
+                   depth->owner, ++sequence_);
+    }
+  }
+  for (const auto& color : bound.color) {
+    if (!color) {
+      continue;
+    }
+    if (const Target* target = Get(command_buffer, *color)) {
+      Claim(command_buffer, *color, 0, from_rows, target->extent.width, std::min(to_rows, target->extent.height),
+            false);
+    }
+  }
 }
 
 void RenderTargets::BeginRendering(VkCommandBuffer command_buffer, const Bound& bound) {
@@ -157,12 +240,6 @@ void RenderTargets::BeginRendering(VkCommandBuffer command_buffer, const Bound& 
     }
   }
   Target* depth = bound.depth ? Get(command_buffer, *bound.depth) : nullptr;
-  for (uint32_t i = 0; i < 4; ++i) {
-    if (const Target* target = color_targets[i]) {
-      Claim(command_buffer, *bound.color[i], 0, 0, target->extent.width,
-            std::min(target->extent.height, AssumedHeight(target->extent.width)), false);
-    }
-  }
   for (uint32_t i = 0; i < 4; ++i) {
     colors[i] = {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR};
     colors[i].imageLayout = VK_IMAGE_LAYOUT_GENERAL;
@@ -235,6 +312,7 @@ void RenderTargets::ClearDepth(VkCommandBuffer command_buffer, const TargetKey& 
   Bound bound{};
   bound.depth = key;
   BeginRendering(command_buffer, bound);
+  Discard(key, rect);
   VkClearAttachment clear{VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT, 0, {}};
   clear.clearValue.depthStencil = {depth, stencil};
   const VkClearRect clear_rect{rect, 0, 1};
@@ -254,7 +332,7 @@ void RenderTargets::Claim(VkCommandBuffer command_buffer, const TargetKey& key, 
       continue;
     }
     const TargetKey& source_key = owner_keys_[foreign.owner];
-    if (source_key.format != key.format) {
+    if (!source_key.is_depth && source_key.format != key.format) {
       ++stats_.incompatible_tiles;
       NoteIncompatible(target->owner, foreign.owner);
       continue;
@@ -277,6 +355,7 @@ void RenderTargets::Claim(VkCommandBuffer command_buffer, const TargetKey& key, 
           last.dstOffset.x + int32_t(last.extent.width) == int32_t(to.x)) {
         last.extent.width += xenos::kEdramTileWidthSamples;
         ++stats_.transfer_tiles;
+        stats_.depth_tiles += source_key.is_depth;
         continue;
       }
     }
@@ -288,13 +367,18 @@ void RenderTargets::Claim(VkCommandBuffer command_buffer, const TargetKey& key, 
     region.extent = {xenos::kEdramTileWidthSamples, xenos::kEdramTileHeightSamples, 1};
     regions.push_back(region);
     ++stats_.transfer_tiles;
+    stats_.depth_tiles += source_key.is_depth;
   }
   if (!copies.empty()) {
     FullBarrier(device_, command_buffer);
     for (const auto& [owner, regions] : copies) {
-      device_->functions().vkCmdCopyImage(command_buffer, targets_.find(owner_keys_[owner])->second.image,
-                                          VK_IMAGE_LAYOUT_GENERAL, target->image, VK_IMAGE_LAYOUT_GENERAL,
-                                          uint32_t(regions.size()), regions.data());
+      const Target& source = targets_.find(owner_keys_[owner])->second;
+      if (owner_keys_[owner].is_depth) {
+        ConvertDepth(command_buffer, source, *target, regions);
+      } else {
+        device_->functions().vkCmdCopyImage(command_buffer, source.image, VK_IMAGE_LAYOUT_GENERAL, target->image,
+                                            VK_IMAGE_LAYOUT_GENERAL, uint32_t(regions.size()), regions.data());
+      }
       stats_.transfer_regions += regions.size();
     }
     ++stats_.transfers;
@@ -304,6 +388,54 @@ void RenderTargets::Claim(VkCommandBuffer command_buffer, const TargetKey& key, 
   if (!newer_than_rendering) {
     target->rendered = sequence_;
   }
+}
+
+void RenderTargets::ConvertDepth(VkCommandBuffer command_buffer, const Target& depth, const Target& color,
+                                 const std::vector<VkImageCopy>& regions) {
+  const VkDescriptorSet set = ConvertSet(depth, color);
+  if (set == VK_NULL_HANDLE) {
+    return;
+  }
+  const auto& dfn = device_->functions();
+  dfn.vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, convert_pipeline_);
+  dfn.vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, convert_layout_, 0, 1, &set, 0,
+                              nullptr);
+  for (const VkImageCopy& region : regions) {
+    const ConvertConstants constants{{region.srcOffset.x, region.srcOffset.y},
+                                     {region.dstOffset.x, region.dstOffset.y},
+                                     {int32_t(region.extent.width), int32_t(region.extent.height)}};
+    dfn.vkCmdPushConstants(command_buffer, convert_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(constants),
+                           &constants);
+    dfn.vkCmdDispatch(command_buffer, (region.extent.width + 7) / 8, (region.extent.height + 7) / 8, 1);
+  }
+}
+
+VkDescriptorSet RenderTargets::ConvertSet(const Target& depth, const Target& color) {
+  const uint64_t key = uint64_t(depth.owner) << 32 | color.owner;
+  if (const auto it = convert_sets_.find(key); it != convert_sets_.end()) {
+    return it->second;
+  }
+  const auto& dfn = device_->functions();
+  VkDescriptorSetAllocateInfo allocate{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+  allocate.descriptorPool = convert_pool_;
+  allocate.descriptorSetCount = 1;
+  allocate.pSetLayouts = &convert_set_layout_;
+  VkDescriptorSet set = VK_NULL_HANDLE;
+  if (dfn.vkAllocateDescriptorSets(device_->device(), &allocate, &set) != VK_SUCCESS) {
+    REXLOG_ERROR("[native] out of depth-to-colour descriptor sets");
+    return VK_NULL_HANDLE;
+  }
+  const VkDescriptorImageInfo source_info{convert_sampler_, depth.sampled_view, VK_IMAGE_LAYOUT_GENERAL};
+  const VkDescriptorImageInfo dest_info{VK_NULL_HANDLE, color.attachment_view, VK_IMAGE_LAYOUT_GENERAL};
+  const std::array<VkWriteDescriptorSet, 2> writes = {{
+      {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, set, 0, 0, 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+       &source_info, nullptr, nullptr},
+      {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, set, 1, 0, 1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, &dest_info,
+       nullptr, nullptr},
+  }};
+  dfn.vkUpdateDescriptorSets(device_->device(), uint32_t(writes.size()), writes.data(), 0, nullptr);
+  convert_sets_.emplace(key, set);
+  return set;
 }
 
 void RenderTargets::Discard(const TargetKey& key, const VkRect2D& rect) {

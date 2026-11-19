@@ -114,9 +114,28 @@ TargetPoint TilePosition(const TargetKey& key, uint32_t tile) {
           (offset / key.pitch_tiles) * xenos::kEdramTileHeightSamples};
 }
 
-uint32_t AssumedHeight(uint32_t width_samples) {
-  const uint32_t rows = width_samples * 9 / 16;
-  return (rows + xenos::kEdramTileHeightSamples - 1) / xenos::kEdramTileHeightSamples * xenos::kEdramTileHeightSamples;
+uint32_t UsedRows(const TargetSet& set, uint32_t estimated_rows) {
+  std::vector<TargetKey> bound;
+  for (const auto& color : set.color) {
+    if (color) {
+      bound.push_back(*color);
+    }
+  }
+  if (set.depth) {
+    bound.push_back(*set.depth);
+  }
+  uint32_t rows = estimated_rows;
+  for (const TargetKey& key : bound) {
+    uint32_t distance = xenos::kEdramTileCount;
+    for (const TargetKey& other : bound) {
+      const uint32_t ahead = (other.base_tiles + xenos::kEdramTileCount - key.base_tiles) % xenos::kEdramTileCount;
+      if (ahead) {
+        distance = std::min(distance, ahead);
+      }
+    }
+    rows = std::min(rows, distance / key.pitch_tiles * xenos::kEdramTileHeightSamples);
+  }
+  return rows;
 }
 
 }  // namespace nier::native

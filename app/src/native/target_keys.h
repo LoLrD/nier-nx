@@ -58,7 +58,7 @@ struct TargetPoint {
 };
 
 TargetPoint TilePosition(const TargetKey& key, uint32_t tile);
-uint32_t AssumedHeight(uint32_t width_samples);
+uint32_t UsedRows(const TargetSet& set, uint32_t estimated_rows);
 
 class EdramOwnership {
  public:

@@ -110,7 +110,8 @@ NativeRenderer::NativeRenderer(const vk::VulkanDevice* device, rex::memory::Memo
       memory_(memory),
       physical_base_(memory->TranslatePhysical<uint8_t*>(0)),
       shaders_(shaders),
-      registers_(registers) {
+      registers_(registers),
+      extents_(registers.file(), *memory) {
   if (!device_->properties().dynamicRendering) {
     REXLOG_ERROR("[native] the device has no dynamic rendering, nothing will be drawn");
     return;
@@ -554,7 +555,8 @@ NativeRenderer::DrawResult NativeRenderer::RecordDraw(const RegisterFile& regs) 
     trace_pass_.pass = current_pass_;
     frame_passes_.push_back(current_pass_);
   }
-  targets_->Begin(cmd, targets);
+  targets_->Begin(cmd, targets,
+                  UsedRows(targets, extents_.EstimateMaxY(true, *prepared->vertex_shader) * targets.scale.y));
   if (!targets_->rendering()) {
     ++stats_.skipped_target;
     return DrawResult::kDone;
@@ -961,9 +963,10 @@ std::string NativeRenderer::Report() {
     line.pop_back();
   }
   const RenderTargets::Stats& e = targets_->stats();
-  line += fmt::format("; edram transfers {} ({} tiles in {} regions), {} incompatible tiles",
+  line += fmt::format("; edram transfers {} ({} tiles in {} regions, {} from depth), {} incompatible tiles",
                       e.transfers - reported_targets_.transfers, e.transfer_tiles - reported_targets_.transfer_tiles,
                       e.transfer_regions - reported_targets_.transfer_regions,
+                      e.depth_tiles - reported_targets_.depth_tiles,
                       e.incompatible_tiles - reported_targets_.incompatible_tiles);
   reported_targets_ = e;
   line += fmt::format("; {} evictions, {} memory skips, {} releases, {} draw retries, {} skipped after retry, {} staging flushes",

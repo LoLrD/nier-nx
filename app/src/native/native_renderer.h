@@ -11,6 +11,7 @@
 #include <vector>
 
 #include <rex/graphics/register_file.h>
+#include <rex/graphics/util/draw_extent_estimator.h>
 #include <rex/ui/vulkan/api.h>
 
 #include "draw_constants.h"
@@ -123,6 +124,7 @@ class NativeRenderer {
   uint8_t* physical_base_;
   NativeShaders& shaders_;
   const GpuRegisters& registers_;
+  rex::graphics::DrawExtentEstimator extents_;
   bool valid_ = false;
   std::unique_ptr<Pipelines> pipelines_;
   std::unique_ptr<Submissions> submissions_;

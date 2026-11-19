@@ -8,11 +8,12 @@
 #include "target_keys.h"
 
 using namespace rex::graphics;
-using nier::native::AssumedHeight;
 using nier::native::EdramOwnership;
 using nier::native::ForeignTile;
 using nier::native::TargetPoint;
 using nier::native::TilePosition;
+using nier::native::TargetSet;
+using nier::native::UsedRows;
 using nier::native::ExtentFor;
 using nier::native::TargetKey;
 using nier::native::TargetsFor;
@@ -132,9 +133,17 @@ int main() {
           "tile_position_inside_a_target");
   }
   {
-    Check(AssumedHeight(1280) == 720 && AssumedHeight(640) == 368 && AssumedHeight(1040) == 592 &&
-              AssumedHeight(800) == 464 && AssumedHeight(80) == 48,
-          "assumed_height_is_sixteen_by_nine_rounded_to_tiles");
+    TargetSet scene{};
+    scene.color[0] = TargetKey{0x2D0, 16, false, 0};
+    scene.depth = TargetKey{0, 16, true, 0};
+    TargetSet post{};
+    post.color[0] = TargetKey{0x1D4, 13, false, 0};
+    TargetSet shadow{};
+    shadow.depth = TargetKey{0, 13, true, 0};
+    Check(UsedRows(scene, 2048) == 720, "rows_stop_where_the_next_bound_target_starts");
+    Check(UsedRows(scene, 576) == 576, "rows_below_the_limit_are_kept");
+    Check(UsedRows(post, 576) == 576, "single_target_keeps_estimated_rows");
+    Check(UsedRows(shadow, 100000) == 2048 / 13 * 16, "rows_never_exceed_the_edram");
   }
   return failures ? 1 : 0;
 }
