@@ -13,6 +13,7 @@ set(NIER_SOURCES
     src/nier_d3d_wait.cpp
     src/nier_input_driver.cpp
     src/nier_input_script.cpp
+    src/nier_resolution.cpp
     src/native/draw_constants.cpp
     src/native/gpu_progress.cpp
     src/native/gpu_registers.cpp
