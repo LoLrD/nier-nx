@@ -20,6 +20,7 @@
 #include "guest_mirror.h"
 #include "mirror_sync.h"
 #include "native_shaders.h"
+#include "pipeline_report.h"
 #include "pipelines.h"
 #include "render_targets.h"
 #include "resolve_plan.h"
@@ -133,6 +134,7 @@ class NativeRenderer {
   rex::graphics::DrawExtentEstimator extents_;
   bool valid_ = false;
   std::unique_ptr<Pipelines> pipelines_;
+  std::unique_ptr<PipelineReport> pipeline_report_;
   std::unique_ptr<Submissions> submissions_;
   std::unique_ptr<GuestMirror> mirror_;
   std::unique_ptr<RenderTargets> targets_;

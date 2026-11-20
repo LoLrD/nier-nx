@@ -83,3 +83,7 @@ code generator and runtime changes of masseffect-nx. The third-party sources are
   gradients sample with implicit LOD and the fetch's LOD as a bias, instead of coarse derivatives scaled by `exp2(lod)`
   passed as explicit gradients (on Maxwell explicit gradients compile to the slower TXD). Fetches with register
   gradients stay explicit. NieR's native renderer sets it unless its A/B lap is in the "explicit gradients" mode.
+- `include/rex/ui/vulkan/device.h`, `include/rex/ui/vulkan/functions/device_khr_pipeline_executable_properties.inc`,
+  `src/ui/vulkan/vulkan_device.cpp`: cvar `vulkan_pipeline_statistics` enables `VK_KHR_pipeline_executable_properties`
+  (feature `pipelineExecutableInfo` and its three functions), so NieR's native renderer can log the compiler statistics
+  of each pipeline and collect NVK's NAK assembly on the console.

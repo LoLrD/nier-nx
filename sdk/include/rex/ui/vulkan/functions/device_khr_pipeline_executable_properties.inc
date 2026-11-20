@@ -1,0 +1,4 @@
+// VK_KHR_pipeline_executable_properties functions used in ReXGlue.
+XE_UI_VULKAN_FUNCTION(vkGetPipelineExecutablePropertiesKHR)
+XE_UI_VULKAN_FUNCTION(vkGetPipelineExecutableStatisticsKHR)
+XE_UI_VULKAN_FUNCTION(vkGetPipelineExecutableInternalRepresentationsKHR)

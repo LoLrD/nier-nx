@@ -47,6 +47,7 @@ class Pipelines {
   std::unordered_map<uint64_t, VkPipelineLayout> layouts_;
   std::unordered_map<uint64_t, std::vector<Entry>> pipelines_;
   size_t pipeline_count_ = 0;
+  VkPipelineCreateFlags create_flags_;
 };
 
 }  // namespace nier::native

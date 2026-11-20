@@ -26,6 +26,11 @@ REXCVAR_DEFINE_BOOL(vulkan_native_shader_features, false, "UI/Vulkan",
                     "Enable available capabilities for the experimental native shaders")
     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
 
+REXCVAR_DEFINE_BOOL(vulkan_pipeline_statistics, false, "UI/Vulkan",
+                    "Enable VK_KHR_pipeline_executable_properties to read compiler statistics and "
+                    "assembly of pipelines")
+    .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+
 REXCVAR_DEFINE_BOOL(vulkan_require_fragment_stores_and_atomics, true, "UI/Vulkan",
                     "Deprecated and ignored for parity; fragmentStoresAndAtomics is always "
                     "required for Vulkan GPU emulation")
@@ -200,6 +205,10 @@ std::unique_ptr<VulkanDevice> VulkanDevice::CreateIfSupported(
     // enabled further down, only if the device provides them.
     XE_UI_VULKAN_STRUCT_EXTENSION(EXT_extended_dynamic_state3)
   }
+  if (get_physical_device_properties2_supported && REXCVAR_GET(vulkan_pipeline_statistics)) {
+    // #270.
+    XE_UI_VULKAN_STRUCT_EXTENSION(KHR_pipeline_executable_properties)
+  }
   if (properties.apiVersion >= VK_MAKE_API_VERSION(0, 1, 1, 0)) {
     // #414.
     XE_UI_VULKAN_STRUCT_PROMOTED_EXTENSION(KHR_maintenance4, 1, 3)
@@ -348,6 +357,9 @@ std::unique_ptr<VulkanDevice> VulkanDevice::CreateIfSupported(
   VulkanFeatures<VkPhysicalDeviceExtendedDynamicState3FeaturesEXT,
                  VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_3_FEATURES_EXT>
       features_EXT_extended_dynamic_state3;
+  VulkanFeatures<VkPhysicalDevicePipelineExecutablePropertiesFeaturesKHR,
+                 VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PIPELINE_EXECUTABLE_PROPERTIES_FEATURES_KHR>
+      features_KHR_pipeline_executable_properties;
 
   if (get_physical_device_properties2_supported) {
     if (properties.apiVersion >= VK_MAKE_API_VERSION(0, 1, 2, 0)) {
@@ -391,6 +403,9 @@ std::unique_ptr<VulkanDevice> VulkanDevice::CreateIfSupported(
     }
     if (device->extensions_.ext_EXT_extended_dynamic_state3) {
       features_EXT_extended_dynamic_state3.Link(supported_features_2, device_create_info);
+    }
+    if (device->extensions_.ext_KHR_pipeline_executable_properties) {
+      features_KHR_pipeline_executable_properties.Link(supported_features_2, device_create_info);
     }
     ifn.vkGetPhysicalDeviceProperties2(physical_device, &properties_2);
     ifn.vkGetPhysicalDeviceFeatures2(physical_device, &supported_features_2);
@@ -775,6 +790,10 @@ std::unique_ptr<VulkanDevice> VulkanDevice::CreateIfSupported(
     XE_UI_VULKAN_FEATURE_2(features_EXT_extended_dynamic_state3, extendedDynamicState3ColorWriteMask)
   }
 
+  if (device->extensions_.ext_KHR_pipeline_executable_properties) {
+    XE_UI_VULKAN_FEATURE_2(features_KHR_pipeline_executable_properties, pipelineExecutableInfo)
+  }
+
 #undef XE_UI_VULKAN_LIMIT
 #undef XE_UI_VULKAN_ENUM_LIMIT
 #undef XE_UI_VULKAN_FEATURE
@@ -845,6 +864,9 @@ std::unique_ptr<VulkanDevice> VulkanDevice::CreateIfSupported(
   }
   if (device->extensions_.ext_KHR_swapchain) {
 #include <rex/ui/vulkan/functions/device_khr_swapchain.inc>
+  }
+  if (device->extensions_.ext_KHR_pipeline_executable_properties) {
+#include <rex/ui/vulkan/functions/device_khr_pipeline_executable_properties.inc>
   }
 #undef XE_UI_VULKAN_FUNCTION_PROMOTED
 

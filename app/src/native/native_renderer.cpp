@@ -120,6 +120,7 @@ NativeRenderer::NativeRenderer(const vk::VulkanDevice* device, rex::memory::Memo
   const auto& dfn = device_->functions();
   const VkDevice d = device_->device();
   pipelines_ = std::make_unique<Pipelines>(device_);
+  pipeline_report_ = std::make_unique<PipelineReport>(device_);
   const bool cached_uploads = PreferCachedUploads(device_);
   submissions_ = std::make_unique<Submissions>(device_, pipelines_->ConstantsLayout(), cached_uploads);
   mirror_ = std::make_unique<GuestMirror>(device_, physical_base_, cached_uploads);
@@ -555,10 +556,17 @@ NativeRenderer::DrawResult NativeRenderer::RecordDraw(const RegisterFile& regs) 
     state.pixel_module = VK_NULL_HANDLE;
   }
   const VkPipelineLayout layout = pipelines_->Layout(vs_textures, vs_samplers, ps_textures, ps_samplers);
+  const size_t pipeline_count = pipelines_->pipeline_count();
   const VkPipeline pipeline = pipelines_->Get(state, layout);
   if (pipeline == VK_NULL_HANDLE) {
     ++stats_.skipped_shader;
     return DrawResult::kDone;
+  }
+  if (pipelines_->pipeline_count() != pipeline_count) {
+    pipeline_report_->Report(
+        pipeline, fmt::format("vs {:016X} ps {:016X} module {:X}", prepared->vertex_shader->ucode_data_hash(),
+                              prepared->pixel_shader ? prepared->pixel_shader->ucode_data_hash() | 1 : 0,
+                              uint64_t(state.pixel_module)));
   }
   alignas(16) uint8_t floats[Submissions::kFloatConstantsBytes];
   uint32_t bools[40];

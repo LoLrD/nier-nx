@@ -14,6 +14,9 @@ else
 fi
 ftp_get "$SD_DIR/logs/rex/rex_profile.log" "$RUN_DIR/rex_profile.log" 2>/dev/null \
   || echo "warning: no rex_profile.log on the console" >&2
+if ftp_get "$SD_DIR/nak.txt" "$RUN_DIR/nak.txt" 2>/dev/null; then
+  ftp_del "$SD_DIR/nak.txt"
+fi
 for dir in "${CRASH_DIRS[@]}"; do ftp_list "$dir" | sed "s#^#$dir/#"; done > "$RUN_DIR/crash_after.txt" \
   || echo "warning: crash report folders not listed" >&2
 python3 "$CT_DIR/crash_reports.py" "$DEPLOYED_DIR/crash_before.txt" "$RUN_DIR/crash_after.txt" > "$RUN_DIR/crash_new.txt"

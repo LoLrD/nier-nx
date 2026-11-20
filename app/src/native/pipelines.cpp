@@ -6,6 +6,8 @@
 #include <rex/logging.h>
 #include <rex/ui/vulkan/device.h>
 
+#include "pipeline_report.h"
+
 namespace nier::native {
 
 using rex::graphics::SpirvShaderTranslator;
@@ -33,7 +35,8 @@ VkFormat StencilFormat(VkFormat depth) {
 Pipelines::Pipelines(const rex::ui::vulkan::VulkanDevice* device)
     : device_(device),
       shared_memory_binding_count_(
-          1u << SpirvShaderTranslator::GetSharedMemoryStorageBufferCountLog2(device->properties().maxStorageBufferRange)) {
+          1u << SpirvShaderTranslator::GetSharedMemoryStorageBufferCountLog2(device->properties().maxStorageBufferRange)),
+      create_flags_(PipelineCaptureFlags(device)) {
   shared_memory_layout_ =
       CreateSetLayout(device_, {{0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, shared_memory_binding_count_, kGuestStages,
                                  nullptr}});
@@ -187,6 +190,7 @@ VkPipeline Pipelines::Create(const PipelineState& state, VkPipelineLayout layout
   rendering.stencilAttachmentFormat = StencilFormat(VkFormat(state.depth_format));
   VkGraphicsPipelineCreateInfo info{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
   info.pNext = &rendering;
+  info.flags = create_flags_;
   info.stageCount = stage_count;
   info.pStages = stages.data();
   info.pVertexInputState = &vertex_input;

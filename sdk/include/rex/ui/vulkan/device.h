@@ -190,6 +190,10 @@ class VulkanDevice {
     bool extendedDynamicState3ColorBlendEnable = false;
     bool extendedDynamicState3ColorBlendEquation = false;
     bool extendedDynamicState3ColorWriteMask = false;
+
+    // VK_KHR_pipeline_executable_properties (#270)
+
+    bool pipelineExecutableInfo = false;
   };
 
   // Properties of the core API and enabled extensions, and enabled features.
@@ -223,6 +227,7 @@ class VulkanDevice {
     bool ext_1_3_KHR_dynamic_rendering = false;  // #55
     // Native renderer (dynamic blending and color write masks).
     bool ext_EXT_extended_dynamic_state3 = false;  // #456
+    bool ext_KHR_pipeline_executable_properties = false;  // #270
   };
 
   const Extensions& extensions() const { return extensions_; }
@@ -244,6 +249,8 @@ class VulkanDevice {
 #include <rex/ui/vulkan/functions/device_1_3_khr_maintenance4.inc>
     // VK_KHR_dynamic_rendering (#55, promoted to 1.3)
 #include <rex/ui/vulkan/functions/device_1_3_khr_dynamic_rendering.inc>
+    // VK_KHR_pipeline_executable_properties (#270)
+#include <rex/ui/vulkan/functions/device_khr_pipeline_executable_properties.inc>
 #undef XE_UI_VULKAN_FUNCTION_PROMOTED
 #undef XE_UI_VULKAN_FUNCTION
   };
