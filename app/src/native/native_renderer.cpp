@@ -125,7 +125,7 @@ NativeRenderer::NativeRenderer(const vk::VulkanDevice* device, rex::memory::Memo
   if (!mirror_->valid()) {
     return;
   }
-  targets_ = std::make_unique<RenderTargets>(device_);
+  targets_ = std::make_unique<RenderTargets>(device_, *submissions_);
   staging_ = std::make_unique<vk::VulkanUploadBufferPool>(device_, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, kStagingPageBytes,
                                                          cached_uploads);
   textures_ = std::make_unique<Textures>(device_, physical_base_, *staging_);
@@ -612,8 +612,8 @@ void NativeRenderer::Resolve(const RegisterFile& regs) {
   BeginSubmission();
   ScopedMicros timer(stats_.us_resolves);
   targets_->End(submissions_->main());
-  submissions_->Mark(GpuCategory::kResolves);
   const ResolvePlan plan = PlanResolve(info, regs);
+  submissions_->Mark(GpuCategory::kResolves, LabelId(ResolveId(plan), nullptr, nullptr));
   FlushTracePass();
   trace_.push_back(fmt::format(
       "resolve [{} {:X} w{} f{}] {},{} {}x{} -> {:08X} f{} {}x{} pitch {}{}{}{}{}{}", plan.source.is_depth ? "d" : "c",
@@ -808,9 +808,22 @@ uint16_t NativeRenderer::PassId(const TargetSet& set) {
     name += fmt::format("d {:X} w{} f{} ", set.depth->base_tiles, ExtentFor(*set.depth).width, set.depth->format);
   }
   name += fmt::format("msaa {}x{}", set.scale.x, set.scale.y);
+  return NamedPass(name, false);
+}
+
+uint16_t NativeRenderer::ResolveId(const ResolvePlan& plan) {
+  return NamedPass(fmt::format("{} {:X} w{} {}x{}{}{}{}", plan.source.is_depth ? "d" : "c", plan.source.base_tiles,
+                               ExtentFor(plan.source).width, plan.source_width, plan.source_height,
+                               plan.copy ? "" : " no copy", plan.readback ? " readback" : "",
+                               plan.clear_color || plan.clear_depth ? " clear" : ""),
+                   true);
+}
+
+uint16_t NativeRenderer::NamedPass(const std::string& name, bool resolve) {
   auto [it, inserted] = pass_ids_.try_emplace(name, uint16_t(pass_names_.size()));
   if (inserted) {
     pass_names_.push_back(name);
+    pass_is_resolve_.push_back(resolve);
   }
   return it->second;
 }
@@ -828,6 +841,20 @@ uint16_t NativeRenderer::LabelId(uint16_t pass, const vulkan::VulkanShader* pixe
                                          : std::string());
   }
   return it->second;
+}
+
+void NativeRenderer::AppendHeaviest(std::string& line, std::string_view title,
+                                    std::vector<std::pair<uint64_t, size_t>>& heaviest) const {
+  if (heaviest.empty()) {
+    return;
+  }
+  std::sort(heaviest.rbegin(), heaviest.rend());
+  heaviest.resize(std::min(heaviest.size(), kReportedPasses));
+  line += fmt::format("; {}:", title);
+  for (const auto& [ns, id] : heaviest) {
+    line += fmt::format(" {} ms [{}],", ns / 1000000, pass_names_[id]);
+  }
+  line.pop_back();
 }
 
 void NativeRenderer::FlushTracePass() {
@@ -905,8 +932,9 @@ std::string NativeRenderer::Report() {
       (s.us_presenter - r.us_presenter) / 1000);
   reported_mirror_ = {mirror_sync_.hashed_bytes(), mirror_sync_.sampled_checks(), mirror_sync_.sampled_changes(),
                       mirror_sync_.possibly_late()};
-  line += fmt::format("; gpu ms draws {}, resolves {}, uploads {}, present {}", gpu_ms(GpuCategory::kDraws),
-                      gpu_ms(GpuCategory::kResolves), gpu_ms(GpuCategory::kUploads), gpu_ms(GpuCategory::kPresent));
+  line += fmt::format("; gpu ms draws {}, resolves {}, transfers {}, uploads {}, present {}",
+                      gpu_ms(GpuCategory::kDraws), gpu_ms(GpuCategory::kResolves), gpu_ms(GpuCategory::kTransfers),
+                      gpu_ms(GpuCategory::kUploads), gpu_ms(GpuCategory::kPresent));
   reported_gpu_ns_ = gpu;
   const std::vector<uint64_t>& labels = submissions_->pass_ns();
   reported_pass_ns_.resize(labels.size());
@@ -923,20 +951,14 @@ std::string NativeRenderer::Report() {
     }
   }
   std::vector<std::pair<uint64_t, size_t>> heaviest;
+  std::vector<std::pair<uint64_t, size_t>> heaviest_resolves;
   for (size_t i = 1; i < per_pass.size(); ++i) {
     if (per_pass[i]) {
-      heaviest.emplace_back(per_pass[i], i);
+      (pass_is_resolve_[i] ? heaviest_resolves : heaviest).emplace_back(per_pass[i], i);
     }
   }
-  std::sort(heaviest.rbegin(), heaviest.rend());
-  heaviest.resize(std::min(heaviest.size(), kReportedPasses));
-  if (!heaviest.empty()) {
-    line += "; gpu passes:";
-    for (const auto& [ns, id] : heaviest) {
-      line += fmt::format(" {} ms [{}],", ns / 1000000, pass_names_[id]);
-    }
-    line.pop_back();
-  }
+  AppendHeaviest(line, "gpu passes", heaviest);
+  AppendHeaviest(line, "gpu resolves", heaviest_resolves);
   std::sort(shaders.rbegin(), shaders.rend());
   shaders.resize(std::min(shaders.size(), kReportedShaders));
   if (!shaders.empty()) {

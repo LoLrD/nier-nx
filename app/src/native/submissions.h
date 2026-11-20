@@ -42,6 +42,8 @@ class Submissions {
   bool Uniform(const void* data, size_t size, size_t reserve, uint32_t& offset);
   VkDescriptorSet Allocate(VkDescriptorSetLayout layout);
   void Mark(GpuCategory category, uint16_t pass = 0);
+  void Interrupt(GpuCategory category);
+  void Resume();
   void Submit();
   void Wait(uint64_t submission);
   bool Poll();
@@ -77,6 +79,8 @@ class Submissions {
   uint64_t completed_ = 0;
   bool open_ = false;
   double timestamp_period_ns_ = 0.0;
+  GpuCategory resume_category_ = GpuCategory::kNone;
+  uint16_t resume_pass_ = 0;
   uint64_t timestamp_mask_ = 0;
   std::array<uint64_t, kGpuCategories> gpu_ns_{};
   std::vector<uint64_t> pass_ns_;

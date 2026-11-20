@@ -188,6 +188,18 @@ void Submissions::Mark(GpuCategory category, uint16_t pass) {
   WriteTimestamp(slot, slot.main, uint32_t(slot.marks.size() - 1), category, pass);
 }
 
+void Submissions::Interrupt(GpuCategory category) {
+  const Slot& slot = slots_[current_ % kSlots];
+  if (slot.marks.empty()) {
+    return;
+  }
+  resume_category_ = slot.marks.back();
+  resume_pass_ = slot.passes.back();
+  Mark(category);
+}
+
+void Submissions::Resume() { Mark(resume_category_, resume_pass_); }
+
 void Submissions::CollectTimes(Slot& slot) {
   if (slot.marks.size() < 2) {
     return;

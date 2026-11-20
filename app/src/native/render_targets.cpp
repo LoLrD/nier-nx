@@ -12,6 +12,7 @@
 #include <rex/ui/vulkan/util.h>
 
 #include "shaders/depth_to_color_cs.h"
+#include "submissions.h"
 
 namespace nier::native {
 
@@ -51,7 +52,8 @@ void FullBarrier(const vk::VulkanDevice* device, VkCommandBuffer command_buffer)
                                            nullptr);
 }
 
-RenderTargets::RenderTargets(const vk::VulkanDevice* device) : device_(device), depth_format_(ChooseDepthFormat(device)) {
+RenderTargets::RenderTargets(const vk::VulkanDevice* device, Submissions& submissions)
+    : device_(device), submissions_(submissions), depth_format_(ChooseDepthFormat(device)) {
   REXLOG_INFO("[native] depth targets use {}",
               depth_format_ == VK_FORMAT_D24_UNORM_S8_UINT ? "D24_UNORM_S8_UINT" : "D32_SFLOAT_S8_UINT");
   CreateConverter();
@@ -370,6 +372,7 @@ void RenderTargets::Claim(VkCommandBuffer command_buffer, const TargetKey& key, 
     stats_.depth_tiles += source_key.is_depth;
   }
   if (!copies.empty()) {
+    submissions_.Interrupt(GpuCategory::kTransfers);
     FullBarrier(device_, command_buffer);
     for (const auto& [owner, regions] : copies) {
       const Target& source = targets_.find(owner_keys_[owner])->second;
@@ -383,6 +386,7 @@ void RenderTargets::Claim(VkCommandBuffer command_buffer, const TargetKey& key, 
     }
     ++stats_.transfers;
     FullBarrier(device_, command_buffer);
+    submissions_.Resume();
   }
   edram_.Write(key, x0, y0, x1, y1, target->owner, ++sequence_);
   if (!newer_than_rendering) {

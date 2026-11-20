@@ -6,6 +6,7 @@
 #include <memory>
 #include <set>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -99,6 +100,10 @@ class NativeRenderer {
 
   DrawResult RecordDraw(const rex::graphics::RegisterFile& regs);
   uint16_t PassId(const TargetSet& set);
+  uint16_t ResolveId(const ResolvePlan& plan);
+  uint16_t NamedPass(const std::string& name, bool resolve);
+  void AppendHeaviest(std::string& line, std::string_view title,
+                      std::vector<std::pair<uint64_t, size_t>>& heaviest) const;
   void FlushTracePass();
   void TraceSwap(uint32_t frontbuffer, uint32_t width, uint32_t height);
   uint16_t LabelId(uint16_t pass, const rex::graphics::vulkan::VulkanShader* pixel_shader,
@@ -167,6 +172,7 @@ class NativeRenderer {
   std::vector<uint64_t> reported_pass_ns_;
   std::unordered_map<std::string, uint16_t> pass_ids_;
   std::vector<std::string> pass_names_{std::string()};
+  std::vector<bool> pass_is_resolve_{false};
   std::unordered_map<uint64_t, uint16_t> label_ids_;
   std::vector<uint16_t> label_pass_{0};
   std::vector<std::string> label_shader_{std::string()};

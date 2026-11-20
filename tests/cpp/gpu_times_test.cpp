@@ -49,6 +49,14 @@ int main() {
     Check(ns[size_t(GpuCategory::kUploads)] == 0, "single_mark_adds_nothing");
   }
   {
+    std::array<uint64_t, kGpuCategories> ns{};
+    const GpuCategory interrupted[] = {GpuCategory::kDraws, GpuCategory::kTransfers, GpuCategory::kDraws,
+                                       GpuCategory::kTransfers, GpuCategory::kNone};
+    AddGpuTimes(ticks, interrupted, 5, 1.0, ~0ull, ns);
+    Check(ns[size_t(GpuCategory::kTransfers)] == 300 + 550 && ns[size_t(GpuCategory::kDraws)] == 100 + 50,
+          "transfers_inside_a_pass_are_their_own_category");
+  }
+  {
     std::vector<uint64_t> ns;
     const uint16_t passes[] = {0, 2, 1, 2, 0};
     AddPassTimes(ticks, passes, 5, 2.0, ~0ull, ns);

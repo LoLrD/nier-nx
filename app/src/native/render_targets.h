@@ -18,6 +18,8 @@ class VulkanDevice;
 
 namespace nier::native {
 
+class Submissions;
+
 class RenderTargets {
  public:
   struct Target {
@@ -39,7 +41,7 @@ class RenderTargets {
     uint64_t depth_tiles = 0;
   };
 
-  explicit RenderTargets(const rex::ui::vulkan::VulkanDevice* device);
+  RenderTargets(const rex::ui::vulkan::VulkanDevice* device, Submissions& submissions);
   ~RenderTargets();
   RenderTargets(const RenderTargets&) = delete;
   RenderTargets& operator=(const RenderTargets&) = delete;
@@ -79,6 +81,7 @@ class RenderTargets {
   void NoteIncompatible(uint32_t owner, uint32_t foreign);
 
   const rex::ui::vulkan::VulkanDevice* device_;
+  Submissions& submissions_;
   VkFormat depth_format_;
   std::unordered_map<TargetKey, Target, TargetKeyHash> targets_;
   bool rendering_ = false;
