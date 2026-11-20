@@ -114,6 +114,7 @@ class NativeRenderer {
   void WaitFor(uint64_t submission);
   void ProcessCompleted();
   void SyncMirror(uint32_t address, uint32_t size);
+  VkDescriptorSet EmptyTextureSet();
   VkDescriptorSet BindTextures(const rex::graphics::RegisterFile& regs, const rex::graphics::SpirvShader& shader,
                                bool pixel, TextureConstantInfo& info, uint32_t& textures, uint32_t& samplers,
                                bool& out_of_memory);
@@ -186,6 +187,11 @@ class NativeRenderer {
   };
   TracePass trace_pass_;
   std::vector<std::string> trace_;
+  std::vector<VkDescriptorImageInfo> bind_images_;
+  std::vector<VkWriteDescriptorSet> bind_writes_;
+  std::vector<uint64_t> bind_handles_;
+  VkPipeline bound_pipeline_ = VK_NULL_HANDLE;
+  uint64_t bound_submission_ = 0;
   std::set<std::vector<uint16_t>> traced_frames_;
   std::vector<uint16_t> frame_passes_;
 };

@@ -1,6 +1,8 @@
 #include "target_keys.h"
 
 #include <algorithm>
+#include <array>
+#include <span>
 
 #include <rex/graphics/registers.h>
 #include <rex/graphics/util/draw.h>
@@ -115,19 +117,21 @@ TargetPoint TilePosition(const TargetKey& key, uint32_t tile) {
 }
 
 uint32_t UsedRows(const TargetSet& set, uint32_t estimated_rows) {
-  std::vector<TargetKey> bound;
+  std::array<TargetKey, 5> bound;
+  size_t count = 0;
   for (const auto& color : set.color) {
     if (color) {
-      bound.push_back(*color);
+      bound[count++] = *color;
     }
   }
   if (set.depth) {
-    bound.push_back(*set.depth);
+    bound[count++] = *set.depth;
   }
+  const std::span<const TargetKey> used(bound.data(), count);
   uint32_t rows = estimated_rows;
-  for (const TargetKey& key : bound) {
+  for (const TargetKey& key : used) {
     uint32_t distance = xenos::kEdramTileCount;
-    for (const TargetKey& other : bound) {
+    for (const TargetKey& other : used) {
       const uint32_t ahead = (other.base_tiles + xenos::kEdramTileCount - key.base_tiles) % xenos::kEdramTileCount;
       if (ahead) {
         distance = std::min(distance, ahead);

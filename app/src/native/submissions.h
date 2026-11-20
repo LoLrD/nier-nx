@@ -3,6 +3,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <unordered_map>
 #include <vector>
 
 #include <rex/ui/vulkan/api.h>
@@ -41,6 +42,7 @@ class Submissions {
   bool HasUniformSpace(VkDeviceSize bytes) const;
   bool Uniform(const void* data, size_t size, size_t reserve, uint32_t& offset);
   VkDescriptorSet Allocate(VkDescriptorSetLayout layout);
+  VkDescriptorSet AllocateShared(VkDescriptorSetLayout layout, uint64_t key, bool& fresh);
   void Mark(GpuCategory category, uint16_t pass = 0);
   void Interrupt(GpuCategory category);
   void Resume();
@@ -66,6 +68,7 @@ class Submissions {
     VkQueryPool queries = VK_NULL_HANDLE;
     std::vector<GpuCategory> marks;
     std::vector<uint16_t> passes;
+    std::unordered_map<uint64_t, VkDescriptorSet> shared_sets;
   };
 
   void SetupTimestamps();

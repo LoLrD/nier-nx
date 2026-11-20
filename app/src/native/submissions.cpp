@@ -156,6 +156,7 @@ void Submissions::Begin() {
   dfn.vkResetFences(d, 1, &slot.fence);
   dfn.vkResetCommandPool(d, slot.pool, 0);
   dfn.vkResetDescriptorPool(d, slot.descriptors, 0);
+  slot.shared_sets.clear();
   slot.uniform_used = 0;
   VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
   begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -243,6 +244,19 @@ VkDescriptorSet Submissions::Allocate(VkDescriptorSetLayout layout) {
     return VK_NULL_HANDLE;
   }
   return set;
+}
+
+VkDescriptorSet Submissions::AllocateShared(VkDescriptorSetLayout layout, uint64_t key, bool& fresh) {
+  auto [it, inserted] = slots_[current_ % kSlots].shared_sets.try_emplace(key, VK_NULL_HANDLE);
+  fresh = inserted;
+  if (inserted) {
+    it->second = Allocate(layout);
+    if (it->second == VK_NULL_HANDLE) {
+      slots_[current_ % kSlots].shared_sets.erase(it);
+      return VK_NULL_HANDLE;
+    }
+  }
+  return it->second;
 }
 
 void Submissions::Submit() {

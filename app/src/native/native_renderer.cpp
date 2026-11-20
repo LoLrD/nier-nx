@@ -12,6 +12,7 @@
 
 #include <rex/graphics/registers.h>
 #include <rex/graphics/util/draw.h>
+#include <rex/hash.h>
 #include <rex/logging.h>
 #include <rex/memory.h>
 #include <rex/platform.h>
@@ -307,12 +308,12 @@ VkDescriptorSet NativeRenderer::BindTextures(const RegisterFile& regs, const Spi
   const auto& sampler_bindings = shader.GetSamplerBindingsAfterTranslation();
   textures = uint32_t(texture_bindings.size());
   samplers = uint32_t(sampler_bindings.size());
-  const VkDescriptorSet set = submissions_->Allocate(pipelines_->TextureSetLayout(pixel, textures, samplers));
-  if (set == VK_NULL_HANDLE) {
-    return VK_NULL_HANDLE;
-  }
-  std::vector<VkDescriptorImageInfo> images(textures + samplers);
-  std::vector<VkWriteDescriptorSet> writes(textures + samplers);
+  const VkDescriptorSetLayout layout = pipelines_->TextureSetLayout(pixel, textures, samplers);
+  std::vector<VkDescriptorImageInfo>& images = bind_images_;
+  std::vector<uint64_t>& handles = bind_handles_;
+  images.resize(textures + samplers);
+  handles.resize(textures + samplers + 1);
+  handles[0] = uint64_t(layout);
   for (uint32_t i = 0; i < textures; ++i) {
     const auto& binding = texture_bindings[i];
     const auto fetch = regs.GetTextureFetch(binding.fetch_constant);
@@ -329,8 +330,7 @@ VkDescriptorSet NativeRenderer::BindTextures(const RegisterFile& regs, const Spi
       trace_pass_.samples.insert({bound.resolve_address, (fetch.size_2d.width + 1) << 16 | (fetch.size_2d.height + 1)});
     }
     images[i] = {VK_NULL_HANDLE, bound.view, VK_IMAGE_LAYOUT_GENERAL};
-    writes[i] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, set, i, 0, 1, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
-                 &images[i], nullptr, nullptr};
+    handles[i + 1] = uint64_t(bound.view);
     info.used_mask |= 1u << binding.fetch_constant;
     info.swizzled_signs[binding.fetch_constant] = bound.swizzled_signs;
     info.host_swizzles[binding.fetch_constant] = bound.host_swizzle;
@@ -339,14 +339,38 @@ VkDescriptorSet NativeRenderer::BindTextures(const RegisterFile& regs, const Spi
     const auto& binding = sampler_bindings[i];
     const auto fetch = regs.GetTextureFetch(binding.fetch_constant);
     images[textures + i] = {textures_->Sampler(fetch, binding), VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED};
-    writes[textures + i] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, set, textures + i, 0, 1,
-                            VK_DESCRIPTOR_TYPE_SAMPLER, &images[textures + i], nullptr, nullptr};
+    handles[textures + i + 1] = uint64_t(images[textures + i].sampler);
   }
-  if (!writes.empty()) {
-    device_->functions().vkUpdateDescriptorSets(device_->device(), uint32_t(writes.size()), writes.data(), 0,
-                                                nullptr);
+  bool fresh = PerfSkip(kFreshDescriptors);
+  const VkDescriptorSet set =
+      fresh ? submissions_->Allocate(layout)
+            : submissions_->AllocateShared(layout, XXH3_64bits(handles.data(), handles.size() * sizeof(uint64_t)),
+                                           fresh);
+  if (set == VK_NULL_HANDLE || !fresh || images.empty()) {
+    return set;
   }
+  std::vector<VkWriteDescriptorSet>& writes = bind_writes_;
+  writes.resize(images.size());
+  for (uint32_t i = 0; i < writes.size(); ++i) {
+    writes[i] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                 nullptr,
+                 set,
+                 i,
+                 0,
+                 1,
+                 i < textures ? VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE : VK_DESCRIPTOR_TYPE_SAMPLER,
+                 &images[i],
+                 nullptr,
+                 nullptr};
+  }
+  device_->functions().vkUpdateDescriptorSets(device_->device(), uint32_t(writes.size()), writes.data(), 0, nullptr);
   return set;
+}
+
+VkDescriptorSet NativeRenderer::EmptyTextureSet() {
+  const VkDescriptorSetLayout layout = pipelines_->TextureSetLayout(true, 0, 0);
+  bool fresh = false;
+  return submissions_->AllocateShared(layout, XXH3_64bits(&layout, sizeof(layout)), fresh);
 }
 
 VkRect2D NativeRenderer::SetDynamicState(const RegisterFile& regs, const draw_util::ViewportInfo& viewport_info,
@@ -507,7 +531,7 @@ NativeRenderer::DrawResult NativeRenderer::RecordDraw(const RegisterFile& regs) 
   const VkDescriptorSet ps_set =
       prepared->pixel_shader
           ? BindTextures(regs, *prepared->pixel_shader, true, texture_info, ps_textures, ps_samplers, out_of_memory)
-          : submissions_->Allocate(pipelines_->TextureSetLayout(true, 0, 0));
+          : EmptyTextureSet();
   if (ps_set == VK_NULL_HANDLE) {
     return out_of_memory ? DrawResult::kOutOfMemory : DrawResult::kRetry;
   }
@@ -565,7 +589,11 @@ NativeRenderer::DrawResult NativeRenderer::RecordDraw(const RegisterFile& regs) 
     return DrawResult::kDone;
   }
   const auto& dfn = device_->functions();
-  dfn.vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+  if (pipeline != bound_pipeline_ || submissions_->current() != bound_submission_ || PerfSkip(kRebindPipelines)) {
+    dfn.vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+    bound_pipeline_ = pipeline;
+    bound_submission_ = submissions_->current();
+  }
   submissions_->Mark(GpuCategory::kDraws, LabelId(current_pass_, prepared->pixel_shader, prepared->pixel));
   const std::array<VkDescriptorSet, 4> sets = {shared_set_, submissions_->constants_set(), vs_set, ps_set};
   dfn.vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0, uint32_t(sets.size()), sets.data(),
