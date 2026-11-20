@@ -11,6 +11,7 @@ layout(push_constant) uniform Constants {
   ivec2 dest_offset;
   ivec2 size;
   ivec2 scale;
+  int write_raw;
 } constants;
 
 void main() {
@@ -20,7 +21,9 @@ void main() {
   }
   float depth = texelFetch(depth_source, constants.source_offset + position * constants.scale, 0).r;
   imageStore(destination, constants.dest_offset + position, vec4(depth));
-  uint bits = uint(clamp(depth, 0.0, 1.0) * 16777215.0 + 0.5) << 8;
-  imageStore(destination_raw, constants.dest_offset + position,
-             vec4(uvec4(bits, bits >> 8, bits >> 16, bits >> 24) & 0xFFu) / 255.0);
+  if (constants.write_raw != 0) {
+    uint bits = uint(clamp(depth, 0.0, 1.0) * 16777215.0 + 0.5) << 8;
+    imageStore(destination_raw, constants.dest_offset + position,
+               vec4(uvec4(bits, bits >> 8, bits >> 16, bits >> 24) & 0xFFu) / 255.0);
+  }
 }

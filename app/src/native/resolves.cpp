@@ -10,6 +10,7 @@
 #include <rex/ui/vulkan/device.h>
 #include <rex/ui/vulkan/util.h>
 
+#include "perf_modes.h"
 #include "shaders/depth_to_float_cs.h"
 #include "texture_loader.h"
 
@@ -43,6 +44,7 @@ struct DepthConstants {
   int32_t dest_offset[2];
   int32_t size[2];
   int32_t scale[2];
+  int32_t write_raw;
 };
 
 uint64_t ImageKey(uint32_t address, VkFormat format, uint32_t width, uint32_t height) {
@@ -134,7 +136,9 @@ void Resolves::Resolve(VkCommandBuffer command_buffer, const ResolvePlan& plan, 
       if (plan.depth) {
         CopyDepth(command_buffer, plan, *source, *dest, *raw);
         FullBarrier(device_, command_buffer);
-        Publish(plan, *raw, 4, submission);
+        if (!PerfSkip(kNoRawDepth)) {
+          Publish(plan, *raw, 4, submission);
+        }
         ++stats_.depth_copies;
       } else {
         CopyColor(command_buffer, plan, *source, *dest);
@@ -290,7 +294,8 @@ void Resolves::CopyDepth(VkCommandBuffer command_buffer, const ResolvePlan& plan
                            {int32_t(plan.dest_x), int32_t(plan.dest_y)},
                            {int32_t(plan.dest_width), int32_t(plan.dest_height)},
                            {int32_t(plan.source_width / std::max(plan.dest_width, 1u)),
-                            int32_t(plan.source_height / std::max(plan.dest_height, 1u))}};
+                            int32_t(plan.source_height / std::max(plan.dest_height, 1u))},
+                           int32_t(!PerfSkip(kNoRawDepth))};
   dfn.vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, depth_pipeline_);
   dfn.vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, depth_layout_, 0, 1, &set, 0, nullptr);
   dfn.vkCmdPushConstants(command_buffer, depth_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(constants), &constants);
