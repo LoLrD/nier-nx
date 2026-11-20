@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <vector>
 
@@ -31,6 +32,13 @@ struct Pm4Stats {
   uint64_t interrupts = 0;
   uint64_t shader_loads = 0;
   uint64_t waits = 0;
+  uint64_t slow_waits = 0;
+  uint64_t slow_wait_us = 0;
+  uint32_t slow_wait_info = 0;
+  uint32_t slow_wait_poll = 0;
+  uint32_t slow_wait_reference = 0;
+  uint32_t slow_wait_mask = 0;
+  uint32_t slow_wait_value = 0;
   uint64_t overflows = 0;
   uint64_t coher_events = 0;
   uint64_t coher_bytes = 0;
@@ -53,6 +61,8 @@ class Pm4Executor {
   void StoreSwapped(uint32_t address, uint32_t value);
   bool Compare(uint32_t function, uint32_t value, uint32_t mask, uint32_t reference) const;
   bool WaitRegMem(RingReader& data);
+  void CountSlowWait(std::chrono::steady_clock::time_point start, uint32_t info, uint32_t poll, uint32_t reference,
+                     uint32_t mask, uint32_t value);
   void CondWrite(RingReader& data);
   void EventWriteExt(RingReader& data);
   void EventWriteZpd(RingReader& data);

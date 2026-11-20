@@ -1,5 +1,7 @@
 #include "pm4_executor.h"
 
+#include <chrono>
+
 #include <rex/graphics/registers.h>
 #include <rex/graphics/xenos.h>
 
@@ -239,6 +241,7 @@ bool Pm4Executor::WaitRegMem(RingReader& data) {
   const uint32_t mask = data.Read();
   const uint32_t wait = data.Read();
   ++stats_.waits;
+  std::chrono::steady_clock::time_point start{};
   while (true) {
     uint32_t value;
     if (info & 0x10) {
@@ -250,12 +253,30 @@ bool Pm4Executor::WaitRegMem(RingReader& data) {
       value = registers_.Get(poll);
     }
     if (Compare(info, value, mask, reference)) {
+      if (start != std::chrono::steady_clock::time_point{}) {
+        CountSlowWait(start, info, poll, reference, mask, value);
+      }
       return true;
+    }
+    if (start == std::chrono::steady_clock::time_point{}) {
+      start = std::chrono::steady_clock::now();
     }
     if (!bus_.Yield(wait)) {
       return false;
     }
   }
+}
+
+void Pm4Executor::CountSlowWait(std::chrono::steady_clock::time_point start, uint32_t info, uint32_t poll,
+                                uint32_t reference, uint32_t mask, uint32_t value) {
+  ++stats_.slow_waits;
+  stats_.slow_wait_us += uint64_t(
+      std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start).count());
+  stats_.slow_wait_info = info;
+  stats_.slow_wait_poll = poll;
+  stats_.slow_wait_reference = reference;
+  stats_.slow_wait_mask = mask;
+  stats_.slow_wait_value = value;
 }
 
 void Pm4Executor::CondWrite(RingReader& data) {

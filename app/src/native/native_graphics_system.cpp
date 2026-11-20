@@ -263,8 +263,10 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem, private 
   }
 
   bool Yield(uint32_t wait) override {
-    if (wait >= 0x100) {
+    if (wait >= 0x100 && PerfSkip(kPolledWaits)) {
       rex::thread::Sleep(std::chrono::milliseconds(wait / 0x100));
+    } else if (wait >= 0x100) {
+      yield_progress_ = SharedGpuProgress().WaitPast(yield_progress_, std::chrono::milliseconds(wait / 0x100));
     } else {
       rex::thread::MaybeYield();
     }
@@ -285,7 +287,11 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem, private 
         Interrupt(0, 2);
         last += interval;
       }
-      rex::thread::Sleep(std::chrono::milliseconds(1));
+      if (PerfSkip(kPolledWaits)) {
+        rex::thread::Sleep(std::chrono::milliseconds(1));
+      } else if (const uint64_t elapsed = rex::chrono::Clock::QueryGuestTickCount() - last; elapsed < interval) {
+        rex::thread::Sleep(std::chrono::microseconds((interval - elapsed) * 1000000 / frequency));
+      }
     }
     return 0;
   }
@@ -347,11 +353,15 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem, private 
     const Pm4Stats& s = executor_.stats();
     const NativeShaders::Stats t = shaders_ ? shaders_->stats() : NativeShaders::Stats{};
     REXLOG_INFO(
-        "[native] 10 s: {} packets, {} draws, {} resolves, {} swaps, {} interrupts, {} shader loads, {} waits, {} "
+        "[native] 10 s: {} packets, {} draws, {} resolves, {} swaps, {} interrupts, {} shader loads, {} waits ({} slow, "
+        "{} ms, last {} {:X} ref {:X} mask {:X} value {:X} func {}), {} "
         "overflows, {} coher events {} MB, {} progress wakes, {} unique shaders, {} shader translations, {} specialized, {} failed, "
         "{} ms translating (max {} ms), ring thread cpu {} ms",
         s.packets - last_.packets, s.draws - last_.draws, s.resolves - last_.resolves, s.swaps - last_.swaps,
         s.interrupts - last_.interrupts, s.shader_loads - last_.shader_loads, s.waits - last_.waits,
+        s.slow_waits - last_.slow_waits, (s.slow_wait_us - last_.slow_wait_us) / 1000,
+        s.slow_wait_info & 0x10 ? "mem" : "reg", s.slow_wait_poll, s.slow_wait_reference, s.slow_wait_mask,
+        s.slow_wait_value, s.slow_wait_info & 7,
         s.overflows - last_.overflows, s.coher_events - last_.coher_events,
         (s.coher_bytes - last_.coher_bytes) >> 20, SharedGpuProgress().notifies() - reported_notifies_,
         shader_dump_ ? shader_dump_->unique() : 0, t.translations, t.specialized,
@@ -384,6 +394,7 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem, private 
   uint64_t reported_cpu_us_ = 0;
   std::atomic<uint32_t> publish_step_{kDefaultPublishStep};
   std::atomic<bool> ring_waiting_{false};
+  uint64_t yield_progress_ = 0;
   std::mutex ring_mutex_;
   std::condition_variable ring_cv_;
   rex::system::object_ref<rex::system::XHostThread> vblank_thread_;
