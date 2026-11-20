@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 
 #include <rex/graphics/pipeline/texture/info.h>
 #include <rex/hash.h>
@@ -10,8 +11,9 @@
 #include <rex/ui/vulkan/device.h>
 #include <rex/ui/vulkan/util.h>
 
-#include "perf_modes.h"
-#include "shaders/depth_to_float_cs.h"
+#include "pipeline_report.h"
+#include "shaders/depth_to_float_ps.h"
+#include "shaders/depth_to_float_vs.h"
 #include "texture_loader.h"
 
 namespace nier::native {
@@ -42,9 +44,7 @@ bool HasRedAndBlue(VkFormat format) {
 struct DepthConstants {
   int32_t source_offset[2];
   int32_t dest_offset[2];
-  int32_t size[2];
-  int32_t scale[2];
-  int32_t write_raw;
+  int32_t scale_shift;
 };
 
 uint64_t ImageKey(uint32_t address, VkFormat format, uint32_t width, uint32_t height) {
@@ -58,38 +58,25 @@ Resolves::Resolves(const vk::VulkanDevice* device, RenderTargets& targets, Textu
     : device_(device), targets_(targets), textures_(textures), physical_base_(physical_base) {
   const auto& dfn = device_->functions();
   const VkDevice d = device_->device();
-  const std::array<VkDescriptorSetLayoutBinding, 3> bindings = {{
-      {0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr},
-      {1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr},
-      {2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr},
-  }};
+  const VkDescriptorSetLayoutBinding binding{0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1,
+                                             VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
   VkDescriptorSetLayoutCreateInfo set_info{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-  set_info.bindingCount = uint32_t(bindings.size());
-  set_info.pBindings = bindings.data();
+  set_info.bindingCount = 1;
+  set_info.pBindings = &binding;
   dfn.vkCreateDescriptorSetLayout(d, &set_info, nullptr, &depth_set_layout_);
-  const VkPushConstantRange push{VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(DepthConstants)};
+  const VkPushConstantRange push{VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(DepthConstants)};
   VkPipelineLayoutCreateInfo layout_info{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
   layout_info.setLayoutCount = 1;
   layout_info.pSetLayouts = &depth_set_layout_;
   layout_info.pushConstantRangeCount = 1;
   layout_info.pPushConstantRanges = &push;
   dfn.vkCreatePipelineLayout(d, &layout_info, nullptr, &depth_layout_);
-  const VkShaderModule module = vk::util::CreateShaderModule(device_, depth_to_float_cs, sizeof(depth_to_float_cs));
-  VkComputePipelineCreateInfo pipeline_info{VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
-  pipeline_info.stage = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_COMPUTE_BIT,
-                         module, "main", nullptr};
-  pipeline_info.layout = depth_layout_;
-  dfn.vkCreateComputePipelines(d, VK_NULL_HANDLE, 1, &pipeline_info, nullptr, &depth_pipeline_);
-  dfn.vkDestroyShaderModule(d, module, nullptr);
-  const std::array<VkDescriptorPoolSize, 2> sizes = {{
-      {VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kMaxDepthSets},
-      {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, kMaxDepthSets * 2},
-  }};
+  CreateDepthPipeline();
+  const VkDescriptorPoolSize size{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kMaxDepthSets};
   VkDescriptorPoolCreateInfo pool_info{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-  pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
   pool_info.maxSets = kMaxDepthSets;
-  pool_info.poolSizeCount = uint32_t(sizes.size());
-  pool_info.pPoolSizes = sizes.data();
+  pool_info.poolSizeCount = 1;
+  pool_info.pPoolSizes = &size;
   dfn.vkCreateDescriptorPool(d, &pool_info, nullptr, &depth_pool_);
   VkSamplerCreateInfo sampler{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
   sampler.magFilter = VK_FILTER_NEAREST;
@@ -136,9 +123,7 @@ void Resolves::Resolve(VkCommandBuffer command_buffer, const ResolvePlan& plan, 
       if (plan.depth) {
         CopyDepth(command_buffer, plan, *source, *dest, *raw);
         FullBarrier(device_, command_buffer);
-        if (!PerfSkip(kNoRawDepth)) {
-          Publish(plan, *raw, 4, submission);
-        }
+        Publish(plan, *raw, 4, submission);
         ++stats_.depth_copies;
       } else {
         CopyColor(command_buffer, plan, *source, *dest);
@@ -203,7 +188,7 @@ Resolves::DestImage* Resolves::Dest(VkCommandBuffer command_buffer, const Resolv
   dest.width = width;
   dest.height = height;
   dest.address = plan.dest_address;
-  const bool storage = format == VK_FORMAT_R32_SFLOAT || format == VK_FORMAT_R8G8B8A8_UNORM;
+  const bool attachment = format == VK_FORMAT_R32_SFLOAT || format == VK_FORMAT_R8G8B8A8_UNORM;
   VkImageCreateInfo info{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
   info.imageType = VK_IMAGE_TYPE_2D;
   info.format = format;
@@ -213,7 +198,7 @@ Resolves::DestImage* Resolves::Dest(VkCommandBuffer command_buffer, const Resolv
   info.samples = VK_SAMPLE_COUNT_1_BIT;
   info.tiling = VK_IMAGE_TILING_OPTIMAL;
   info.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-               (storage ? VK_IMAGE_USAGE_STORAGE_BIT : 0);
+               (attachment ? VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT : 0);
   if (!vk::util::CreateDedicatedAllocationImage(device_, info, vk::util::MemoryPurpose::kDeviceLocal, dest.image,
                                                 dest.memory, nullptr, &dest.bytes)) {
     REXLOG_ERROR("[native] could not create a {}x{} resolve image", width, height);
@@ -232,9 +217,9 @@ Resolves::DestImage* Resolves::Dest(VkCommandBuffer command_buffer, const Resolv
     dfn.vkCreateImageView(d, &view, nullptr, &dest.swapped_view);
     view.components = {};
   }
-  if (storage) {
+  if (attachment) {
     view.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    dfn.vkCreateImageView(d, &view, nullptr, &dest.storage_view);
+    dfn.vkCreateImageView(d, &view, nullptr, &dest.attachment_view);
   }
   VkImageMemoryBarrier barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
   barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
@@ -286,51 +271,120 @@ void Resolves::Publish(const ResolvePlan& plan, DestImage& dest, uint32_t bytes_
 void Resolves::CopyDepth(VkCommandBuffer command_buffer, const ResolvePlan& plan, const RenderTargets::Target& source,
                          const DestImage& dest, const DestImage& raw) {
   const auto& dfn = device_->functions();
-  const VkDescriptorSet set = DepthDescriptorSet(source.sampled_view, dest.storage_view, raw.storage_view);
+  const VkDescriptorSet set = DepthDescriptorSet(source.sampled_view);
   if (set == VK_NULL_HANDLE) {
     return;
   }
-  DepthConstants constants{{int32_t(plan.source_x), int32_t(plan.source_y)},
-                           {int32_t(plan.dest_x), int32_t(plan.dest_y)},
-                           {int32_t(plan.dest_width), int32_t(plan.dest_height)},
-                           {int32_t(plan.source_width / std::max(plan.dest_width, 1u)),
-                            int32_t(plan.source_height / std::max(plan.dest_height, 1u))},
-                           int32_t(!PerfSkip(kNoRawDepth))};
-  dfn.vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, depth_pipeline_);
-  dfn.vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, depth_layout_, 0, 1, &set, 0, nullptr);
-  dfn.vkCmdPushConstants(command_buffer, depth_layout_, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(constants), &constants);
-  dfn.vkCmdDispatch(command_buffer, (plan.dest_width + 7) / 8, (plan.dest_height + 7) / 8, 1);
+  std::array<VkRenderingAttachmentInfoKHR, 2> attachments{};
+  for (VkRenderingAttachmentInfoKHR& attachment : attachments) {
+    attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR;
+    attachment.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+    attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+    attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+  }
+  attachments[0].imageView = dest.attachment_view;
+  attachments[1].imageView = raw.attachment_view;
+  const VkRect2D area{{int32_t(plan.dest_x), int32_t(plan.dest_y)}, {plan.dest_width, plan.dest_height}};
+  VkRenderingInfoKHR rendering{VK_STRUCTURE_TYPE_RENDERING_INFO_KHR};
+  rendering.renderArea = area;
+  rendering.layerCount = 1;
+  rendering.colorAttachmentCount = uint32_t(attachments.size());
+  rendering.pColorAttachments = attachments.data();
+  const uint32_t scale = std::max(plan.source_width / std::max(plan.dest_width, 1u), 1u);
+  const DepthConstants constants{{int32_t(plan.source_x), int32_t(plan.source_y)},
+                                 {int32_t(plan.dest_x), int32_t(plan.dest_y)},
+                                 int32_t(std::bit_width(scale) - 1)};
+  const VkViewport viewport{float(plan.dest_x), float(plan.dest_y), float(plan.dest_width), float(plan.dest_height),
+                            0.0f, 1.0f};
+  dfn.vkCmdBeginRendering(command_buffer, &rendering);
+  dfn.vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, depth_pipeline_);
+  dfn.vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, depth_layout_, 0, 1, &set, 0, nullptr);
+  dfn.vkCmdPushConstants(command_buffer, depth_layout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(constants), &constants);
+  dfn.vkCmdSetViewport(command_buffer, 0, 1, &viewport);
+  dfn.vkCmdSetScissor(command_buffer, 0, 1, &area);
+  dfn.vkCmdDraw(command_buffer, 3, 1, 0, 0);
+  dfn.vkCmdEndRendering(command_buffer);
 }
 
-VkDescriptorSet Resolves::DepthDescriptorSet(VkImageView source, VkImageView dest, VkImageView raw) {
-  const std::array<VkImageView, 3> views = {source, dest, raw};
-  const uint64_t key = XXH3_64bits(views.data(), sizeof(views));
-  auto [it, inserted] = depth_sets_.try_emplace(key, DepthSet{dest, raw, VK_NULL_HANDLE});
+VkDescriptorSet Resolves::DepthDescriptorSet(VkImageView source) {
+  auto [it, inserted] = depth_sets_.try_emplace(source, VK_NULL_HANDLE);
   if (!inserted) {
-    return it->second.set;
+    return it->second;
   }
   const auto& dfn = device_->functions();
   VkDescriptorSetAllocateInfo allocate{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
   allocate.descriptorPool = depth_pool_;
   allocate.descriptorSetCount = 1;
   allocate.pSetLayouts = &depth_set_layout_;
-  if (dfn.vkAllocateDescriptorSets(device_->device(), &allocate, &it->second.set) != VK_SUCCESS) {
+  if (dfn.vkAllocateDescriptorSets(device_->device(), &allocate, &it->second) != VK_SUCCESS) {
     REXLOG_ERROR("[native] out of depth resolve descriptor sets");
     depth_sets_.erase(it);
     return VK_NULL_HANDLE;
   }
   const VkDescriptorImageInfo source_info{depth_sampler_, source, VK_IMAGE_LAYOUT_GENERAL};
-  const VkDescriptorImageInfo dest_info{VK_NULL_HANDLE, dest, VK_IMAGE_LAYOUT_GENERAL};
-  const VkDescriptorImageInfo raw_info{VK_NULL_HANDLE, raw, VK_IMAGE_LAYOUT_GENERAL};
-  std::array<VkWriteDescriptorSet, 3> writes{};
-  writes[0] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, it->second.set, 0, 0, 1,
-               VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &source_info, nullptr, nullptr};
-  writes[1] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, it->second.set, 1, 0, 1,
-               VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, &dest_info, nullptr, nullptr};
-  writes[2] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, it->second.set, 2, 0, 1,
-               VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, &raw_info, nullptr, nullptr};
-  dfn.vkUpdateDescriptorSets(device_->device(), uint32_t(writes.size()), writes.data(), 0, nullptr);
-  return it->second.set;
+  const VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, nullptr, it->second, 0, 0, 1,
+                                   VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, &source_info, nullptr, nullptr};
+  dfn.vkUpdateDescriptorSets(device_->device(), 1, &write, 0, nullptr);
+  return it->second;
+}
+
+void Resolves::CreateDepthPipeline() {
+  const auto& dfn = device_->functions();
+  const VkDevice d = device_->device();
+  const VkShaderModule vertex = vk::util::CreateShaderModule(device_, depth_to_float_vs, sizeof(depth_to_float_vs));
+  const VkShaderModule fragment = vk::util::CreateShaderModule(device_, depth_to_float_ps, sizeof(depth_to_float_ps));
+  const std::array<VkPipelineShaderStageCreateInfo, 2> stages = {{
+      {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_VERTEX_BIT, vertex, "main",
+       nullptr},
+      {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_FRAGMENT_BIT, fragment, "main",
+       nullptr},
+  }};
+  VkPipelineVertexInputStateCreateInfo vertex_input{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
+  VkPipelineInputAssemblyStateCreateInfo input_assembly{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
+  input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+  VkPipelineViewportStateCreateInfo viewport{VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
+  viewport.viewportCount = 1;
+  viewport.scissorCount = 1;
+  VkPipelineRasterizationStateCreateInfo rasterization{VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
+  rasterization.polygonMode = VK_POLYGON_MODE_FILL;
+  rasterization.cullMode = VK_CULL_MODE_NONE;
+  rasterization.lineWidth = 1.0f;
+  VkPipelineMultisampleStateCreateInfo multisample{VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
+  multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+  VkPipelineDepthStencilStateCreateInfo depth_stencil{VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
+  std::array<VkPipelineColorBlendAttachmentState, 2> blend_attachments{};
+  for (VkPipelineColorBlendAttachmentState& attachment : blend_attachments) {
+    attachment.colorWriteMask =
+        VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+  }
+  VkPipelineColorBlendStateCreateInfo blend{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
+  blend.attachmentCount = uint32_t(blend_attachments.size());
+  blend.pAttachments = blend_attachments.data();
+  const std::array<VkDynamicState, 2> dynamic_states = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+  VkPipelineDynamicStateCreateInfo dynamic{VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
+  dynamic.dynamicStateCount = uint32_t(dynamic_states.size());
+  dynamic.pDynamicStates = dynamic_states.data();
+  const std::array<VkFormat, 2> formats = {VK_FORMAT_R32_SFLOAT, VK_FORMAT_R8G8B8A8_UNORM};
+  VkPipelineRenderingCreateInfoKHR rendering{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR};
+  rendering.colorAttachmentCount = uint32_t(formats.size());
+  rendering.pColorAttachmentFormats = formats.data();
+  VkGraphicsPipelineCreateInfo info{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
+  info.pNext = &rendering;
+  info.flags = PipelineCaptureFlags(device_);
+  info.stageCount = uint32_t(stages.size());
+  info.pStages = stages.data();
+  info.pVertexInputState = &vertex_input;
+  info.pInputAssemblyState = &input_assembly;
+  info.pViewportState = &viewport;
+  info.pRasterizationState = &rasterization;
+  info.pMultisampleState = &multisample;
+  info.pDepthStencilState = &depth_stencil;
+  info.pColorBlendState = &blend;
+  info.pDynamicState = &dynamic;
+  info.layout = depth_layout_;
+  dfn.vkCreateGraphicsPipelines(d, VK_NULL_HANDLE, 1, &info, nullptr, &depth_pipeline_);
+  dfn.vkDestroyShaderModule(d, fragment, nullptr);
+  dfn.vkDestroyShaderModule(d, vertex, nullptr);
 }
 
 void Resolves::Readback(VkCommandBuffer command_buffer, const ResolvePlan& plan, const DestImage& dest,
@@ -397,13 +451,6 @@ void Resolves::Completed(uint64_t submission) {
     free_readbacks_.push_back(pending.buffer);
   }
   pending_.erase(pending_.begin(), pending_.begin() + ptrdiff_t(done));
-  std::erase_if(retired_sets_, [&](const RetiredSet& retired) {
-    if (retired.submission > submission) {
-      return false;
-    }
-    dfn.vkFreeDescriptorSets(device_->device(), depth_pool_, 1, &retired.set);
-    return true;
-  });
   std::erase_if(retired_, [&](RetiredImage& retired) {
     if (retired.submission > submission) {
       return false;
@@ -428,13 +475,6 @@ void Resolves::Evict(uint64_t unused_frames, uint64_t submission) {
         presentable != presentable_by_address_.end() && presentable->second == entry.first) {
       presentable_by_address_.erase(presentable);
     }
-    std::erase_if(depth_sets_, [&](auto& set) {
-      if (set.second.dest != image.storage_view && set.second.raw != image.storage_view) {
-        return false;
-      }
-      retired_sets_.push_back({set.second.set, retire});
-      return true;
-    });
     retired_.push_back({image, retire});
     return true;
   });
@@ -443,8 +483,8 @@ void Resolves::Evict(uint64_t unused_frames, uint64_t submission) {
 void Resolves::Destroy(DestImage& image) {
   const auto& dfn = device_->functions();
   const VkDevice d = device_->device();
-  if (image.storage_view) {
-    dfn.vkDestroyImageView(d, image.storage_view, nullptr);
+  if (image.attachment_view) {
+    dfn.vkDestroyImageView(d, image.attachment_view, nullptr);
   }
   if (image.swapped_view) {
     dfn.vkDestroyImageView(d, image.swapped_view, nullptr);

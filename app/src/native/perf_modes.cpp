@@ -20,10 +20,9 @@ namespace nier::native {
 
 namespace {
 
-constexpr uint32_t kModeMasks[] = {0,           kPolledWaits,   kFreshDescriptors, kRebindPipelines,
-                                   kNoRawDepth, kQuarterScreen, kSkipDraws};
-constexpr const char* kModeNames[] = {"normal",       "polled waits",   "fresh descriptors", "rebind pipelines",
-                                      "no raw depth", "quarter screen", "no draws"};
+constexpr uint32_t kModeMasks[] = {0, kPolledWaits, kFreshDescriptors, kRebindPipelines, kQuarterScreen, kSkipDraws};
+constexpr const char* kModeNames[] = {"normal",           "polled waits",   "fresh descriptors",
+                                      "rebind pipelines", "quarter screen", "no draws"};
 
 }  // namespace
 

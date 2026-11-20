@@ -132,6 +132,7 @@ NativeRenderer::NativeRenderer(const vk::VulkanDevice* device, rex::memory::Memo
                                                          cached_uploads);
   textures_ = std::make_unique<Textures>(device_, physical_base_, *staging_);
   resolves_ = std::make_unique<Resolves>(device_, *targets_, *textures_, physical_base_);
+  pipeline_report_->Report(resolves_->depth_pipeline(), "depth_to_float");
   const auto rectangles = BuildRectangleIndices(kMaxBuiltinRectangles);
   const auto quads = BuildQuadIndices(kMaxBuiltinQuads);
   quad_indices_offset_ = rectangles.size() * sizeof(uint32_t);

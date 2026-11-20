@@ -43,6 +43,7 @@ class Resolves {
   VkImage FindImage(uint32_t address, uint32_t& width, uint32_t& height, VkImageView* view = nullptr,
                     VkFormat* format = nullptr) const;
   const Stats& stats() const { return stats_; }
+  VkPipeline depth_pipeline() const { return depth_pipeline_; }
 
  private:
   struct DestImage {
@@ -50,7 +51,7 @@ class Resolves {
     VkDeviceMemory memory = VK_NULL_HANDLE;
     VkImageView view = VK_NULL_HANDLE;
     VkImageView swapped_view = VK_NULL_HANDLE;
-    VkImageView storage_view = VK_NULL_HANDLE;
+    VkImageView attachment_view = VK_NULL_HANDLE;
     VkFormat format = VK_FORMAT_UNDEFINED;
     uint32_t width = 0;
     uint32_t height = 0;
@@ -75,11 +76,6 @@ class Resolves {
     ResolvePlan plan;
     PendingRange range;
   };
-  struct RetiredSet {
-    VkDescriptorSet set;
-    uint64_t submission;
-  };
-
   DestImage* Dest(VkCommandBuffer command_buffer, const ResolvePlan& plan, VkFormat format);
   void CopyColor(VkCommandBuffer command_buffer, const ResolvePlan& plan, const RenderTargets::Target& source,
                  const DestImage& dest);
@@ -87,7 +83,8 @@ class Resolves {
                  const DestImage& dest, const DestImage& raw);
   void Readback(VkCommandBuffer command_buffer, const ResolvePlan& plan, const DestImage& dest, uint64_t submission);
   ReadbackBuffer AcquireReadbackBuffer();
-  VkDescriptorSet DepthDescriptorSet(VkImageView source, VkImageView dest, VkImageView raw);
+  VkDescriptorSet DepthDescriptorSet(VkImageView source);
+  void CreateDepthPipeline();
   void Publish(const ResolvePlan& plan, DestImage& dest, uint32_t bytes_per_pixel, uint64_t submission);
   void Destroy(DestImage& image);
 
@@ -104,14 +101,8 @@ class Resolves {
   VkPipeline depth_pipeline_ = VK_NULL_HANDLE;
   VkDescriptorPool depth_pool_ = VK_NULL_HANDLE;
   VkSampler depth_sampler_ = VK_NULL_HANDLE;
-  struct DepthSet {
-    VkImageView dest;
-    VkImageView raw;
-    VkDescriptorSet set;
-  };
-  std::unordered_map<uint64_t, DepthSet> depth_sets_;
+  std::unordered_map<VkImageView, VkDescriptorSet> depth_sets_;
   std::vector<RetiredImage> retired_;
-  std::vector<RetiredSet> retired_sets_;
   uint64_t frame_ = 0;
   uint64_t bytes_ = 0;
   Stats stats_;

@@ -14,7 +14,6 @@ constexpr uint32_t kExactMath = 65536;
 constexpr uint32_t kPolledWaits = 131072;
 constexpr uint32_t kFreshDescriptors = 262144;
 constexpr uint32_t kRebindPipelines = 524288;
-constexpr uint32_t kNoRawDepth = 1048576;
 
 void InstallPerfModes();
 bool PerfSkip(uint32_t bit);
