@@ -94,6 +94,9 @@ class NativeSkeletonTest(unittest.TestCase):
     def test_spirv_specialize(self) -> None:
         self.check("spirv_specialize", ["spirv_specialize.cpp"], link_sdk=True)
 
+    def test_implicit_lod(self) -> None:
+        self.check("implicit_lod", [], link_sdk=True)
+
     def test_sdk_link(self) -> None:
         self.check("sdk_link", [], link_sdk=True)
 

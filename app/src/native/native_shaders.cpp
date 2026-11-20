@@ -10,6 +10,7 @@
 #include <rex/ui/vulkan/util.h>
 #include <rex/graphics/util/draw.h>
 
+#include "perf_modes.h"
 
 namespace nier::native {
 
@@ -203,6 +204,7 @@ NativeShaders::Modification NativeShaders::PixelModification(const Shader& shade
                !draw_util::DoesCoverageDependOnAlpha(regs.Get<reg::RB_COLORCONTROL>()))
           ? DepthStencilMode::kEarlyHint
           : DepthStencilMode::kNoModifiers;
+  modification.pixel.implicit_lod = !PerfSkip(kExplicitGradients) && !PerfSkip(kGenericShaders);
   return modification;
 }
 

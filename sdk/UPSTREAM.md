@@ -78,3 +78,8 @@ code generator and runtime changes of masseffect-nx. The third-party sources are
   upload memory NVK exposes ran at ~100-180 MB/s in NieR's native renderer.
 - `src/ui/switch_perf.cpp`: `RexSwitchPerfUseModes(masks, names, count)` replaces the A/B lap's mode table (up to 16
   modes), so a graphics system with its own skip bits (NieR's native renderer) gets a short lap of its own modes.
+- `include/rex/graphics/pipeline/shader/spirv_translator.h`, `src/graphics/pipeline/shader/spirv_translator_fetch.cpp`:
+  the pixel shader modification has an `implicit_lod` bit. With it, texture fetches whose LOD comes from implicit
+  gradients sample with implicit LOD and the fetch's LOD as a bias, instead of coarse derivatives scaled by `exp2(lod)`
+  passed as explicit gradients (on Maxwell explicit gradients compile to the slower TXD). Fetches with register
+  gradients stay explicit. NieR's native renderer sets it unless its A/B lap is in the "explicit gradients" mode.

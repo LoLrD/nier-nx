@@ -1643,10 +1643,16 @@ void SpirvShaderTranslator::ProcessTextureFetchInstruction(
         }
 
         // Sample the texture.
+        const bool implicit_lod = use_computed_lod && !instr.attributes.use_register_gradients &&
+                                  GetSpirvShaderModification().pixel.implicit_lod;
+        const bool explicit_gradients = use_computed_lod && !implicit_lod;
         spv::ImageOperandsMask image_operands_mask =
-            use_computed_lod ? spv::ImageOperandsGradMask : spv::ImageOperandsLodMask;
+            implicit_lod ? spv::ImageOperandsBiasMask
+                         : (use_computed_lod ? spv::ImageOperandsGradMask : spv::ImageOperandsLodMask);
         spv::Id sample_result_unsigned, sample_result_signed;
-        if (!use_computed_lod) {
+        if (implicit_lod) {
+          texture_parameters.bias = lod;
+        } else if (!use_computed_lod) {
           texture_parameters.lod = lod;
         }
         if (instr.dimension == xenos::FetchOpDimension::k3DOrStacked) {
@@ -1661,7 +1667,7 @@ void SpirvShaderTranslator::ProcessTextureFetchInstruction(
           spv::Id sample_result_unsigned_3d, sample_result_signed_3d;
           {
             // 3D.
-            if (use_computed_lod) {
+            if (explicit_gradients) {
               texture_parameters.gradX = gradients_h;
               texture_parameters.gradY = gradients_v;
             }
@@ -1679,7 +1685,7 @@ void SpirvShaderTranslator::ProcessTextureFetchInstruction(
           spv::Id sample_result_unsigned_stacked, sample_result_signed_stacked;
           {
             // 2D stacked.
-            if (use_computed_lod) {
+            if (explicit_gradients) {
               // Extract 2D gradients for stacked textures which are 2D arrays.
               uint_vector_temp_.clear();
               uint_vector_temp_.push_back(0);
@@ -1866,7 +1872,7 @@ void SpirvShaderTranslator::ProcessTextureFetchInstruction(
           sample_result_signed =
               if_data_is_3d.createMergePhi(sample_result_signed_3d, sample_result_signed_stacked);
         } else {
-          if (use_computed_lod) {
+          if (explicit_gradients) {
             texture_parameters.gradX = gradients_h;
             texture_parameters.gradY = gradients_v;
           }
