@@ -8,6 +8,7 @@
 
 #include "spirv_specialize.h"
 
+using nier::native::AllowContraction;
 using nier::native::ByteRange;
 using nier::native::Specialize;
 using nier::native::SpecializableSlots;
@@ -107,6 +108,7 @@ std::vector<uint32_t> TestModule() {
   a.Emit(spv::OpMemberDecorate, {kSystemBlock, 2, spv::DecorationOffset, 16});
   a.Emit(spv::OpDecorate, {kArrayV4Uint3, spv::DecorationArrayStride, 16});
   a.Emit(spv::OpMemberDecorate, {kFetchBlock, 0, spv::DecorationOffset, 0});
+  a.Emit(spv::OpDecorate, {kSum, spv::DecorationNoContraction});
   a.Emit(spv::OpTypeVoid, {kVoid});
   a.Emit(spv::OpTypeFunction, {kFunctionType, kVoid});
   a.Emit(spv::OpTypeInt, {kUint, 32, 0});
@@ -184,6 +186,14 @@ bool CopiesConstant(const std::vector<Instruction>& code, uint32_t result, uint3
   return false;
 }
 
+uint32_t Decorations(const std::vector<Instruction>& code, uint32_t decoration) {
+  uint32_t count = 0;
+  for (const Instruction& i : code) {
+    count += i.op == spv::OpDecorate && i.operands[1] == decoration;
+  }
+  return count;
+}
+
 bool Loads(const std::vector<Instruction>& code, uint32_t result) {
   for (const Instruction& i : code) {
     if (i.op == spv::OpLoad && i.operands[1] == result) {
@@ -223,5 +233,14 @@ int main() {
   }
   Check(last_new_constant && last_new_constant < first_function, "new_constants_precede_the_functions");
   Check(SpecializableSlots(specialized, ranges).empty(), "specialized_module_has_nothing_left_to_specialize");
+
+  const std::vector<uint32_t> contracted = AllowContraction(specialized);
+  const std::vector<Instruction> contracted_code = Decode(contracted);
+  Check(Decorations(code, spv::DecorationNoContraction) == 1 &&
+            !Decorations(contracted_code, spv::DecorationNoContraction),
+        "no_contraction_decorations_are_dropped");
+  Check(Decorations(contracted_code, spv::DecorationArrayStride) == 2 && contracted.size() + 3 == specialized.size() &&
+            contracted[3] == specialized[3] && CopiesConstant(contracted_code, kFlags, 7),
+        "everything_else_is_kept");
   return failures ? 1 : 0;
 }

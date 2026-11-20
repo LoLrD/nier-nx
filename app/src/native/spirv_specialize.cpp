@@ -210,4 +210,17 @@ std::vector<uint32_t> Specialize(std::span<const uint32_t> module, std::span<con
   return result;
 }
 
+std::vector<uint32_t> AllowContraction(std::span<const uint32_t> module) {
+  std::vector<uint32_t> result(module.begin(), module.begin() + kHeaderWords);
+  result.reserve(module.size());
+  for (size_t at = kHeaderWords; at < module.size(); at += module[at] >> 16) {
+    const uint32_t count = module[at] >> 16;
+    if (spv::Op(module[at] & 0xFFFF) == spv::OpDecorate && module[at + 2] == spv::DecorationNoContraction) {
+      continue;
+    }
+    result.insert(result.end(), module.begin() + at, module.begin() + at + count);
+  }
+  return result;
+}
+
 }  // namespace nier::native

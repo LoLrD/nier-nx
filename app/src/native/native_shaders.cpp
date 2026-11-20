@@ -64,7 +64,8 @@ VkShaderModule NativeShaders::PixelModule(VulkanShader::VulkanTranslation& trans
   if (inserted) {
     specialization.slots = SpecializableSlots(words, kSpecializedSystemFields);
   }
-  if (specialization.slots.empty()) {
+  const bool exact = PerfSkip(kExactMath);
+  if (specialization.slots.empty() && exact) {
     return translation.shader_module();
   }
   const auto* system_words = reinterpret_cast<const uint32_t*>(&system);
@@ -73,11 +74,13 @@ VkShaderModule NativeShaders::PixelModule(VulkanShader::VulkanTranslation& trans
   for (const UniformSlot& slot : specialization.slots) {
     values.push_back(slot.fetch ? fetch_constants[slot.offset / 4] : system_words[slot.offset / 4]);
   }
-  auto [module, created] =
-      specialization.modules.try_emplace(XXH3_64bits(values.data(), values.size() * sizeof(uint32_t)), VK_NULL_HANDLE);
+  auto [module, created] = specialization.modules.try_emplace(
+      XXH3_64bits_withSeed(values.data(), values.size() * sizeof(uint32_t), exact), VK_NULL_HANDLE);
   if (created) {
-    const std::vector<uint32_t> specialized =
-        Specialize(words, kSpecializedSystemFields, specialization.slots, values);
+    std::vector<uint32_t> specialized = Specialize(words, kSpecializedSystemFields, specialization.slots, values);
+    if (!exact) {
+      specialized = AllowContraction(specialized);
+    }
     module->second =
         rex::ui::vulkan::util::CreateShaderModule(device_, specialized.data(), specialized.size() * sizeof(uint32_t));
     ++stats_.specialized;

@@ -20,10 +20,16 @@ namespace nier::native {
 
 namespace {
 
-constexpr uint32_t kModeMasks[] = {0,           kExplicitGradients, kGenericShaders, kSkipPixelShaders, kQuarterScreen,
-                                   kSkipPixels, kSkipDraws};
-constexpr const char* kModeNames[] = {"normal",         "explicit gradients", "generic shaders", "no pixel shaders",
-                                      "quarter screen", "no draw pixels",     "no draws"};
+constexpr uint32_t kModeMasks[] = {0,
+                                   kExactMath,
+                                   kExplicitGradients,
+                                   kGenericShaders,
+                                   kSkipPixelShaders,
+                                   kQuarterScreen,
+                                   kSkipPixels,
+                                   kSkipDraws};
+constexpr const char* kModeNames[] = {"normal",           "exact math",     "explicit gradients", "generic shaders",
+                                      "no pixel shaders", "quarter screen", "no draw pixels",     "no draws"};
 
 }  // namespace
 
