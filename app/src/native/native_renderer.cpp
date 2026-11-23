@@ -107,6 +107,7 @@ constexpr uint64_t kUnusedSeconds = 10;
 constexpr size_t kReportedPasses = 8;
 constexpr size_t kReportedShaders = 10;
 constexpr size_t kTracedFrames = 12;
+constexpr uint64_t kTracedSwaps = 3000;
 
 uint64_t NowMs() {
   return uint64_t(std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -739,6 +740,7 @@ void NativeRenderer::Resolve(const RegisterFile& regs) {
         plan.readback ? " readback" : "", plan.dest_swap ? " swap" : ""));
   }
   resolves_->Resolve(submissions_->main(), plan, submissions_->current());
+  bound_pipeline_ = VK_NULL_HANDLE;
   after_shadow_map_ = resolves_->TakeShadowMapResolved();
 }
 
@@ -974,7 +976,7 @@ void NativeRenderer::AppendHeaviest(std::string& line, std::string_view title,
   line.pop_back();
 }
 
-bool NativeRenderer::Tracing() const { return traced_frames_.size() < kTracedFrames; }
+bool NativeRenderer::Tracing() const { return traced_frames_.size() < kTracedFrames && stats_.swaps < kTracedSwaps; }
 
 void NativeRenderer::FlushTracePass() {
   if (trace_pass_.draws && Tracing()) {
