@@ -15,6 +15,11 @@ struct MirrorDecision {
   uint64_t wait_submission;
 };
 
+enum class MirrorRoute { kNone, kInPlace, kStage, kFlushThenStage, kWait };
+
+MirrorRoute RouteMirrorCopy(const MirrorDecision& decision, uint64_t current, uint32_t size, uint32_t stage_limit,
+                            bool can_stage);
+
 class MirrorSync {
  public:
   explicit MirrorSync(uint32_t small_range_bytes = 65536);

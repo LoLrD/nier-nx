@@ -67,6 +67,9 @@ class NativeRenderer {
     uint64_t mirror_copies = 0;
     uint64_t mirror_bytes = 0;
     uint64_t mirror_waits = 0;
+    uint64_t mirror_staged = 0;
+    uint64_t mirror_staged_bytes = 0;
+    uint64_t mirror_flushes = 0;
     uint64_t us_draws = 0;
     uint64_t us_mirror = 0;
     uint64_t us_textures = 0;
@@ -117,6 +120,7 @@ class NativeRenderer {
   void WaitFor(uint64_t submission);
   void ProcessCompleted();
   void SyncMirror(uint32_t address, uint32_t size);
+  void CopyMirror(uint32_t address, uint32_t size);
   VkDescriptorSet EmptyTextureSet();
   VkDescriptorSet BindTextures(const rex::graphics::RegisterFile& regs, const rex::graphics::SpirvShader& shader,
                                bool pixel, TextureConstantInfo& info, uint32_t& textures, uint32_t& samplers,

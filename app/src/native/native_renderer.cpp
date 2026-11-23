@@ -35,6 +35,9 @@ extern "C" void RexSwitchPerfCount(unsigned id);
 
 REXCVAR_DEFINE_INT32(nier_readback_limit_kb, 16, "NieR",
                      "Native renderer: largest resolve, in KB, that is also written back to guest memory");
+REXCVAR_DEFINE_BOOL(nier_mirror_staging, true, "NieR",
+                    "Native renderer: copy changed vertex/index ranges still read by the GPU through a GPU copy "
+                    "instead of waiting for the GPU");
 REXCVAR_DEFINE_INT32(nier_shadow_map_shift, 0, "NieR",
                      "Native renderer: the shadow map is drawn at 1/2^N of its size (0 = full size)");
 REXCVAR_DEFINE_INT32(nier_shadow_mask_shift, 1, "NieR",
@@ -298,17 +301,40 @@ void NativeRenderer::SyncMirror(uint32_t address, uint32_t size) {
   size = std::min(size, GuestMirror::kSize - address);
   ScopedMicros timer(stats_.us_mirror);
   const MirrorDecision decision = mirror_sync_.Use(address, size, physical_base_, submissions_->current());
-  if (decision.wait_submission) {
-    ++stats_.mirror_waits;
-    WaitFor(decision.wait_submission);
-    BeginSubmission();
-    mirror_sync_.Use(address, size, physical_base_, submissions_->current());
+  switch (RouteMirrorCopy(decision, submissions_->current(), size, uint32_t(kStagingPageBytes),
+                          mirror_->gpu_writable() && REXCVAR_GET(nier_mirror_staging))) {
+    case MirrorRoute::kNone:
+      return;
+    case MirrorRoute::kInPlace:
+      CopyMirror(address, size);
+      return;
+    case MirrorRoute::kFlushThenStage:
+      ++stats_.mirror_flushes;
+      Flush();
+      BeginSubmission();
+      mirror_sync_.Use(address, size, physical_base_, submissions_->current());
+      [[fallthrough]];
+    case MirrorRoute::kStage:
+      if (mirror_->Stage(submissions_->upload(), submissions_->current(), *staging_, address, size)) {
+        ++stats_.mirror_staged;
+        stats_.mirror_staged_bytes += size;
+        return;
+      }
+      [[fallthrough]];
+    case MirrorRoute::kWait:
+      ++stats_.mirror_waits;
+      WaitFor(decision.wait_submission);
+      BeginSubmission();
+      mirror_sync_.Use(address, size, physical_base_, submissions_->current());
+      CopyMirror(address, size);
+      return;
   }
-  if (decision.action == MirrorAction::kCopy) {
-    mirror_->Copy(address, size);
-    ++stats_.mirror_copies;
-    stats_.mirror_bytes += size;
-  }
+}
+
+void NativeRenderer::CopyMirror(uint32_t address, uint32_t size) {
+  mirror_->Copy(address, size);
+  ++stats_.mirror_copies;
+  stats_.mirror_bytes += size;
 }
 
 VkDescriptorSet NativeRenderer::BindTextures(const RegisterFile& regs, const SpirvShader& shader, bool pixel,
@@ -994,7 +1020,7 @@ std::string NativeRenderer::Report() {
   const uint64_t submissions = submissions_->current() - 1;
   std::string line = fmt::format(
       "[native] render: {}/{} draws drawn, skipped raster {} primitive {} target {} shader {} pending {} empty {}; {} resolves ({} colour, "
-      "{} depth, {} clears, {} readbacks, {} stale, {} skipped, {} repeated); mirror {} copies {} MB {} waits; textures {} uploads {} MB {} "
+      "{} depth, {} clears, {} readbacks, {} stale, {} skipped, {} repeated); mirror {} copies {} MB {} waits {} staged {} MB {} flushes; textures {} uploads {} MB {} "
       "unsupported {} resolve hits {} reused, {} live {} MB; {} resolve images, {} mirror keys; {} targets, {} pipelines, {} submissions, {} black frames",
       s.drawn - r.drawn, s.draws - r.draws, s.skipped_raster - r.skipped_raster,
       s.skipped_primitive - r.skipped_primitive, s.skipped_target - r.skipped_target,
@@ -1003,6 +1029,7 @@ std::string NativeRenderer::Report() {
       v.readbacks - reported_resolves_.readbacks, v.stale_readbacks - reported_resolves_.stale_readbacks,
       v.skipped - reported_resolves_.skipped, v.repeated - reported_resolves_.repeated,
       s.mirror_copies - r.mirror_copies, (s.mirror_bytes - r.mirror_bytes) >> 20, s.mirror_waits - r.mirror_waits,
+      s.mirror_staged - r.mirror_staged, (s.mirror_staged_bytes - r.mirror_staged_bytes) >> 20, s.mirror_flushes - r.mirror_flushes,
       t.uploads - reported_textures_.uploads, (t.upload_bytes - reported_textures_.upload_bytes) >> 20,
       t.unsupported - reported_textures_.unsupported, t.resolve_hits - reported_textures_.resolve_hits,
       t.reused - reported_textures_.reused,

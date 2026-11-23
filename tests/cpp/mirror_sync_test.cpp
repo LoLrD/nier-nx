@@ -5,7 +5,10 @@
 #include "mirror_sync.h"
 
 using nier::native::MirrorAction;
+using nier::native::MirrorDecision;
+using nier::native::MirrorRoute;
 using nier::native::MirrorSync;
+using nier::native::RouteMirrorCopy;
 
 static int failures = 0;
 
@@ -168,6 +171,19 @@ int main() {
     for (uint32_t i = 0x40000; i < 0xC0000; i += 256) {
       memory[i] = 0x11;
     }
+  }
+  {
+    const uint32_t limit = 1 << 20;
+    Check(RouteMirrorCopy({MirrorAction::kNone, 0}, 5, 64, limit, true) == MirrorRoute::kNone, "route_unchanged");
+    Check(RouteMirrorCopy({MirrorAction::kCopy, 0}, 5, 64, limit, true) == MirrorRoute::kInPlace, "route_no_reader");
+    Check(RouteMirrorCopy({MirrorAction::kCopy, 4}, 5, 64, limit, true) == MirrorRoute::kStage,
+          "route_old_reader_staged_by_gpu");
+    Check(RouteMirrorCopy({MirrorAction::kCopy, 5}, 5, 64, limit, true) == MirrorRoute::kFlushThenStage,
+          "route_reader_in_current_submission_flushes_first");
+    Check(RouteMirrorCopy({MirrorAction::kCopy, 4}, 5, limit + 1, limit, true) == MirrorRoute::kWait,
+          "route_range_larger_than_staging_waits");
+    Check(RouteMirrorCopy({MirrorAction::kCopy, 4}, 5, 64, limit, false) == MirrorRoute::kWait,
+          "route_without_gpu_writable_mirror_waits");
   }
   return failures ? 1 : 0;
 }

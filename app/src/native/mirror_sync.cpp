@@ -4,6 +4,20 @@
 
 namespace nier::native {
 
+MirrorRoute RouteMirrorCopy(const MirrorDecision& decision, uint64_t current, uint32_t size, uint32_t stage_limit,
+                            bool can_stage) {
+  if (decision.action == MirrorAction::kNone) {
+    return MirrorRoute::kNone;
+  }
+  if (!decision.wait_submission) {
+    return MirrorRoute::kInPlace;
+  }
+  if (!can_stage || size > stage_limit) {
+    return MirrorRoute::kWait;
+  }
+  return decision.wait_submission >= current ? MirrorRoute::kFlushThenStage : MirrorRoute::kStage;
+}
+
 MirrorSync::MirrorSync(uint32_t small_range_bytes) : small_range_bytes_(small_range_bytes) {}
 
 void MirrorSync::BeginFrame() { ++frame_; }
