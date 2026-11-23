@@ -55,6 +55,7 @@ class Pipelines {
   struct Slot {
     std::atomic<VkPipeline> pipeline{VK_NULL_HANDLE};
     std::atomic<bool> done{false};
+    std::chrono::steady_clock::time_point failed_at;
   };
   struct Entry {
     PipelineState state;
@@ -70,6 +71,7 @@ class Pipelines {
   };
 
   VkPipeline Create(const PipelineState& state, VkPipelineLayout layout) const;
+  void Queue(const Job& job);
   void Compile(const Job& job);
   void Work();
   void LoadCache();
@@ -95,6 +97,7 @@ class Pipelines {
   std::condition_variable work_done_;
   std::deque<Job> jobs_;
   bool stopping_ = false;
+  bool compiling_ = false;
   uint64_t unsaved_ = 0;
   std::chrono::steady_clock::time_point last_save_;
   Stats stats_;

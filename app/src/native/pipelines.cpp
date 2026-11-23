@@ -34,6 +34,7 @@ namespace {
 constexpr VkShaderStageFlags kGuestStages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
 constexpr int kWorkerPriority = 0x3B;
 constexpr std::chrono::seconds kSaveInterval{10};
+constexpr std::chrono::seconds kRetryDelay{2};
 
 VkDescriptorSetLayout CreateSetLayout(const rex::ui::vulkan::VulkanDevice* device,
                                       const std::vector<VkDescriptorSetLayoutBinding>& bindings) {
@@ -160,15 +161,12 @@ VkPipeline Pipelines::Get(const PipelineState& state, VkPipelineLayout layout, u
     entries.push_back({state, layout, std::make_unique<Slot>()});
     ++pipeline_count_;
     slot = entries.back().slot.get();
-    const Job job{state, layout, vs_hash, ps_hash, slot};
-    if (!async_) {
-      Compile(job);
-    } else {
-      std::unique_lock lock(mutex_);
-      jobs_.push_back(job);
-      work_ready_.notify_one();
-      work_done_.wait_for(lock, wait_, [slot] { return slot->done.load(std::memory_order_acquire); });
-    }
+    Queue({state, layout, vs_hash, ps_hash, slot});
+  } else if (slot->done.load(std::memory_order_acquire) &&
+             slot->pipeline.load(std::memory_order_acquire) == VK_NULL_HANDLE &&
+             std::chrono::steady_clock::now() - slot->failed_at >= kRetryDelay) {
+    slot->done.store(false, std::memory_order_release);
+    Queue({state, layout, vs_hash, ps_hash, slot});
   }
   if (!slot->done.load(std::memory_order_acquire)) {
     status = Status::kPending;
@@ -177,6 +175,20 @@ VkPipeline Pipelines::Get(const PipelineState& state, VkPipelineLayout layout, u
   const VkPipeline pipeline = slot->pipeline.load(std::memory_order_acquire);
   status = pipeline != VK_NULL_HANDLE ? Status::kReady : Status::kFailed;
   return pipeline;
+}
+
+void Pipelines::Queue(const Job& job) {
+  if (!async_) {
+    Compile(job);
+    return;
+  }
+  std::unique_lock lock(mutex_);
+  const bool idle = jobs_.empty() && !compiling_;
+  jobs_.push_back(job);
+  work_ready_.notify_one();
+  if (idle) {
+    work_done_.wait_for(lock, wait_, [&job] { return job.slot->done.load(std::memory_order_acquire); });
+  }
 }
 
 void Pipelines::Compile(const Job& job) {
@@ -197,6 +209,7 @@ void Pipelines::Compile(const Job& job) {
     stats_.compile_us += us;
     stats_.max_compile_us = std::max(stats_.max_compile_us, us);
     ++unsaved_;
+    job.slot->failed_at = std::chrono::steady_clock::now();
     job.slot->pipeline.store(pipeline, std::memory_order_release);
     job.slot->done.store(true, std::memory_order_release);
   }
@@ -216,9 +229,11 @@ void Pipelines::Work() {
     if (!jobs_.empty()) {
       const Job job = jobs_.front();
       jobs_.pop_front();
+      compiling_ = true;
       lock.unlock();
       Compile(job);
       lock.lock();
+      compiling_ = false;
       continue;
     }
     if (unsaved_ && std::chrono::steady_clock::now() - last_save_ >= kSaveInterval) {
@@ -231,9 +246,12 @@ void Pipelines::Work() {
 
 void Pipelines::LoadCache() {
   std::vector<char> data;
-  if (!cache_path_.empty()) {
-    std::ifstream file(cache_path_, std::ios::binary);
-    data.assign(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+  for (const std::string& path : {cache_path_, cache_path_ + ".tmp"}) {
+    std::ifstream file(path, std::ios::binary);
+    if (!cache_path_.empty() && file) {
+      data.assign(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+      break;
+    }
   }
   VkPipelineCacheCreateInfo info{VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};
   info.initialDataSize = data.size();
@@ -247,7 +265,7 @@ void Pipelines::LoadCache() {
 }
 
 void Pipelines::SaveCache() {
-  if (cache_path_.empty()) {
+  if (cache_path_.empty() || cache_ == VK_NULL_HANDLE) {
     return;
   }
   const auto& dfn = device_->functions();
@@ -256,12 +274,23 @@ void Pipelines::SaveCache() {
   std::vector<char> data(size);
   dfn.vkGetPipelineCacheData(device_->device(), cache_, &size, data.data());
   const std::string temporary = cache_path_ + ".tmp";
+  bool written = false;
   {
     std::ofstream file(temporary, std::ios::binary | std::ios::trunc);
     file.write(data.data(), std::streamsize(size));
+    file.flush();
+    written = bool(file);
+  }
+  if (!written) {
+    std::remove(temporary.c_str());
+    REXLOG_WARN("[native] could not write the pipeline cache to '{}'", temporary);
+    return;
   }
   std::remove(cache_path_.c_str());
-  std::rename(temporary.c_str(), cache_path_.c_str());
+  if (std::rename(temporary.c_str(), cache_path_.c_str()) != 0) {
+    REXLOG_WARN("[native] could not rename the pipeline cache to '{}'", cache_path_);
+    return;
+  }
   std::lock_guard lock(mutex_);
   unsaved_ = 0;
   last_save_ = std::chrono::steady_clock::now();
