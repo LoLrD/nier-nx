@@ -49,6 +49,11 @@ class TextFilesTest(unittest.TestCase):
                                             "<LIST=2>Нет</LIST><LIST=1>Да</LIST>"), ["tag order differs"])
         self.assertEqual(textfiles.problems("Give <ITEM> to <NIER>?<PAGE>Ok", "<NIER> получает <ITEM>?<PAGE>Да"), [])
 
+    def test_the_hero_name_may_be_left_out_but_not_added(self) -> None:
+        self.assertEqual(textfiles.problems("Exit <NIER>'s village?", "Покинуть деревню?"), [])
+        self.assertEqual(textfiles.problems("Village", "Деревня <NIER>"), ["tags differ"])
+        self.assertEqual(textfiles.problems("Give <ITEM> to <NIER>?", "Отдать?"), ["tags differ"])
+
     def test_talker_names_use_the_english_column(self) -> None:
         data = "5\tヨナ\tYonah\tYonah\tYonah\r\n".encode()
         self.assertEqual(textfiles.texts(data, "TEXT/TALK_TEXT/TALKER_NAME.X360.TND"), {"0:2": "Yonah"})

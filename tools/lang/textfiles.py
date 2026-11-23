@@ -4,6 +4,7 @@ from collections import Counter
 TEXT_COLUMNS = {".TXD": (2,), ".TND": (2,), ".TKD": (15,), ".CAP": (9,), ".INW": (12, 13), ".RAW": (11,)}
 TAG = re.compile(r"<[^<>]*>|%%")
 PLACEHOLDER = re.compile(r"<(NIER|ITEM|NUM|TEXT|DEC_\d+|ICON=\d+)>")
+HERO = "<NIER>"
 ESCAPE = re.compile(r"\\(.)")
 BUTTON_WORDS = re.compile(r"button|press", re.IGNORECASE)
 SWITCH_BUTTONS = [(re.compile(r"\bSTART\b"), "<ICON=13>"), (re.compile(r"\bBACK\b"), "<ICON=12>")]
@@ -51,9 +52,16 @@ def structure(text: str) -> list:
     return [tag for tag in TAG.findall(text) if not PLACEHOLDER.fullmatch(tag)]
 
 
+def tag_counts(text: str) -> tuple:
+    counts = Counter(TAG.findall(text))
+    return counts, counts.pop(HERO, 0)
+
+
 def problems(original: str, translation: str) -> list:
     found = []
-    if Counter(TAG.findall(original)) != Counter(TAG.findall(translation)):
+    tags, heroes = tag_counts(original)
+    translated_tags, translated_heroes = tag_counts(translation)
+    if tags != translated_tags or translated_heroes > heroes:
         found.append("tags differ")
     elif structure(original) != structure(translation):
         found.append("tag order differs")
