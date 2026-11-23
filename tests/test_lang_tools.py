@@ -57,6 +57,8 @@ class TextFilesTest(unittest.TestCase):
         self.assertEqual(textfiles.switch_english("Press START to Skip"), "Press <ICON=13> to Skip")
         self.assertEqual(textfiles.switch_english("Press the BACK button"), "Press the <ICON=12> button")
         self.assertEqual(textfiles.switch_english("RESTART the BACKUP"), "RESTART the BACKUP")
+        self.assertEqual(textfiles.switch_english("Fyra! COME BACK!"), "Fyra! COME BACK!")
+        self.assertEqual(textfiles.switch_english("START FUCKING HELPING US!"), "START FUCKING HELPING US!")
 
     def test_table_escaping_round_trips(self) -> None:
         rows = {"0:15": "Строка\nдва \\ слэш", "1:15": "Да"}

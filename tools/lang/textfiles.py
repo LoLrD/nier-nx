@@ -5,6 +5,7 @@ TEXT_COLUMNS = {".TXD": (2,), ".TND": (2,), ".TKD": (15,), ".CAP": (9,), ".INW":
 TAG = re.compile(r"<[^<>]*>|%%")
 PLACEHOLDER = re.compile(r"<(NIER|ITEM|NUM|TEXT|DEC_\d+|ICON=\d+)>")
 ESCAPE = re.compile(r"\\(.)")
+BUTTON_WORDS = re.compile(r"button|press", re.IGNORECASE)
 SWITCH_BUTTONS = [(re.compile(r"\bSTART\b"), "<ICON=13>"), (re.compile(r"\bBACK\b"), "<ICON=12>")]
 
 
@@ -39,6 +40,8 @@ def apply(data: bytes, path: str, translations: dict) -> bytes:
 
 
 def switch_english(text: str) -> str:
+    if not BUTTON_WORDS.search(text):
+        return text
     for pattern, icon in SWITCH_BUTTONS:
         text = pattern.sub(icon, text)
     return text
