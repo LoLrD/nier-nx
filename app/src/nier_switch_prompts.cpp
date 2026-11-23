@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <cstring>
 #include <mutex>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -121,9 +122,13 @@ class SwitchPrompts {
     const std::vector<ReadPatch>* patches = nullptr;
     {
       std::lock_guard lock(mutex_);
-      auto [it, inserted] = patches_.try_emplace(&entry);
-      if (inserted) {
-        it->second = Build(entry);
+      auto it = patches_.find(&entry);
+      if (it == patches_.end()) {
+        auto built = Build(entry);
+        if (!built) {
+          return;
+        }
+        it = patches_.emplace(&entry, std::move(*built)).first;
       }
       patches = &it->second;
     }
@@ -131,15 +136,18 @@ class SwitchPrompts {
   }
 
  private:
-  static std::vector<ReadPatch> Build(rex::filesystem::Entry& entry) {
+  static std::optional<std::vector<ReadPatch>> Build(rex::filesystem::Entry& entry) {
     rex::filesystem::File* file = nullptr;
     if (XFAILED(entry.Open(rex::filesystem::FileAccess::kGenericRead, &file))) {
-      REXLOG_WARN("[switch_prompts] could not open {}", entry.path());
-      return {};
+      REXLOG_WARN("[switch_prompts] could not open {}, will try again", entry.path());
+      return std::nullopt;
     }
-    const auto read = [file](uint64_t offset, std::span<uint8_t> out) {
+    bool failed = false;
+    const auto read = [file, &failed](uint64_t offset, std::span<uint8_t> out) {
       size_t done = 0;
-      return XSUCCEEDED(file->ReadSync(out, size_t(offset), &done)) && done == out.size();
+      const bool ok = XSUCCEEDED(file->ReadSync(out, size_t(offset), &done)) && done == out.size();
+      failed |= !ok;
+      return ok;
     };
     std::vector<ReadPatch> patches;
     uint32_t icons = 0;
@@ -181,6 +189,10 @@ class SwitchPrompts {
       }
     }
     file->Destroy();
+    if (failed) {
+      REXLOG_WARN("[switch_prompts] could not read {}, will try again", entry.path());
+      return std::nullopt;
+    }
     REXLOG_INFO("[switch_prompts] {}: {} icon patches, {} text patches, {} left as they were", entry.path(), icons,
                 texts, skipped);
     return patches;
