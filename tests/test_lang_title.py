@@ -29,6 +29,12 @@ class TitleTest(unittest.TestCase):
         alpha[17, 2] = 50
         self.assertEqual(title.line_centers(alpha), [3.5, 12.5])
 
+    def test_word_centers_ignore_the_gaps_between_letters(self) -> None:
+        alpha = np.zeros((4, 60), np.uint8)
+        alpha[:, [2, 3, 5, 6, 8]] = 255
+        alpha[:, [40, 42, 43]] = 255
+        self.assertEqual(title.line_centers(alpha.T, gap=4), [5.5, 42.0])
+
 
 if __name__ == "__main__":
     unittest.main()

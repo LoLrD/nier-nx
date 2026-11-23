@@ -192,15 +192,15 @@ def skill_label(label: str, width: int, height: int) -> Image.Image:
     return inked(CHALK_INK, 128, small, (0, 0))
 
 
-def measure(label: str, size: float) -> tuple:
-    font = ImageFont.truetype(TITLE_THIN, round(size))
-    advances = [size * WORD_GAP if ch == " " else font.getlength(ch) + size * TRACKING for ch in label]
+def measure(label: str, size: float, tracking: float = TRACKING, face: str = TITLE_THIN) -> tuple:
+    font = ImageFont.truetype(face, round(size))
+    advances = [size * WORD_GAP if ch == " " else font.getlength(ch) + size * tracking for ch in label]
     _, top, _, bottom = font.getbbox(label, anchor="ls")
-    return font, advances, sum(advances) - size * TRACKING, top, bottom
+    return font, advances, sum(advances) - size * tracking, top, bottom
 
 
-def placement(label: str, size: float) -> tuple:
-    font, advances, total, top, bottom = measure(label, size)
+def placement(label: str, size: float, tracking: float = TRACKING, face: str = TITLE_THIN) -> tuple:
+    font, advances, total, top, bottom = measure(label, size, tracking, face)
     x = -total / 2
     glyphs = []
     for ch, advance in zip(label, advances):
@@ -229,11 +229,12 @@ def lettering(font_path: str, placement: tuple, width: int, height: int) -> Imag
     return coverage
 
 
-def title(placement: tuple, width: int, height: int, pitch: int) -> Image.Image:
-    coverage = lettering(TITLE_BOLD, placement, width, height).filter(ImageFilter.GaussianBlur(CORE_BLUR * SCALE))
-    glow = coverage.filter(ImageFilter.GaussianBlur(GLOW_RADIUS * SCALE)).point(lambda a: min(GLOW_CAP, int(a * GLOW_GAIN)))
+def title(placement: tuple, width: int, height: int, pitch: int, ink: tuple = TITLE_INK, blur: float = CORE_BLUR,
+          radius: float = GLOW_RADIUS) -> Image.Image:
+    coverage = lettering(TITLE_BOLD, placement, width, height).filter(ImageFilter.GaussianBlur(blur * SCALE))
+    glow = coverage.filter(ImageFilter.GaussianBlur(radius * SCALE)).point(lambda a: min(GLOW_CAP, int(a * GLOW_GAIN)))
     small = ImageChops.screen(coverage, glow).resize((width, height), Image.LANCZOS)
-    return inked(TITLE_INK, pitch, small, (0, 0))
+    return inked(ink, pitch, small, (0, 0), max(32, -(-height // 4) * 4))
 
 
 def selection(placement: tuple, width: int, height: int, pitch: int, top: int) -> Image.Image:

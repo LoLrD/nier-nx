@@ -13,18 +13,32 @@ import draw  # noqa: E402
 import kpky  # noqa: E402
 import xenos_dxt  # noqa: E402
 
-PACKS = ["2D/TITLE", "2D/TITLE_GESTALT_US"]
 WHITE = (255, 255, 255)
-GROUPS = [
-    ("title_gameselection", WHITE, ["title_new", "title_load", "title_setting"]),
-    ("title_gameselection_dl", WHITE, ["title_download content"]),
-    ("title_diffselection", draw.SELECTION_INK, ["title_easy", "title_normal", "title_hard"]),
-    ("title_startselection", draw.SELECTION_INK, ["title_start"]),
+GAME_OVER_INK = (66, 67, 66)
+LEVEL_GLOW_INK = (206, 206, 206)
+LEVEL_INK = (231, 231, 231)
+LEVEL_SIZE = 32
+SHARP = {"tracking": 0.04, "blur": 0.15, "radius": 2.0, "face": draw.TITLE_BOLD}
+TITLE_GROUPS = [
+    {"thin": "title_gameselection", "ink": WHITE, "items": ["title_new", "title_load", "title_setting"]},
+    {"thin": "title_gameselection_dl", "ink": WHITE, "items": ["title_download content"]},
+    {"thin": "title_diffselection", "ink": draw.SELECTION_INK, "items": ["title_easy", "title_normal", "title_hard"]},
+    {"thin": "title_startselection", "ink": draw.SELECTION_INK, "items": ["title_start"]},
 ]
+PACKS = {
+    "2D/TITLE": TITLE_GROUPS,
+    "2D/TITLE_GESTALT_US": TITLE_GROUPS,
+    "2D/GAME_EVENT": [
+        {"thin": "game_over_un", "ink": GAME_OVER_INK, "items": ["game_over_continue", "game_over_exit"], "axis": "x",
+         **SHARP},
+        {"glow": "levelup_levelup_a_D5", "crisp": ["levelup_$levelup_b_D5", "levelup_=ins_0_levelup_b_D5"], **SHARP},
+    ],
+    "2D/BATTLE": [{"thin": "chain_chain", "ink": WHITE, "items": []}],
+}
 THIN_MARGIN = 2
 GLOW_MARGIN = 4
 BOLD_ROWS = 32
-SPRITE_PREFIX = "title_"
+WORD_GAP = 8
 
 
 def centered(rect: tuple, width: int, height: int) -> tuple:
@@ -43,10 +57,10 @@ def fit_size(measure, limits: list, start: int) -> int:
     return size
 
 
-def line_centers(alpha: np.ndarray) -> list:
+def line_centers(alpha: np.ndarray, gap: int = 1) -> list:
     groups = []
     for row in np.where((alpha > 100).any(axis=1))[0]:
-        if groups and row == groups[-1][1] + 1:
+        if groups and row - groups[-1][1] <= gap:
             groups[-1][1] = row
         else:
             groups.append([row, row])
@@ -72,16 +86,24 @@ def textures(index: bytes) -> dict:
 
 
 def sprites(index: bytes) -> dict:
-    nested, _ = next((offset, size) for offset, size in kpky.entries(index)
-                     if offset and index[offset:offset + 4] == b"KPKy")
-    spd = nested + kpky.entries(index[nested:])[0][0]
-    table, count = struct.unpack_from(">II", index, spd + 0xC)
     found = {}
-    for i in range(count):
-        at = spd + table + 32 * i
-        name_at = struct.unpack_from(">I", index, at + 4)[0]
-        name = index[spd + name_at:].split(b"\0")[0].decode("latin-1")
-        found[SPRITE_PREFIX + name] = {"rect_at": at + 16, "rect": struct.unpack_from(">4f", index, at + 16)}
+    for nested, _ in kpky.entries(index):
+        if not nested or index[nested:nested + 4] != b"KPKy":
+            continue
+        entries = kpky.entries(index[nested:])
+        count = struct.unpack_from(">I", index, nested + 4)[0]
+        names_at = nested + 12 + 8 * count + 4
+        for number, (offset, _) in enumerate(entries):
+            spd = nested + offset
+            if index[spd:spd + 4] != b"0DPS":
+                continue
+            base = index[names_at + 32 * number:].split(b"\0")[0].decode("latin-1").removesuffix(".spd")
+            table, total = struct.unpack_from(">II", index, spd + 0xC)
+            for i in range(total):
+                at = spd + table + 32 * i
+                name_at = struct.unpack_from(">I", index, at + 4)[0]
+                name = index[spd + name_at:].split(b"\0")[0].decode("latin-1")
+                found[f"{base}_{name}"] = {"rect_at": at + 16, "rect": struct.unpack_from(">4f", index, at + 16)}
     return found
 
 
@@ -110,57 +132,110 @@ def move_sprite(index: bytearray, sprite: dict, width: int, height: int) -> None
     struct.pack_into(">4f", index, sprite["rect_at"], *centered(sprite["rect"], width, height))
 
 
-def render_group(index: bytearray, pixels: bytearray, thin_name: str, ink: tuple, items: list, labels: dict) -> None:
+def rows_for(height: int, top: int = 0) -> int:
+    return max(32, math.ceil((top + height) / 4) * 4)
+
+
+def render_group(index: bytearray, pixels: bytearray, group: dict, labels: dict) -> int:
     found, rects = textures(index), sprites(index)
-    thin = found[thin_name]
+    thin = found[group["thin"]]
+    items = group["items"]
     bold = [found[name] for name in items]
-    words = [labels[name] for name in items]
+    words = [labels[name] for name in items] or [labels[group["thin"]]]
+    layout = (group.get("tracking", draw.TRACKING), group.get("face", draw.TITLE_THIN))
 
     def measure(size: int) -> list:
         values = []
         for word in words:
-            placement = draw.placement(word, size)
-            values += [draw.measure(word, size)[2] / draw.SCALE, bold_extent(placement)[0]]
+            values.append(draw.measure(word, size, *layout)[2] / draw.SCALE)
+            if bold:
+                values.append(bold_extent(draw.placement(word, size, *layout))[0])
         return values
 
     limits = []
-    for texture in bold:
-        limits += [thin["pitch"] - 2 * THIN_MARGIN, texture["pitch"] - 2 * GLOW_MARGIN]
+    for texture in bold or [None] * len(words):
+        limits.append(thin["pitch"] - 2 * THIN_MARGIN)
+        if texture:
+            limits.append(texture["pitch"] - 2 * GLOW_MARGIN)
     size = fit_size(measure, limits, round(draw.TITLE_SIZE * draw.SCALE))
-    placements = [draw.placement(word, size) for word in words]
+    placements = [draw.placement(word, size, *layout) for word in words]
     for name, texture, placement in zip(items, bold, placements):
         extent_width, extent_height = bold_extent(placement)
         width = min(texture["pitch"], max(texture["width"], math.ceil(extent_width) + 2 * GLOW_MARGIN))
         height = min(BOLD_ROWS, max(texture["height"], math.ceil(extent_height) + 2 * GLOW_MARGIN + 2))
-        write_texture(index, pixels, texture, draw.title(placement, width, height, texture["pitch"]), width, height, 0)
+        image = draw.title(placement, width, height, texture["pitch"], draw.TITLE_INK, group.get("blur", draw.CORE_BLUR),
+                           group.get("radius", draw.GLOW_RADIUS))
+        write_texture(index, pixels, texture, image, width, height, 0)
         move_sprite(index, rects[name], width, height)
-    centers = line_centers(decode_alpha(pixels, thin))
-    spans = [(bottom - top) / draw.SCALE for _, _, _, top, bottom in (draw.measure(word, size) for word in words)]
+    alpha = decode_alpha(pixels, thin)
+    centers = line_centers(alpha)
+    if group.get("axis") == "x":
+        columns = line_centers(alpha.T, WORD_GAP)
+        centers = centers[:1] * len(words)
+    else:
+        columns = [thin["width"] / 2] * len(words)
+    widths = [draw.measure(word, size, *layout)[2] / draw.SCALE for word in words]
+    spans = [(bottom - top) / draw.SCALE for _, _, _, top, bottom in (draw.measure(word, size, *layout) for word in words)]
     pad = max(0, math.ceil(max(max(span / 2 - center, center + span / 2 - thin["height"]) + 1
                                for center, span in zip(centers, spans))))
-    width = min(thin["pitch"], max(thin["width"], math.ceil(max(measure(size)[0::2])) + 2 * THIN_MARGIN))
+    grow = max(max(word / 2 + THIN_MARGIN - column, column + word / 2 + THIN_MARGIN - thin["width"])
+               for word, column in zip(widths, columns))
+    width = min(thin["pitch"], thin["width"] + max(0, math.ceil(2 * grow)))
     height = thin["height"] + 2 * pad
     coverage = Image.new("L", (width * draw.SCALE, height * draw.SCALE), 0)
-    for (scaled, glyphs, baseline), center in zip(placements, centers):
-        shifted = (scaled, glyphs, baseline + (center + pad - height / 2) * draw.SCALE)
+    for (scaled, glyphs, baseline), center, column in zip(placements, centers, columns):
+        dx = (column + (width - thin["width"]) / 2 - width / 2) * draw.SCALE
+        shifted = (scaled, [(ch, x + dx) for ch, x in glyphs],
+                   baseline + (center + pad - height / 2) * draw.SCALE)
         coverage = ImageChops.lighter(coverage, draw.lettering(draw.TITLE_THIN, shifted, width, height))
     coverage = Image.blend(coverage, coverage.filter(ImageFilter.MaxFilter(3)), 0.5).resize((width, height), Image.LANCZOS)
     top = 16 if height < 16 else 0
-    rows = max(32, math.ceil((top + height) / 4) * 4)
-    image = draw.inked(ink, thin["pitch"], coverage, (0, top), rows)
+    image = draw.inked(group["ink"], thin["pitch"], coverage, (0, top), rows_for(height, top))
     write_texture(index, pixels, thin, image, width, height, top)
-    move_sprite(index, rects[thin_name], width, height)
+    move_sprite(index, rects[group["thin"]], width, height)
+    return len(bold) + 1
+
+
+def render_pair(index: bytearray, pixels: bytearray, group: dict, labels: dict) -> int:
+    found, rects = textures(index), sprites(index)
+    glow = found[group["glow"]]
+    crisp = [found[name] for name in group["crisp"]]
+    word = labels[group["glow"]]
+    layout = (group["tracking"], group["face"])
+    limits = [glow["pitch"] - 2 * GLOW_MARGIN, min(texture["pitch"] for texture in crisp) - 2 * THIN_MARGIN]
+    size = fit_size(lambda size: [bold_extent(draw.placement(word, size, *layout))[0]] * 2, limits,
+                    round(LEVEL_SIZE * draw.SCALE))
+    placement = draw.placement(word, size, *layout)
+    extent_width, _ = bold_extent(placement)
+    width = min(glow["pitch"], max(glow["width"], math.ceil(extent_width) + 2 * GLOW_MARGIN))
+    image = draw.title(placement, width, glow["height"], glow["pitch"], LEVEL_GLOW_INK, group["blur"], group["radius"])
+    write_texture(index, pixels, glow, image, width, glow["height"], 0)
+    move_sprite(index, rects[group["glow"]], width, glow["height"])
+    for name, texture in zip(group["crisp"], crisp):
+        width = min(texture["pitch"], max(texture["width"], math.ceil(extent_width) + 2 * THIN_MARGIN))
+        coverage = draw.lettering(draw.TITLE_BOLD, placement, width, texture["height"])
+        coverage = coverage.resize((width, texture["height"]), Image.LANCZOS)
+        image = draw.inked(LEVEL_INK, texture["pitch"], coverage, (0, 0), rows_for(texture["height"]))
+        write_texture(index, pixels, texture, image, width, texture["height"], 0)
+        if name in rects:
+            move_sprite(index, rects[name], width, texture["height"])
+    return 1 + len(crisp)
+
+
+def labelled(group: dict, labels: dict) -> bool:
+    if "glow" in group:
+        return group["glow"] in labels
+    return all(name in labels for name in group["items"] or [group["thin"]])
 
 
 def build(archive: Path, out: Path, labels: dict) -> int:
     drawn = 0
-    for pack in PACKS:
+    for pack, groups in PACKS.items():
         index = bytearray(cpk.read(archive, pack + ".2DV"))
         pixels = bytearray(cpk.read(archive, pack + ".2DP"))
-        for thin_name, ink, items in GROUPS:
-            if all(name in labels for name in items):
-                render_group(index, pixels, thin_name, ink, items, labels)
-                drawn += len(items)
+        for group in groups:
+            if labelled(group, labels):
+                drawn += (render_pair if "glow" in group else render_group)(index, pixels, group, labels)
         for extension, data in ((".2DV", index), (".2DP", pixels)):
             target = out / (pack + extension)
             target.parent.mkdir(parents=True, exist_ok=True)

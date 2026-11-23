@@ -6,3 +6,7 @@ title_easy	Лёгкий
 title_normal	Обычный
 title_hard	Сложный
 title_start	Нажмите кнопку +
+game_over_continue	ПРОДОЛЖИТЬ
+game_over_exit	ВЫЙТИ
+levelup_levelup_a_D5	НОВЫЙ УРОВЕНЬ!
+chain_chain	комбо
