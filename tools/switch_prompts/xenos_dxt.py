@@ -79,8 +79,14 @@ def block_pixels(image: Image.Image, bx: int, by: int) -> list:
     return [image.getpixel((bx * 4 + (i & 3), by * 4 + (i >> 2))) for i in range(16)]
 
 
+def block_log2(kind: int) -> int:
+    return 3 if kind == 1 else 4
+
+
 def encode_block(image: Image.Image, kind: int, bx: int, by: int) -> bytes:
     pixels = block_pixels(image, bx, by)
+    if kind == 1:
+        return swap16(encode_color(pixels))
     alpha = encode_alpha5(pixels) if kind == 5 else encode_alpha3(pixels)
     return swap16(alpha + encode_color(pixels))
 
@@ -100,7 +106,7 @@ def encode(image: Image.Image, kind: int, allocated_height: int) -> bytes:
 def encode_blocks(image: Image.Image, kind: int, left: int, top: int, width: int, height: int) -> list:
     image = image.convert("RGBA")
     pitch = ((image.width // 4) + 31) & ~31
-    return [(tiled_offset(bx, by, pitch, 4), encode_block(image, kind, bx, by))
+    return [(tiled_offset(bx, by, pitch, block_log2(kind)), encode_block(image, kind, bx, by))
             for by in range(top // 4, (top + height + 3) // 4)
             for bx in range(left // 4, (left + width + 3) // 4)]
 
@@ -110,11 +116,13 @@ def decode(data: bytes, width: int, height: int, kind: int) -> Image.Image:
     image = Image.new("RGBA", (width, height))
     for by in range(height // 4):
         for bx in range(width // 4):
-            offset = tiled_offset(bx, by, pitch, 4)
-            block = swap16(data[offset:offset + 16])
-            c0, c1, bits = struct.unpack_from("<HHI", block, 8)
+            offset = tiled_offset(bx, by, pitch, block_log2(kind))
+            block = swap16(data[offset:offset + (8 if kind == 1 else 16)])
+            c0, c1, bits = struct.unpack_from("<HHI", block, 0 if kind == 1 else 8)
             colors = [color_palette(c0, c1)[(bits >> (2 * i)) & 3] for i in range(16)]
-            if kind == 5:
+            if kind == 1:
+                alphas = [255] * 16
+            elif kind == 5:
                 palette = alpha_palette(block[0], block[1])
                 alpha_bits = int.from_bytes(block[2:8], "little")
                 alphas = [palette[(alpha_bits >> (3 * i)) & 7] for i in range(16)]

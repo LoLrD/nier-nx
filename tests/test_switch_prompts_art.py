@@ -101,6 +101,16 @@ class XenosDxtTest(unittest.TestCase):
         self.assertEqual(len(data), 128 * 128)
         self.assertEqual(xenos_dxt.decode(data, 128, 32, 3).tobytes(), image.tobytes())
 
+    def test_dxt1_round_trip_keeps_flat_opaque_blocks(self) -> None:
+        image = flat_image(256, 64, 8)
+        image.putalpha(255)
+        blocks = xenos_dxt.encode_blocks(image, 1, 0, 0, 256, 64)
+        data = bytearray(256 * 64 // 2 * 4)
+        for offset, block in blocks:
+            self.assertEqual(len(block), 8)
+            data[offset:offset + 8] = block
+        self.assertEqual(xenos_dxt.decode(bytes(data), 256, 64, 1).tobytes(), image.tobytes())
+
     def test_blocks_are_tiled_and_byte_swapped(self) -> None:
         image = Image.new("RGBA", (128, 128), (0, 0, 0, 0))
         for y in range(4):
