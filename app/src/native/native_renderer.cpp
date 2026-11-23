@@ -33,6 +33,8 @@
 extern "C" void RexSwitchPerfCount(unsigned id);
 #endif
 
+REXCVAR_DEFINE_INT32(nier_readback_limit_kb, 16, "NieR",
+                     "Native renderer: largest resolve, in KB, that is also written back to guest memory");
 REXCVAR_DEFINE_INT32(nier_shadow_map_shift, 1, "NieR",
                      "Native renderer: the shadow map is drawn at 1/2^N of its size (0 = full size)");
 REXCVAR_DEFINE_INT32(nier_shadow_mask_shift, 1, "NieR",
@@ -670,7 +672,11 @@ void NativeRenderer::Resolve(const RegisterFile& regs) {
   BeginSubmission();
   ScopedMicros timer(stats_.us_resolves);
   targets_->End(submissions_->main());
-  const ResolvePlan plan = PlanResolve(info, regs);
+  ResolvePlan plan = PlanResolve(info, regs);
+  if (plan.readback && plan.dest_pitch * plan.dest_texture_height * 4 >
+                           uint32_t(std::max(0, REXCVAR_GET(nier_readback_limit_kb))) * 1024) {
+    plan.readback = false;
+  }
   submissions_->Mark(GpuCategory::kResolves, LabelId(ResolveId(plan), nullptr, nullptr));
   FlushTracePass();
   trace_.push_back(fmt::format(
