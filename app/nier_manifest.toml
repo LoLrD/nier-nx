@@ -8,3 +8,13 @@ file_path = "../assets/game_root/default.xex"
 out_directory_path = "generated/default"
 
 includes = ["overrides.toml"]
+skip_lr = true
+skip_msr = true
+ctr_as_local = true
+xer_as_local = true
+reserved_as_local = true
+cr_as_local = true
+non_argument_as_local = true
+non_volatile_as_local = true
+args_in_registers = true
+args_in_registers_exclude_file = "args_in_registers_exclude.txt"
