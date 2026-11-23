@@ -106,6 +106,7 @@ class NativeRenderer {
   uint16_t NamedPass(const std::string& name, bool resolve);
   void AppendHeaviest(std::string& line, std::string_view title,
                       std::vector<std::pair<uint64_t, size_t>>& heaviest) const;
+  bool Tracing() const;
   void FlushTracePass();
   void TraceSwap(uint32_t frontbuffer, uint32_t width, uint32_t height);
   uint16_t LabelId(uint16_t pass, const rex::graphics::vulkan::VulkanShader* pixel_shader,

@@ -336,7 +336,7 @@ VkDescriptorSet NativeRenderer::BindTextures(const RegisterFile& regs, const Spi
       out_of_memory = true;
       return VK_NULL_HANDLE;
     }
-    if (bound.resolve_address) {
+    if (bound.resolve_address && Tracing()) {
       trace_pass_.samples.insert({bound.resolve_address, (fetch.size_2d.width + 1) << 16 | (fetch.size_2d.height + 1)});
     }
     images[i] = {VK_NULL_HANDLE, bound.view, VK_IMAGE_LAYOUT_GENERAL};
@@ -630,7 +630,9 @@ NativeRenderer::DrawResult NativeRenderer::RecordDraw(const RegisterFile& regs) 
     submissions_->Mark(GpuCategory::kDraws, LabelId(current_pass_, nullptr, nullptr));
     FlushTracePass();
     trace_pass_.pass = current_pass_;
-    frame_passes_.push_back(current_pass_);
+    if (Tracing()) {
+      frame_passes_.push_back(current_pass_);
+    }
   }
   targets_->Begin(cmd, targets,
                   UsedRows(targets, extents_.EstimateMaxY(true, *prepared->vertex_shader) * targets.scale.y), shift,
@@ -701,13 +703,15 @@ void NativeRenderer::Resolve(const RegisterFile& regs) {
   }
   submissions_->Mark(GpuCategory::kResolves, LabelId(ResolveId(plan), nullptr, nullptr));
   FlushTracePass();
-  trace_.push_back(fmt::format(
-      "resolve [{} {:X} w{} f{}] {},{} {}x{} -> {:08X} f{} {}x{} pitch {}{}{}{}{}{}", plan.source.is_depth ? "d" : "c",
-      plan.source.base_tiles, ExtentFor(plan.source).width, plan.source.format, plan.source_x, plan.source_y,
-      plan.source_width, plan.source_height, plan.dest_address, uint32_t(plan.dest_format), plan.dest_width,
-      plan.dest_height, plan.dest_pitch, plan.copy ? " copy" : "", plan.depth ? " depth" : "",
-      plan.clear_color ? " clear-colour" : "", plan.clear_depth ? " clear-depth" : "", plan.readback ? " readback" : "",
-      plan.dest_swap ? " swap" : ""));
+  if (Tracing()) {
+    trace_.push_back(fmt::format(
+        "resolve [{} {:X} w{} f{}] {},{} {}x{} -> {:08X} f{} {}x{} pitch {}{}{}{}{}{}",
+        plan.source.is_depth ? "d" : "c", plan.source.base_tiles, ExtentFor(plan.source).width, plan.source.format,
+        plan.source_x, plan.source_y, plan.source_width, plan.source_height, plan.dest_address,
+        uint32_t(plan.dest_format), plan.dest_width, plan.dest_height, plan.dest_pitch, plan.copy ? " copy" : "",
+        plan.depth ? " depth" : "", plan.clear_color ? " clear-colour" : "", plan.clear_depth ? " clear-depth" : "",
+        plan.readback ? " readback" : "", plan.dest_swap ? " swap" : ""));
+  }
   resolves_->Resolve(submissions_->main(), plan, submissions_->current());
   after_shadow_map_ = resolves_->TakeShadowMapResolved();
 }
@@ -944,8 +948,10 @@ void NativeRenderer::AppendHeaviest(std::string& line, std::string_view title,
   line.pop_back();
 }
 
+bool NativeRenderer::Tracing() const { return traced_frames_.size() < kTracedFrames; }
+
 void NativeRenderer::FlushTracePass() {
-  if (trace_pass_.draws) {
+  if (trace_pass_.draws && Tracing()) {
     std::string samples;
     for (const auto& [address, size] : trace_pass_.samples) {
       samples += fmt::format(" {:08X} {}x{}", address, size >> 16, size & 0xFFFF);
@@ -961,6 +967,9 @@ void NativeRenderer::FlushTracePass() {
 
 void NativeRenderer::TraceSwap(uint32_t frontbuffer, uint32_t width, uint32_t height) {
   FlushTracePass();
+  if (!Tracing()) {
+    return;
+  }
   trace_.push_back(fmt::format("swap {:08X} {}x{}", frontbuffer, width, height));
   std::vector<uint16_t> signature = frame_passes_;
   std::sort(signature.begin(), signature.end());
