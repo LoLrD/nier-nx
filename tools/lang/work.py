@@ -96,6 +96,21 @@ def fix_issues(source: list, fixes: list) -> list:
     return found
 
 
+def spread(rows: list, fixes: dict) -> dict:
+    groups = {}
+    for row in rows:
+        if len(row["en"]) >= REPEAT_LENGTH:
+            groups.setdefault((row["en"], speaker(row["id"])), []).append((row["path"], row["key"]))
+    result = dict(fixes)
+    for row in rows:
+        place = (row["path"], row["key"])
+        if place not in fixes or len(row["en"]) < REPEAT_LENGTH:
+            continue
+        for other in groups[(row["en"], speaker(row["id"]))]:
+            result.setdefault(other, fixes[place])
+    return result
+
+
 def apply_fixes(existing: dict, fixes: dict) -> dict:
     return {**existing, **fixes}
 
@@ -171,11 +186,18 @@ def check_fixes(language: str, number: str) -> int:
 
 
 def apply_review(language: str) -> int:
-    grouped, categories = {}, Counter()
-    for fixes in sorted((WORK / language / "audit" / "fixes").glob("*.tsv")):
-        for row in read_rows(fixes, 5):
-            grouped.setdefault(row[0], {})[row[1]] = row[2]
+    fixes, categories, rows = {}, Counter(), []
+    for source in sorted((WORK / language / "audit" / "source").glob("*.tsv")):
+        rows += [dict(zip(("path", "key", "id", "en"), row)) for row in read_rows(source, 4)]
+    for done in sorted((WORK / language / "audit" / "fixes").glob("*.tsv")):
+        for row in read_rows(done, 5):
+            fixes[(row[0], row[1])] = row[2]
             categories[row[3] if len(row) > 3 else ""] += 1
+    spreaded = spread(rows, fixes)
+    grouped = {}
+    for (path, key), text in spreaded.items():
+        grouped.setdefault(path, {})[key] = text
+    print(f"{len(spreaded) - len(fixes)} repeated lines follow the fixes")
     for path, rows in grouped.items():
         table = ROOT / "lang" / language / (path + ".tsv")
         table.write_text(textfiles.format_table(apply_fixes(textfiles.parse_table(table.read_text()), rows)))

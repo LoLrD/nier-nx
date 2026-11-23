@@ -70,6 +70,15 @@ class WorkTest(unittest.TestCase):
         self.assertEqual(work.apply_fixes({"1:15": "Старое", "2:15": "Два"}, {"1:15": "Новое"}),
                          {"1:15": "Новое", "2:15": "Два"})
 
+    def test_a_fix_spreads_to_the_same_long_line_of_the_same_speaker(self) -> None:
+        line = "Perhaps we should pay a visit to the old woman."
+        rows = [dict(entry("1:15", "EID_1_BOOKW010_Y", 1), en=line, ru="Старое"),
+                dict(entry("2:15", "EID_2_BOOKW010_Y", 1), en=line, ru="Старое"),
+                dict(entry("3:15", "EID_3_KAINE010_Y", 1), en=line, ru="Её"),
+                dict(entry("4:15", "EID_4_BOOKW010_Y", 1), en="Short line.", ru="Коротко")]
+        fixes = {(TKD, "1:15"): "Новое"}
+        self.assertEqual(work.spread(rows, fixes), {(TKD, "1:15"): "Новое", (TKD, "2:15"): "Новое"})
+
     def test_russian_interrobang_order(self) -> None:
         self.assertEqual(work.russian_punctuation("Что!? <PAGE>Да!?!"), "Что?! <PAGE>Да?!!")
 
