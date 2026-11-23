@@ -10,8 +10,8 @@ PREVIEW = ROOT / "out" / "switch_prompts"
 HEADER = ROOT / "app" / "src" / "nier_switch_prompts_data.h"
 ROUNDED = "/System/Library/Fonts/Supplemental/Arial Rounded Bold.ttf"
 CHALK = "/System/Library/Fonts/Supplemental/Chalkduster.ttf"
-SERIF = "/System/Library/Fonts/Supplemental/Georgia Bold.ttf"
-SERIF_THIN = "/System/Library/Fonts/Supplemental/Georgia.ttf"
+TITLE_BOLD = "/System/Library/Fonts/Supplemental/Times New Roman Bold.ttf"
+TITLE_THIN = "/System/Library/Fonts/Supplemental/Times New Roman.ttf"
 
 SCALE = 4
 CELL = 32
@@ -26,6 +26,13 @@ TITLE_INK = (232, 232, 232)
 SELECTION_INK = (76, 77, 76)
 CHALK_INK = (255, 255, 255)
 CHALK_ALPHA = 170
+TITLE_SIZE = 20.5
+TRACKING = 0.08
+WORD_GAP = 0.68
+CORE_BLUR = 0.4
+GLOW_RADIUS = 2.5
+GLOW_GAIN = 3
+GLOW_CAP = 190
 EMBLEM_CELL = (2, 5)
 SKILL_LABELS = [("L", 31, 30), ("ZL", 32, 30), ("R", 37, 27), ("ZR", 34, 27)]
 TITLES = [
@@ -185,48 +192,46 @@ def skill_label(label: str, width: int, height: int) -> Image.Image:
     return inked(CHALK_INK, 128, small, (0, 0))
 
 
-def title(label: str, width: int, height: int, pitch: int) -> tuple:
-    big_w, big_h = width * SCALE, height * SCALE
-    size = 120
-    while size > 20:
-        font = ImageFont.truetype(SERIF, size)
-        tracking = size * 0.14
-        widths = [font.getlength(ch) + (tracking * 2.2 if ch == " " else tracking) for ch in label]
-        ascent, descent = font.getmetrics()
-        if sum(widths) <= big_w - 8 * SCALE and ascent + descent <= big_h - 2 * SCALE:
+def layout(label: str, width: int, height: int) -> tuple:
+    size = TITLE_SIZE * SCALE
+    while True:
+        font = ImageFont.truetype(TITLE_THIN, round(size))
+        advances = [size * WORD_GAP if ch == " " else font.getlength(ch) + size * TRACKING for ch in label]
+        total = sum(advances) - size * TRACKING
+        _, top, _, bottom = font.getbbox(label, anchor="ls")
+        if total <= (width - 2) * SCALE and bottom - top <= height * SCALE:
             break
-        size -= 2
-    coverage = Image.new("L", (big_w, big_h), 0)
+        size -= 1
+    x = -total / 2
+    glyphs = []
+    for ch, advance in zip(label, advances):
+        if ch != " ":
+            glyphs.append((ch, x + font.getlength(ch) / 2))
+        x += advance
+    return round(size), glyphs, -(top + bottom) / 2
+
+
+def lettering(font_path: str, placement: tuple, width: int, height: int) -> Image.Image:
+    size, glyphs, baseline = placement
+    font = ImageFont.truetype(font_path, size)
+    coverage = Image.new("L", (width * SCALE, height * SCALE), 0)
     draw = ImageDraw.Draw(coverage)
-    x = (big_w - sum(widths)) / 2
-    for ch, advance in zip(label, widths):
-        draw.text((x, big_h / 2), ch, font=font, fill=255, anchor="lm")
-        x += advance
-    glow = coverage.filter(ImageFilter.GaussianBlur(3 * SCALE)).point(lambda a: min(255, int(a * 1.6)))
+    for ch, x in glyphs:
+        draw.text((width * SCALE / 2 + x, height * SCALE / 2 + baseline), ch, font=font, fill=255, anchor="ms")
+    return coverage
+
+
+def title(placement: tuple, width: int, height: int, pitch: int) -> Image.Image:
+    coverage = lettering(TITLE_BOLD, placement, width, height).filter(ImageFilter.GaussianBlur(CORE_BLUR * SCALE))
+    glow = coverage.filter(ImageFilter.GaussianBlur(GLOW_RADIUS * SCALE)).point(lambda a: min(GLOW_CAP, int(a * GLOW_GAIN)))
     small = ImageChops.screen(coverage, glow).resize((width, height), Image.LANCZOS)
-    return inked(TITLE_INK, pitch, small, (0, 0)), sum(widths) / big_w
+    return inked(TITLE_INK, pitch, small, (0, 0))
 
 
-def selection(label: str, width: int, height: int, pitch: int, top: int, fraction: float) -> Image.Image:
-    big_w, big_h = width * SCALE, height * SCALE
-    size = 100
-    while size > 12:
-        font = ImageFont.truetype(SERIF_THIN, size)
-        tracking = size * 0.16
-        widths = [font.getlength(ch) + (tracking * 2.2 if ch == " " else tracking) for ch in label]
-        ascent, descent = font.getmetrics()
-        if sum(widths) <= big_w - 2 * SCALE and ascent + descent <= big_h + 2 * SCALE:
-            break
-        size -= 2
-    layer = Image.new("L", (big_w, big_h), 0)
-    draw = ImageDraw.Draw(layer)
-    x = 0.0
-    for ch, advance in zip(label, widths):
-        draw.text((x, big_h / 2), ch, font=font, fill=255, anchor="lm")
-        x += advance
-    text = layer.crop((0, 0, int(x), big_h))
-    target = max(1, round(fraction * width))
-    return inked(SELECTION_INK, pitch, text.resize((target, height), Image.LANCZOS), ((width - target) // 2, top))
+def selection(placement: tuple, width: int, height: int, pitch: int, top: int) -> Image.Image:
+    coverage = lettering(TITLE_THIN, placement, width, height)
+    coverage = Image.blend(coverage, coverage.filter(ImageFilter.MaxFilter(3)), 0.5).resize((width, height), Image.LANCZOS)
+    return inked(SELECTION_INK, pitch, coverage, (0, top))
 
 
 def blocks(name: str, items: list) -> str:
@@ -261,13 +266,13 @@ def main() -> int:
         labels.append(image)
         parts.append("\n" + blocks(f"kSkill{label}", xenos_dxt.encode_blocks(image, 3, 0, 0, width, height)))
     titles = []
-    fractions = {}
+    placements = {label: layout(label, width, height) for _, label, width, height, _, _ in SELECTIONS}
     for name, label, width, height, pitch in TITLES:
-        image, fractions[label] = title(label, width, height, pitch)
+        image = title(placements[label], width, height, pitch)
         titles.append(image.crop((0, 0, width, height)))
         parts.append("\n" + blocks(name, xenos_dxt.encode_blocks(image, 3, 0, 0, width, height)))
     for name, label, width, height, pitch, top in SELECTIONS:
-        image = selection(label, width, height, pitch, top, fractions[label])
+        image = selection(placements[label], width, height, pitch, top)
         titles.append(image.crop((0, top, width, top + height)))
         parts.append("\n" + blocks(name, xenos_dxt.encode_blocks(image, 3, 0, top, width, height)))
     parts.append("\n}  // namespace nier::switch_prompts\n")

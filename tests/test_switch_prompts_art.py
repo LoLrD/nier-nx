@@ -32,15 +32,49 @@ def visible(image: Image.Image, kind: int, height: int) -> list:
     return [tuple(data[i:i + 4]) for i in range(0, len(data), 4) if data[i + 3] > 16]
 
 
+def alpha_profile(image: Image.Image, rows: bool) -> list:
+    alpha = image.getchannel("A")
+    data = alpha.tobytes()
+    width, height = alpha.size
+    if rows:
+        return [sum(data[y * width:(y + 1) * width]) for y in range(height)]
+    return [sum(data[y * width + x] for y in range(height)) for x in range(width)]
+
+
+def best_shift(thin: list, bold: list, offset: int, start: int, end: int) -> int:
+    def score(shift: int) -> int:
+        return sum(thin[x] * bold[x + offset + shift] for x in range(start, end) if 0 <= x + offset + shift < len(bold))
+    return max(range(-4, 5), key=lambda shift: (score(shift), -abs(shift)))
+
+
 class SwitchArtTest(unittest.TestCase):
+    def test_title_layers_line_up_letter_by_letter(self) -> None:
+        for _, label, width, height, pitch in draw.TITLES:
+            thin_spec = next(spec for spec in draw.SELECTIONS if spec[1] == label)
+            _, _, thin_width, thin_height, thin_pitch, top = thin_spec
+            placement = draw.layout(label, thin_width, thin_height)
+            bold = draw.title(placement, width, height, pitch).crop((0, 0, width, height))
+            thin = draw.selection(placement, thin_width, thin_height, thin_pitch, top)
+            thin = thin.crop((0, top, thin_width, top + thin_height))
+            columns = alpha_profile(thin, False)
+            ink = [x for x, value in enumerate(columns) if value]
+            third = (ink[-1] - ink[0]) // 3
+            for window in range(3):
+                start = ink[0] + window * third
+                shift = best_shift(columns, alpha_profile(bold, False), (width - thin_width) // 2, start, start + third)
+                self.assertLessEqual(abs(shift), 1, f"{label}: part {window} is off by {shift}")
+            shift = best_shift(alpha_profile(thin, True), alpha_profile(bold, True), (height - thin_height) // 2, 0,
+                               thin_height)
+            self.assertLessEqual(abs(shift), 1, f"{label}: rows are off by {shift}")
+
     def test_title_glow_is_light_like_the_original(self) -> None:
-        image, _ = draw.title("Press the + Button", 265, 26, 384)
+        image = draw.title(draw.layout("Press the + Button", 255, 14), 265, 26, 384)
         pixels = visible(image, 3, 32)
         self.assertGreater(len(pixels), 1000)
         self.assertGreaterEqual(min(min(p[:3]) for p in pixels), 200)
 
     def test_selection_layer_is_dark_grey_with_full_coverage(self) -> None:
-        image = draw.selection("Press the + Button", 255, 14, 256, 0, 0.9)
+        image = draw.selection(draw.layout("Press the + Button", 255, 14), 255, 14, 256, 0)
         pixels = visible(image, 3, 14)
         self.assertGreater(len(pixels), 300)
         self.assertLessEqual(max(max(p[:3]) for p in pixels), 90)
