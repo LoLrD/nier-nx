@@ -14,6 +14,8 @@ namespace nier::native {
 struct SampleScale {
   uint32_t x;
   uint32_t y;
+
+  bool operator==(const SampleScale&) const = default;
 };
 
 struct TargetKey {
@@ -38,7 +40,11 @@ struct TargetSet {
   std::array<std::optional<TargetKey>, 4> color;
   std::optional<TargetKey> depth;
   SampleScale scale;
+
+  bool operator==(const TargetSet&) const = default;
 };
+
+enum class PassKind : uint8_t { kOther, kShadowMap, kScreen640 };
 
 SampleScale ScaleFor(rex::graphics::xenos::MsaaSamples msaa);
 TargetExtent ExtentFor(const TargetKey& key);
@@ -59,7 +65,7 @@ struct TargetPoint {
 
 TargetPoint TilePosition(const TargetKey& key, uint32_t tile);
 uint32_t UsedRows(const TargetSet& set, uint32_t estimated_rows);
-uint32_t DownscaleShift(const TargetSet& set, uint32_t shadow_map_shift, uint32_t shadow_mask_shift);
+PassKind KindOf(const TargetSet& set);
 
 class EdramOwnership {
  public:

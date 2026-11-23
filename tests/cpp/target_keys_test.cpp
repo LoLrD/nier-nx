@@ -14,7 +14,8 @@ using nier::native::TargetPoint;
 using nier::native::TilePosition;
 using nier::native::TargetSet;
 using nier::native::UsedRows;
-using nier::native::DownscaleShift;
+using nier::native::KindOf;
+using nier::native::PassKind;
 using nier::native::ExtentFor;
 using nier::native::TargetKey;
 using nier::native::TargetsFor;
@@ -167,13 +168,15 @@ int main() {
     TargetSet depth_768{};
     depth_768.depth = TargetKey{0, 10, true, 0};
     depth_768.scale = {1, 1};
-    Check(DownscaleShift(shadow_map, 1, 2) == 1, "shadow_map_pass_uses_the_map_shift");
-    Check(DownscaleShift(depth_clear, 1, 2) == 0, "multisampled_depth_only_pass_keeps_full_size");
-    Check(DownscaleShift(scene_1024, 1, 2) == 0, "scene_with_the_shadow_map_depth_keeps_full_size");
-    Check(DownscaleShift(scene_768, 1, 2) == 0, "scene_keeps_full_size");
-    Check(DownscaleShift(shadow_mask, 1, 2) == 2, "shadow_mask_pass_uses_the_mask_shift");
-    Check(DownscaleShift(depth_768, 1, 2) == 0, "narrow_depth_only_pass_keeps_full_size");
-    Check(DownscaleShift(shadow_map, 0, 0) == 0, "zero_shifts_turn_it_off");
+    TargetSet shadow_mask_msaa = shadow_mask;
+    shadow_mask_msaa.scale = {2, 2};
+    Check(KindOf(shadow_map) == PassKind::kShadowMap, "wide_depth_only_pass_is_the_shadow_map");
+    Check(KindOf(depth_clear) == PassKind::kOther, "multisampled_depth_only_pass_is_not_the_shadow_map");
+    Check(KindOf(scene_1024) == PassKind::kOther, "scene_with_the_shadow_map_depth_is_not_the_shadow_map");
+    Check(KindOf(scene_768) == PassKind::kOther, "scene_at_768_is_another_pass");
+    Check(KindOf(shadow_mask) == PassKind::kScreen640, "colour_and_depth_640_wide_may_be_the_shadow_mask");
+    Check(KindOf(shadow_mask_msaa) == PassKind::kOther, "multisampled_640_pass_is_another_pass");
+    Check(KindOf(depth_768) == PassKind::kOther, "narrow_depth_only_pass_is_another_pass");
   }
   return failures ? 1 : 0;
 }

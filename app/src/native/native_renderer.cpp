@@ -338,6 +338,7 @@ VkDescriptorSet NativeRenderer::BindTextures(const RegisterFile& regs, const Spi
     }
     if (bound.resolve_address) {
       trace_pass_.samples.insert({bound.resolve_address, (fetch.size_2d.width + 1) << 16 | (fetch.size_2d.height + 1)});
+      samples_shadow_map_ |= resolves_->IsShadowMap(bound.resolve_address);
     }
     images[i] = {VK_NULL_HANDLE, bound.view, VK_IMAGE_LAYOUT_GENERAL};
     handles[i + 1] = uint64_t(bound.view);
@@ -383,9 +384,15 @@ VkDescriptorSet NativeRenderer::EmptyTextureSet() {
   return submissions_->AllocateShared(layout, XXH3_64bits(&layout, sizeof(layout)), fresh);
 }
 
-uint32_t NativeRenderer::DownscaleFor(const TargetSet& targets) const {
-  return DownscaleShift(targets, uint32_t(std::clamp(REXCVAR_GET(nier_shadow_map_shift), 0, 3)),
-                        uint32_t(std::clamp(REXCVAR_GET(nier_shadow_mask_shift), 0, 3)));
+uint32_t NativeRenderer::DownscaleFor(const TargetSet& targets, bool samples_shadow_map) const {
+  switch (KindOf(targets)) {
+    case PassKind::kShadowMap:
+      return uint32_t(std::clamp(REXCVAR_GET(nier_shadow_map_shift), 0, 3));
+    case PassKind::kScreen640:
+      return samples_shadow_map ? uint32_t(std::clamp(REXCVAR_GET(nier_shadow_mask_shift), 0, 3)) : 0;
+    default:
+      return 0;
+  }
 }
 
 VkRect2D NativeRenderer::SetDynamicState(const RegisterFile& regs, const draw_util::ViewportInfo& viewport_info,
@@ -518,14 +525,6 @@ NativeRenderer::DrawResult NativeRenderer::RecordDraw(const RegisterFile& regs) 
     ++stats_.skipped_target;
     return DrawResult::kDone;
   }
-  const uint32_t shift = DownscaleFor(targets);
-  if (shift && prepared->pixel_position) {
-    prepared = shaders_.PrepareDraw(regs, draw.vs_type, scale.x, scale.y, shift);
-    if (!prepared) {
-      ++stats_.skipped_shader;
-      return DrawResult::kDone;
-    }
-  }
   BeginSubmission();
   if (!submissions_->HasUniformSpace(kDrawUniformBytes)) {
     Flush();
@@ -553,12 +552,25 @@ NativeRenderer::DrawResult NativeRenderer::RecordDraw(const RegisterFile& regs) 
   if (vs_set == VK_NULL_HANDLE) {
     return out_of_memory ? DrawResult::kOutOfMemory : DrawResult::kRetry;
   }
+  samples_shadow_map_ = false;
   const VkDescriptorSet ps_set =
       prepared->pixel_shader
           ? BindTextures(regs, *prepared->pixel_shader, true, texture_info, ps_textures, ps_samplers, out_of_memory)
           : EmptyTextureSet();
   if (ps_set == VK_NULL_HANDLE) {
     return out_of_memory ? DrawResult::kOutOfMemory : DrawResult::kRetry;
+  }
+  if (shift_targets_ != targets) {
+    shift_targets_ = targets;
+    pass_shift_ = DownscaleFor(targets, samples_shadow_map_);
+  }
+  const uint32_t shift = pass_shift_;
+  if (shift && prepared->pixel_position) {
+    prepared = shaders_.PrepareDraw(regs, draw.vs_type, scale.x, scale.y, shift);
+    if (!prepared) {
+      ++stats_.skipped_shader;
+      return DrawResult::kDone;
+    }
   }
   const auto& properties = device_->properties();
   draw_util::ViewportInfo viewport;
@@ -615,7 +627,8 @@ NativeRenderer::DrawResult NativeRenderer::RecordDraw(const RegisterFile& regs) 
     frame_passes_.push_back(current_pass_);
   }
   targets_->Begin(cmd, targets,
-                  UsedRows(targets, extents_.EstimateMaxY(true, *prepared->vertex_shader) * targets.scale.y), shift);
+                  UsedRows(targets, extents_.EstimateMaxY(true, *prepared->vertex_shader) * targets.scale.y), shift,
+                  KindOf(targets) == PassKind::kShadowMap);
   if (!targets_->rendering()) {
     ++stats_.skipped_target;
     return DrawResult::kDone;
@@ -665,6 +678,7 @@ void NativeRenderer::Resolve(const RegisterFile& regs) {
   if (!valid_) {
     return;
   }
+  shift_targets_.reset();
   draw_util::ResolveInfo info;
   if (!draw_util::GetResolveInfo(regs, *memory_, 1, 1, false, false, info)) {
     return;

@@ -15,7 +15,7 @@ namespace {
 
 constexpr uint32_t kMaxHeightSamples = 8192;
 constexpr uint32_t kShadowMapPitchTiles = 13;
-constexpr uint32_t kShadowMaskPitchTiles = 8;
+constexpr uint32_t kScreen640PitchTiles = 8;
 
 }  // namespace
 
@@ -144,18 +144,18 @@ uint32_t UsedRows(const TargetSet& set, uint32_t estimated_rows) {
   return rows;
 }
 
-uint32_t DownscaleShift(const TargetSet& set, uint32_t shadow_map_shift, uint32_t shadow_mask_shift) {
+PassKind KindOf(const TargetSet& set) {
   if (set.scale.x != 1 || set.scale.y != 1 || !set.depth) {
-    return 0;
+    return PassKind::kOther;
   }
   const bool any_color = std::any_of(set.color.begin(), set.color.end(), [](const auto& color) { return bool(color); });
   if (!any_color) {
-    return set.depth->pitch_tiles >= kShadowMapPitchTiles ? shadow_map_shift : 0;
+    return set.depth->pitch_tiles >= kShadowMapPitchTiles ? PassKind::kShadowMap : PassKind::kOther;
   }
   const auto& color = set.color[0];
-  return color && color->pitch_tiles == kShadowMaskPitchTiles && set.depth->pitch_tiles == kShadowMaskPitchTiles
-             ? shadow_mask_shift
-             : 0;
+  return color && color->pitch_tiles == kScreen640PitchTiles && set.depth->pitch_tiles == kScreen640PitchTiles
+             ? PassKind::kScreen640
+             : PassKind::kOther;
 }
 
 }  // namespace nier::native

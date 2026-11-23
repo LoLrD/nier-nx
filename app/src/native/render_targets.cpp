@@ -197,7 +197,8 @@ bool RenderTargets::Begins(const TargetSet& set) const {
   return !rendering_ || !(Bound{set.color, set.depth} == bound_);
 }
 
-void RenderTargets::Begin(VkCommandBuffer command_buffer, const TargetSet& set, uint32_t rows, uint32_t shift) {
+void RenderTargets::Begin(VkCommandBuffer command_buffer, const TargetSet& set, uint32_t rows, uint32_t shift,
+                          bool shadow_map) {
   if (Begins(set)) {
     End(command_buffer);
     claimed_rows_ = 0;
@@ -207,16 +208,17 @@ void RenderTargets::Begin(VkCommandBuffer command_buffer, const TargetSet& set, 
     End(command_buffer);
   }
   const Bound bound{set.color, set.depth};
-  Own(command_buffer, bound, claimed_rows_, rows, shift);
+  Own(command_buffer, bound, claimed_rows_, rows, shift, shadow_map);
   claimed_rows_ = std::max(claimed_rows_, rows);
   BeginRendering(command_buffer, bound);
 }
 
 void RenderTargets::Own(VkCommandBuffer command_buffer, const Bound& bound, uint32_t from_rows, uint32_t to_rows,
-                        uint32_t shift) {
+                        uint32_t shift, bool shadow_map) {
   if (bound.depth) {
     if (Target* depth = Get(command_buffer, *bound.depth)) {
       depth->shift = shift;
+      depth->shadow_map = shadow_map;
       edram_.Write(*bound.depth, 0, from_rows, depth->extent.width, std::min(to_rows, depth->extent.height),
                    depth->owner, ++sequence_);
     }
