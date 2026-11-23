@@ -14,6 +14,9 @@ set(NIER_SOURCES
     src/nier_input_driver.cpp
     src/nier_input_script.cpp
     src/nier_resolution.cpp
+    src/nier_switch_prompts.cpp
+    src/cpk_toc.cpp
+    src/read_patches.cpp
     src/native/draw_constants.cpp
     src/native/gpu_progress.cpp
     src/native/gpu_registers.cpp
