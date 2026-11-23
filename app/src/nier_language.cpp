@@ -3,12 +3,13 @@
 #include <fstream>
 #include <iterator>
 #include <string>
+#include <unordered_set>
 
 #include <rex/cvar.h>
 
 REXCVAR_DEFINE_STRING(nier_language_dir, "", "NieR",
-                      "Folder with translated game texts and fonts laid out like the archive (TEXT/..., FONT/...); "
-                      "the texts replace the English ones. Empty keeps the original texts");
+                      "Folder with translated game files laid out like the archive and listed in files.txt; the "
+                      "texts replace the English ones. Empty keeps the original files");
 
 namespace nier {
 
@@ -18,8 +19,16 @@ std::vector<TranslatedFile> LoadTranslatedFiles(std::span<const CpkFile> toc) {
   if (dir.empty()) {
     return files;
   }
+  std::ifstream manifest(dir + "/files.txt");
+  std::unordered_set<std::string> listed;
+  for (std::string line; std::getline(manifest, line);) {
+    if (!line.empty() && line.back() == '\r') {
+      line.pop_back();
+    }
+    listed.insert(line);
+  }
   for (const CpkFile& file : toc) {
-    if (!file.path.starts_with("TEXT/") && !file.path.starts_with("FONT/")) {
+    if (!listed.contains(file.path)) {
       continue;
     }
     std::ifstream in(dir + "/" + file.path, std::ios::binary);

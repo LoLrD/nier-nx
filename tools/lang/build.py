@@ -32,6 +32,10 @@ def main() -> int:
         print(f"{path}: {len(translations)} of {len(english)} texts translated")
     glyphs = font.build(args.archive, args.out / args.language)
     print(f"{font.MAIN}, {font.VRAM}: {glyphs} glyphs drawn")
+    target = args.out / args.language
+    listed = sorted(path.relative_to(target).as_posix() for path in target.rglob("*")
+                    if path.is_file() and path.name != "files.txt")
+    (target / "files.txt").write_text("".join(f"{path}\n" for path in listed))
     return 1 if failed else 0
 
 
