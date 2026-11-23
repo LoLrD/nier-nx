@@ -124,11 +124,7 @@ void Resolves::Resolve(VkCommandBuffer command_buffer, const ResolvePlan& plan, 
       if (plan.depth) {
         CopyDepth(command_buffer, plan, *source, *dest, *raw);
         FullBarrier(device_, command_buffer);
-        if (source->shadow_map) {
-          shadow_maps_.insert(plan.dest_address);
-        } else {
-          shadow_maps_.erase(plan.dest_address);
-        }
+        shadow_map_resolved_ |= source->shadow_map;
         Publish(plan, *raw, 4, submission);
         ++stats_.depth_copies;
       } else if (const auto last = last_copies_.find(plan.dest_address);

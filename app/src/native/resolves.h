@@ -2,7 +2,6 @@
 
 #include <cstdint>
 #include <unordered_map>
-#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -46,7 +45,7 @@ class Resolves {
                     VkFormat* format = nullptr) const;
   const Stats& stats() const { return stats_; }
   VkPipeline depth_pipeline() const { return depth_pipeline_; }
-  bool IsShadowMap(uint32_t address) const { return shadow_maps_.contains(address); }
+  bool TakeShadowMapResolved() { return std::exchange(shadow_map_resolved_, false); }
 
  private:
   struct DestImage {
@@ -111,7 +110,7 @@ class Resolves {
   std::unordered_map<VkImageView, VkDescriptorSet> depth_sets_;
   std::vector<RetiredImage> retired_;
   std::unordered_map<uint32_t, LastCopy> last_copies_;
-  std::unordered_set<uint32_t> shadow_maps_;
+  bool shadow_map_resolved_ = false;
   uint64_t frame_ = 0;
   uint64_t bytes_ = 0;
   Stats stats_;

@@ -338,7 +338,6 @@ VkDescriptorSet NativeRenderer::BindTextures(const RegisterFile& regs, const Spi
     }
     if (bound.resolve_address) {
       trace_pass_.samples.insert({bound.resolve_address, (fetch.size_2d.width + 1) << 16 | (fetch.size_2d.height + 1)});
-      samples_shadow_map_ |= resolves_->IsShadowMap(bound.resolve_address);
     }
     images[i] = {VK_NULL_HANDLE, bound.view, VK_IMAGE_LAYOUT_GENERAL};
     handles[i + 1] = uint64_t(bound.view);
@@ -384,12 +383,12 @@ VkDescriptorSet NativeRenderer::EmptyTextureSet() {
   return submissions_->AllocateShared(layout, XXH3_64bits(&layout, sizeof(layout)), fresh);
 }
 
-uint32_t NativeRenderer::DownscaleFor(const TargetSet& targets, bool samples_shadow_map) const {
+uint32_t NativeRenderer::DownscaleFor(const TargetSet& targets, bool after_shadow_map) const {
   switch (KindOf(targets)) {
     case PassKind::kShadowMap:
       return uint32_t(std::clamp(REXCVAR_GET(nier_shadow_map_shift), 0, 3));
     case PassKind::kScreen640:
-      return samples_shadow_map ? uint32_t(std::clamp(REXCVAR_GET(nier_shadow_mask_shift), 0, 3)) : 0;
+      return after_shadow_map ? uint32_t(std::clamp(REXCVAR_GET(nier_shadow_mask_shift), 0, 3)) : 0;
     default:
       return 0;
   }
@@ -552,7 +551,6 @@ NativeRenderer::DrawResult NativeRenderer::RecordDraw(const RegisterFile& regs) 
   if (vs_set == VK_NULL_HANDLE) {
     return out_of_memory ? DrawResult::kOutOfMemory : DrawResult::kRetry;
   }
-  samples_shadow_map_ = false;
   const VkDescriptorSet ps_set =
       prepared->pixel_shader
           ? BindTextures(regs, *prepared->pixel_shader, true, texture_info, ps_textures, ps_samplers, out_of_memory)
@@ -562,7 +560,8 @@ NativeRenderer::DrawResult NativeRenderer::RecordDraw(const RegisterFile& regs) 
   }
   if (shift_targets_ != targets) {
     shift_targets_ = targets;
-    pass_shift_ = DownscaleFor(targets, samples_shadow_map_);
+    pass_shift_ = DownscaleFor(targets, after_shadow_map_);
+    after_shadow_map_ = false;
   }
   const uint32_t shift = pass_shift_;
   if (shift && prepared->pixel_position) {
@@ -701,6 +700,7 @@ void NativeRenderer::Resolve(const RegisterFile& regs) {
       plan.clear_color ? " clear-colour" : "", plan.clear_depth ? " clear-depth" : "", plan.readback ? " readback" : "",
       plan.dest_swap ? " swap" : ""));
   resolves_->Resolve(submissions_->main(), plan, submissions_->current());
+  after_shadow_map_ |= resolves_->TakeShadowMapResolved();
 }
 
 void NativeRenderer::PresentInto(VkCommandBuffer cmd, VkImage output, VkImageView output_view, bool written_before,
