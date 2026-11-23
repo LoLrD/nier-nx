@@ -144,4 +144,15 @@ bool OlderThanNewest(const std::map<uint32_t, ResolveRecord>& records, uint32_t 
   return it != records.end() && published_frame < it->second.frame;
 }
 
+bool SameColorCopy(const ResolvePlan& earlier, const ResolvePlan& later) {
+  const auto plain = [](const ResolvePlan& plan) { return plan.copy && !plan.depth && !plan.readback; };
+  return plain(earlier) && plain(later) && earlier.source == later.source && earlier.source_x == later.source_x &&
+         earlier.source_y == later.source_y && earlier.source_width == later.source_width &&
+         earlier.source_height == later.source_height && earlier.dest_address == later.dest_address &&
+         earlier.dest_format == later.dest_format && earlier.dest_endian == later.dest_endian &&
+         earlier.dest_swap == later.dest_swap && earlier.dest_x == later.dest_x && earlier.dest_y == later.dest_y &&
+         earlier.dest_width == later.dest_width && earlier.dest_height == later.dest_height &&
+         earlier.dest_pitch == later.dest_pitch && earlier.dest_texture_height == later.dest_texture_height;
+}
+
 }  // namespace nier::native

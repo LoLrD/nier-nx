@@ -33,6 +33,7 @@ class RenderTargets {
     uint32_t owner = 0;
     uint64_t rendered = 0;
     uint32_t shift = 0;
+    uint64_t writes = 0;
   };
   struct Stats {
     uint64_t transfers = 0;

@@ -47,6 +47,7 @@ struct PendingRange {
 ResolvePlan PlanResolve(const rex::graphics::draw_util::ResolveInfo& info, const rex::graphics::RegisterFile& regs);
 uint32_t ResolveGuestBytes(uint32_t width, uint32_t height, uint32_t bytes_per_pixel, uint32_t address);
 bool PresentableResolve(const ResolvePlan& plan);
+bool SameColorCopy(const ResolvePlan& earlier, const ResolvePlan& later);
 bool ShouldWriteBack(const PendingRange& range, uint64_t current_hash);
 void CarryWrittenHash(PendingRange& later, const PendingRange& written, uint64_t written_hash);
 

@@ -126,10 +126,19 @@ void Resolves::Resolve(VkCommandBuffer command_buffer, const ResolvePlan& plan, 
         FullBarrier(device_, command_buffer);
         Publish(plan, *raw, 4, submission);
         ++stats_.depth_copies;
+      } else if (const auto last = last_copies_.find(plan.dest_address);
+                 last != last_copies_.end() && last->second.source_writes == source->writes &&
+                 SameColorCopy(last->second.plan, plan)) {
+        ++stats_.repeated;
       } else {
         CopyColor(command_buffer, plan, *source, *dest);
         FullBarrier(device_, command_buffer);
         ++stats_.copies;
+      }
+      if (plan.depth || plan.readback) {
+        last_copies_.erase(plan.dest_address);
+      } else {
+        last_copies_[plan.dest_address] = {plan, source->writes};
       }
       Publish(plan, *dest, host->bytes_per_block, submission);
       if (PresentableResolve(plan)) {
@@ -470,6 +479,7 @@ void Resolves::Evict(uint64_t unused_frames, uint64_t submission) {
       return false;
     }
     const uint64_t retire = std::max(image.last_submission, submission);
+    last_copies_.erase(image.address);
     textures_.RemoveResolveImage(image.address, image.format, image.view);
     if (image.swapped_view) {
       textures_.RemoveResolveImage(image.address, image.format, image.swapped_view);

@@ -242,9 +242,15 @@ void RenderTargets::BeginRendering(VkCommandBuffer command_buffer, const Bound& 
   for (uint32_t i = 0; i < 4; ++i) {
     if (bound.color[i]) {
       color_targets[i] = Get(command_buffer, *bound.color[i]);
+      if (color_targets[i]) {
+        ++color_targets[i]->writes;
+      }
     }
   }
   Target* depth = bound.depth ? Get(command_buffer, *bound.depth) : nullptr;
+  if (depth) {
+    ++depth->writes;
+  }
   for (uint32_t i = 0; i < 4; ++i) {
     colors[i] = {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR};
     colors[i].imageLayout = VK_IMAGE_LAYOUT_GENERAL;
@@ -388,6 +394,7 @@ void RenderTargets::Claim(VkCommandBuffer command_buffer, const TargetKey& key, 
       stats_.transfer_regions += regions.size();
     }
     ++stats_.transfers;
+    ++target->writes;
     FullBarrier(device_, command_buffer);
     submissions_.Resume();
   }

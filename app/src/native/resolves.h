@@ -26,6 +26,7 @@ class Resolves {
     uint64_t readbacks = 0;
     uint64_t stale_readbacks = 0;
     uint64_t skipped = 0;
+    uint64_t repeated = 0;
   };
 
   Resolves(const rex::ui::vulkan::VulkanDevice* device, RenderTargets& targets, Textures& textures,
@@ -60,6 +61,10 @@ class Resolves {
     uint64_t last_submission = 0;
     VkDeviceSize bytes = 0;
     uint64_t key = 0;
+  };
+  struct LastCopy {
+    ResolvePlan plan;
+    uint64_t source_writes;
   };
   struct RetiredImage {
     DestImage image;
@@ -103,6 +108,7 @@ class Resolves {
   VkSampler depth_sampler_ = VK_NULL_HANDLE;
   std::unordered_map<VkImageView, VkDescriptorSet> depth_sets_;
   std::vector<RetiredImage> retired_;
+  std::unordered_map<uint32_t, LastCopy> last_copies_;
   uint64_t frame_ = 0;
   uint64_t bytes_ = 0;
   Stats stats_;

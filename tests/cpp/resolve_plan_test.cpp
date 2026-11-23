@@ -213,5 +213,36 @@ int main() {
               !OlderThanNewest(records, 0x400000, 1),
           "image_older_than_newest_resolve_at_its_address");
   }
+  {
+    ResolvePlan scene{};
+    scene.copy = true;
+    scene.source = TargetKey{0x10E, 10, false, 0};
+    scene.source_width = 768;
+    scene.source_height = 432;
+    scene.dest_address = 0x11052000;
+    scene.dest_format = xenos::TextureFormat::k_8_8_8_8;
+    scene.dest_width = 768;
+    scene.dest_height = 432;
+    scene.dest_pitch = 768;
+    ResolvePlan other_dest = scene;
+    other_dest.dest_address = 0x1EFBD000;
+    ResolvePlan smaller = scene;
+    smaller.source_height = 216;
+    ResolvePlan swapped = scene;
+    swapped.dest_swap = true;
+    ResolvePlan readback = scene;
+    readback.readback = true;
+    ResolvePlan depth = scene;
+    depth.depth = true;
+    ResolvePlan cleared = scene;
+    cleared.clear_color = true;
+    Check(SameColorCopy(scene, scene), "same_color_copy_repeats");
+    Check(SameColorCopy(scene, cleared), "a_clear_after_the_copy_does_not_change_the_copy");
+    Check(!SameColorCopy(scene, other_dest), "other_destination_is_another_copy");
+    Check(!SameColorCopy(scene, smaller), "other_rectangle_is_another_copy");
+    Check(!SameColorCopy(scene, swapped), "red_blue_swap_is_another_copy");
+    Check(!SameColorCopy(scene, readback), "readbacks_are_never_repeated");
+    Check(!SameColorCopy(depth, depth), "depth_copies_are_never_repeated");
+  }
   return failures ? 1 : 0;
 }
