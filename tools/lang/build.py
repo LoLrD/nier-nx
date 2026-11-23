@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 
 import cpk
+import font
 import textfiles
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -29,6 +30,8 @@ def main() -> int:
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_bytes(textfiles.apply(original, path, translations))
         print(f"{path}: {len(translations)} of {len(english)} texts translated")
+    glyphs = font.build(args.archive, args.out / args.language)
+    print(f"{font.MAIN}, {font.VRAM}: {glyphs} glyphs drawn")
     return 1 if failed else 0
 
 
