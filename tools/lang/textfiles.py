@@ -1,8 +1,9 @@
 import re
 from collections import Counter
 
-TEXT_COLUMNS = {".TXD": (2,), ".TKD": (15,), ".CAP": (9,), ".INW": (12, 13), ".RAW": (11,)}
-TAG = re.compile(r"<[^<>]*>")
+TEXT_COLUMNS = {".TXD": (2,), ".TND": (2,), ".TKD": (15,), ".CAP": (9,), ".INW": (12, 13), ".RAW": (11,)}
+TAG = re.compile(r"<[^<>]*>|%%")
+PLACEHOLDER = re.compile(r"<(NIER|ITEM|NUM|TEXT|DEC_\d+|ICON=\d+)>")
 ESCAPE = re.compile(r"\\(.)")
 SWITCH_BUTTONS = [(re.compile(r"\bSTART\b"), "<ICON=13>"), (re.compile(r"\bBACK\b"), "<ICON=12>")]
 
@@ -43,10 +44,16 @@ def switch_english(text: str) -> str:
     return text
 
 
+def structure(text: str) -> list:
+    return [tag for tag in TAG.findall(text) if not PLACEHOLDER.fullmatch(tag)]
+
+
 def problems(original: str, translation: str) -> list:
     found = []
     if Counter(TAG.findall(original)) != Counter(TAG.findall(translation)):
         found.append("tags differ")
+    elif structure(original) != structure(translation):
+        found.append("tag order differs")
     if "\t" in translation or "\r" in translation:
         found.append("tab or CR in text")
     return found

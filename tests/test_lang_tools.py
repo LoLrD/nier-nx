@@ -41,6 +41,18 @@ class TextFilesTest(unittest.TestCase):
         self.assertEqual(textfiles.problems("Press <ICON=2> now", "Нажмите сейчас"), ["tags differ"])
         self.assertEqual(textfiles.problems("A", "Б\tВ"), ["tab or CR in text"])
 
+    def test_a_lost_percent_sign_is_reported(self) -> None:
+        self.assertEqual(textfiles.problems("Rate: 50%%", "Шанс: 50%"), ["tags differ"])
+
+    def test_structure_tags_keep_their_order_but_placeholders_may_move(self) -> None:
+        self.assertEqual(textfiles.problems("<LIST=1>Yes</LIST><LIST=2>No</LIST>",
+                                            "<LIST=2>Нет</LIST><LIST=1>Да</LIST>"), ["tag order differs"])
+        self.assertEqual(textfiles.problems("Give <ITEM> to <NIER>?<PAGE>Ok", "<NIER> получает <ITEM>?<PAGE>Да"), [])
+
+    def test_talker_names_use_the_english_column(self) -> None:
+        data = "5\tヨナ\tYonah\tYonah\tYonah\r\n".encode()
+        self.assertEqual(textfiles.texts(data, "TEXT/TALK_TEXT/TALKER_NAME.X360.TND"), {"0:2": "Yonah"})
+
     def test_switch_english_names_the_plus_and_minus_buttons(self) -> None:
         self.assertEqual(textfiles.switch_english("Press START to Skip"), "Press <ICON=13> to Skip")
         self.assertEqual(textfiles.switch_english("Press the BACK button"), "Press the <ICON=12> button")
