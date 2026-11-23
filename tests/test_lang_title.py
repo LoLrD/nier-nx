@@ -1,3 +1,4 @@
+import struct
 import sys
 import unittest
 from pathlib import Path
@@ -28,6 +29,25 @@ class TitleTest(unittest.TestCase):
         alpha[10:15, 3] = 200
         alpha[17, 2] = 50
         self.assertEqual(title.line_centers(alpha), [3.5, 12.5])
+
+    def test_frame_sizes_find_the_frames_of_one_sprite(self) -> None:
+        record = (struct.pack(">I", 0x40) + b"\xc6\x1c\x3c\x00" * 11 + struct.pack(">4f", 0, 0, 34, 14)
+                  + struct.pack(">I", 0x7800) + b"\xff" * 4)
+        other = struct.pack(">I", 0x48) + record[4:]
+        data = b"\0" * 8 + record + other
+        self.assertEqual(title.frame_sizes(data, range(0, len(data)), 0x40, 34, 14), [8 + 0x38])
+
+    def test_layer_sizes_find_the_layer_by_name_and_size(self) -> None:
+        data = b"xx" + struct.pack(">HH", 34, 14) + b"chain\0" + struct.pack(">HH", 34, 14) + b"chain_de\0"
+        self.assertEqual(title.layer_sizes(data, "chain", 34, 14), [2])
+
+    def test_an_anchored_sprite_keeps_its_origin_and_resizes_every_record(self) -> None:
+        index = bytearray(64)
+        sprite = {"rect_at": 0, "rect": (1118.0, 134.0, 34.0, 14.0), "frames": [16], "layers": [40]}
+        title.move_sprite(index, sprite, 65, 14, anchored=True)
+        self.assertEqual(struct.unpack_from(">4f", index, 0), (1118.0, 134.0, 65.0, 14.0))
+        self.assertEqual(struct.unpack_from(">2f", index, 16), (65.0, 14.0))
+        self.assertEqual(struct.unpack_from(">HH", index, 40), (65, 14))
 
     def test_word_centers_ignore_the_gaps_between_letters(self) -> None:
         alpha = np.zeros((4, 60), np.uint8)

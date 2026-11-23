@@ -33,12 +33,16 @@ PACKS = {
          **SHARP},
         {"glow": "levelup_levelup_a_D5", "crisp": ["levelup_$levelup_b_D5", "levelup_=ins_0_levelup_b_D5"], **SHARP},
     ],
-    "2D/BATTLE": [{"thin": "chain_chain", "ink": WHITE, "items": []}],
+    "2D/BATTLE": [{"thin": "chain_chain", "ink": WHITE, "items": [], "anchor": True}],
 }
 THIN_MARGIN = 2
 GLOW_MARGIN = 4
 BOLD_ROWS = 32
 WORD_GAP = 8
+FRAME_RECT = 0x30
+FRAME_SIZE = 0x38
+FRAME_END = 0x44
+FRAME_BYTES = 0x48
 
 
 def centered(rect: tuple, width: int, height: int) -> tuple:
@@ -93,7 +97,7 @@ def sprites(index: bytes) -> dict:
         entries = kpky.entries(index[nested:])
         count = struct.unpack_from(">I", index, nested + 4)[0]
         names_at = nested + 12 + 8 * count + 4
-        for number, (offset, _) in enumerate(entries):
+        for number, (offset, size) in enumerate(entries):
             spd = nested + offset
             if index[spd:spd + 4] != b"0DPS":
                 continue
@@ -103,7 +107,28 @@ def sprites(index: bytes) -> dict:
                 at = spd + table + 32 * i
                 name_at = struct.unpack_from(">I", index, at + 4)[0]
                 name = index[spd + name_at:].split(b"\0")[0].decode("latin-1")
-                found[f"{base}_{name}"] = {"rect_at": at + 16, "rect": struct.unpack_from(">4f", index, at + 16)}
+                rect = struct.unpack_from(">4f", index, at + 16)
+                found[f"{base}_{name}"] = {"rect_at": at + 16, "rect": rect,
+                                           "frames": frame_sizes(index, range(spd, spd + size), name_at, *rect[2:]),
+                                           "layers": layer_sizes(index, name, *rect[2:])}
+    return found
+
+
+def frame_sizes(index: bytes, spd: range, name_at: int, width: float, height: float) -> list:
+    name = struct.pack(">I", name_at)
+    rect = struct.pack(">4f", 0.0, 0.0, width, height)
+    return [at + FRAME_SIZE for at in range(spd.start, spd.stop - FRAME_BYTES + 1, 4)
+            if index[at:at + 4] == name and index[at + FRAME_RECT:at + FRAME_RECT + 16] == rect
+            and index[at + FRAME_END:at + FRAME_END + 4] == b"\xff\xff\xff\xff"]
+
+
+def layer_sizes(index: bytes, name: str, width: float, height: float) -> list:
+    pattern = struct.pack(">HH", int(width), int(height)) + name.encode("latin-1") + b"\0"
+    found = []
+    at = index.find(pattern)
+    while at >= 0:
+        found.append(at)
+        at = index.find(pattern, at + 1)
     return found
 
 
@@ -128,8 +153,14 @@ def write_texture(index: bytearray, pixels: bytearray, texture: dict, image: Ima
     struct.pack_into(">I", index, texture["size_at"], size_field(texture["f2"], width, height))
 
 
-def move_sprite(index: bytearray, sprite: dict, width: int, height: int) -> None:
-    struct.pack_into(">4f", index, sprite["rect_at"], *centered(sprite["rect"], width, height))
+def move_sprite(index: bytearray, sprite: dict, width: int, height: int, anchored: bool = False) -> None:
+    x, y = sprite["rect"][:2]
+    rect = (x, y, float(width), float(height)) if anchored else centered(sprite["rect"], width, height)
+    struct.pack_into(">4f", index, sprite["rect_at"], *rect)
+    for at in sprite["frames"]:
+        struct.pack_into(">2f", index, at, width, height)
+    for at in sprite["layers"]:
+        struct.pack_into(">HH", index, at, width, height)
 
 
 def rows_for(height: int, top: int = 0) -> int:
@@ -144,12 +175,17 @@ def render_group(index: bytearray, pixels: bytearray, group: dict, labels: dict)
     words = [labels[name] for name in items] or [labels[group["thin"]]]
     layout = (group.get("tracking", draw.TRACKING), group.get("face", draw.TITLE_THIN))
 
+    anchored = group.get("anchor", False)
+
     def measure(size: int) -> list:
         values = []
         for word in words:
-            values.append(draw.measure(word, size, *layout)[2] / draw.SCALE)
+            _, _, word_width, top, bottom = draw.measure(word, size, *layout)
+            values.append(word_width / draw.SCALE)
             if bold:
                 values.append(bold_extent(draw.placement(word, size, *layout))[0])
+            if anchored:
+                values.append((bottom - top) / draw.SCALE)
         return values
 
     limits = []
@@ -157,6 +193,8 @@ def render_group(index: bytearray, pixels: bytearray, group: dict, labels: dict)
         limits.append(thin["pitch"] - 2 * THIN_MARGIN)
         if texture:
             limits.append(texture["pitch"] - 2 * GLOW_MARGIN)
+        if anchored:
+            limits.append(thin["height"] - 1)
     size = fit_size(measure, limits, round(draw.TITLE_SIZE * draw.SCALE))
     placements = [draw.placement(word, size, *layout) for word in words]
     for name, texture, placement in zip(items, bold, placements):
@@ -176,8 +214,8 @@ def render_group(index: bytearray, pixels: bytearray, group: dict, labels: dict)
         columns = [thin["width"] / 2] * len(words)
     widths = [draw.measure(word, size, *layout)[2] / draw.SCALE for word in words]
     spans = [(bottom - top) / draw.SCALE for _, _, _, top, bottom in (draw.measure(word, size, *layout) for word in words)]
-    pad = max(0, math.ceil(max(max(span / 2 - center, center + span / 2 - thin["height"]) + 1
-                               for center, span in zip(centers, spans))))
+    pad = 0 if anchored else max(0, math.ceil(max(max(span / 2 - center, center + span / 2 - thin["height"]) + 1
+                                                  for center, span in zip(centers, spans))))
     grow = max(max(word / 2 + THIN_MARGIN - column, column + word / 2 + THIN_MARGIN - thin["width"])
                for word, column in zip(widths, columns))
     width = min(thin["pitch"], thin["width"] + max(0, math.ceil(2 * grow)))
@@ -192,7 +230,7 @@ def render_group(index: bytearray, pixels: bytearray, group: dict, labels: dict)
     top = 16 if height < 16 else 0
     image = draw.inked(group["ink"], thin["pitch"], coverage, (0, top), rows_for(height, top))
     write_texture(index, pixels, thin, image, width, height, top)
-    move_sprite(index, rects[group["thin"]], width, height)
+    move_sprite(index, rects[group["thin"]], width, height, anchored)
     return len(bold) + 1
 
 
