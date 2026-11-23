@@ -9,6 +9,7 @@
  * @modified    Tom Clay, 2026 - Adapted for ReXGlue runtime
  */
 
+#include <rex/filesystem/read_filter.h>
 #include <rex/filesystem/vfs.h>
 #include <rex/logging.h>
 #include <rex/math.h>
@@ -164,6 +165,14 @@ X_STATUS XFile::ReadInternal(uint32_t buffer_guest_address, uint32_t buffer_leng
                   buffer_length),
               size_t(byte_offset), &bytes_read);
           if (XSUCCEEDED(result)) {
+            if (const auto filter = rex::filesystem::GetReadFilter(); filter && bytes_read) {
+              filter(*file_->entry(), byte_offset,
+                     std::span<uint8_t>(buffer_physical_heap
+                                            ? memory()->TranslatePhysical(
+                                                  buffer_physical_heap->GetPhysicalAddress(buffer_guest_address))
+                                            : memory()->TranslateVirtual(buffer_guest_address),
+                                        bytes_read));
+            }
             if (buffer_physical_heap) {
               buffer_physical_heap->TriggerCallbacks(
                   rex::thread::global_critical_region::AcquireDirect(), buffer_guest_address,

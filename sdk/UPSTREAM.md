@@ -92,3 +92,7 @@ code generator and runtime changes of masseffect-nx. The third-party sources are
 - `include/rex/graphics/pipeline/shader/spirv_translator.h`, `src/graphics/pipeline/shader/spirv_translator.cpp`: the
   pixel shader modification has `position_shift`. NieR's native renderer draws the shadow map and the shadow mask at a
   reduced resolution; PsParamGen positions of such draws are multiplied by `2^position_shift` back to guest pixels.
+- `include/rex/filesystem/read_filter.h`, `src/filesystem/read_filter.cpp`, `src/system/xfile.cpp`: a read filter.
+  After a successful guest read, `XFile::ReadInternal` passes the file's entry, offset and the bytes read to the filter
+  set with `rex::filesystem::SetReadFilter`. NieR uses it to show Switch button icons and texts without changing the
+  game files.

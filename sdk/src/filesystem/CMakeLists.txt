@@ -1,6 +1,7 @@
 add_library(rexfilesystem OBJECT
     device.cpp
     entry.cpp
+    read_filter.cpp
     virtual_file_system.cpp
     devices/block_cache.cpp
     devices/disc_image_device.cpp
