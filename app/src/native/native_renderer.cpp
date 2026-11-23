@@ -119,8 +119,8 @@ NativeRenderer::NativeRenderer(const vk::VulkanDevice* device, rex::memory::Memo
   }
   const auto& dfn = device_->functions();
   const VkDevice d = device_->device();
-  pipelines_ = std::make_unique<Pipelines>(device_);
   pipeline_report_ = std::make_unique<PipelineReport>(device_);
+  pipelines_ = std::make_unique<Pipelines>(device_, *pipeline_report_);
   const bool cached_uploads = PreferCachedUploads(device_);
   submissions_ = std::make_unique<Submissions>(device_, pipelines_->ConstantsLayout(), cached_uploads);
   mirror_ = std::make_unique<GuestMirror>(device_, physical_base_, cached_uploads);
@@ -557,17 +557,17 @@ NativeRenderer::DrawResult NativeRenderer::RecordDraw(const RegisterFile& regs) 
     state.pixel_module = VK_NULL_HANDLE;
   }
   const VkPipelineLayout layout = pipelines_->Layout(vs_textures, vs_samplers, ps_textures, ps_samplers);
-  const size_t pipeline_count = pipelines_->pipeline_count();
-  const VkPipeline pipeline = pipelines_->Get(state, layout);
+  Pipelines::Status pipeline_status;
+  const VkPipeline pipeline =
+      pipelines_->Get(state, layout, prepared->vertex_shader->ucode_data_hash(),
+                      prepared->pixel_shader ? prepared->pixel_shader->ucode_data_hash() | 1 : 0, pipeline_status);
+  if (pipeline_status == Pipelines::Status::kPending) {
+    ++stats_.skipped_pending;
+    return DrawResult::kDone;
+  }
   if (pipeline == VK_NULL_HANDLE) {
     ++stats_.skipped_shader;
     return DrawResult::kDone;
-  }
-  if (pipelines_->pipeline_count() != pipeline_count) {
-    pipeline_report_->Report(
-        pipeline, fmt::format("vs {:016X} ps {:016X} module {:X}", prepared->vertex_shader->ucode_data_hash(),
-                              prepared->pixel_shader ? prepared->pixel_shader->ucode_data_hash() | 1 : 0,
-                              uint64_t(state.pixel_module)));
   }
   alignas(16) uint8_t floats[Submissions::kFloatConstantsBytes];
   uint32_t bools[40];
@@ -934,12 +934,12 @@ std::string NativeRenderer::Report() {
   const Resolves::Stats& v = resolves_->stats();
   const uint64_t submissions = submissions_->current() - 1;
   std::string line = fmt::format(
-      "[native] render: {}/{} draws drawn, skipped raster {} primitive {} target {} shader {} empty {}; {} resolves ({} colour, "
+      "[native] render: {}/{} draws drawn, skipped raster {} primitive {} target {} shader {} pending {} empty {}; {} resolves ({} colour, "
       "{} depth, {} clears, {} readbacks, {} stale, {} skipped); mirror {} copies {} MB {} waits; textures {} uploads {} MB {} "
       "unsupported {} resolve hits {} reused, {} live {} MB; {} resolve images, {} mirror keys; {} targets, {} pipelines, {} submissions, {} black frames",
       s.drawn - r.drawn, s.draws - r.draws, s.skipped_raster - r.skipped_raster,
       s.skipped_primitive - r.skipped_primitive, s.skipped_target - r.skipped_target,
-      s.skipped_shader - r.skipped_shader, s.skipped_empty - r.skipped_empty, s.resolves - r.resolves, v.copies - reported_resolves_.copies,
+      s.skipped_shader - r.skipped_shader, s.skipped_pending - r.skipped_pending, s.skipped_empty - r.skipped_empty, s.resolves - r.resolves, v.copies - reported_resolves_.copies,
       v.depth_copies - reported_resolves_.depth_copies, v.clears - reported_resolves_.clears,
       v.readbacks - reported_resolves_.readbacks, v.stale_readbacks - reported_resolves_.stale_readbacks,
       v.skipped - reported_resolves_.skipped,
@@ -949,6 +949,11 @@ std::string NativeRenderer::Report() {
       t.reused - reported_textures_.reused,
       textures_->live_images(), (textures_->active_bytes() + textures_->retired_bytes() + textures_->free_bytes()) >> 20, resolves_->image_count(), mirror_sync_.key_count(), targets_->count(), pipelines_->pipeline_count(), submissions - reported_submissions_,
       s.black_frames - r.black_frames);
+  const Pipelines::Stats p = pipelines_->TakeStats();
+  line += fmt::format("; pipelines compiled {} in {} ms (max {} ms), cache {} KB", p.compiled - reported_pipelines_.compiled,
+                      (p.compile_us - reported_pipelines_.compile_us) / 1000, p.max_compile_us / 1000,
+                      p.saved_bytes >> 10);
+  reported_pipelines_ = p;
   line += fmt::format("; ms draws {} (mirror {}, textures {}), resolves {}, present {}, gpu wait {}",
                       (s.us_draws - r.us_draws) / 1000, (s.us_mirror - r.us_mirror) / 1000,
                       (s.us_textures - r.us_textures) / 1000, (s.us_resolves - r.us_resolves) / 1000,

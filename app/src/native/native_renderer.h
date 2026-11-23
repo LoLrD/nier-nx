@@ -54,6 +54,7 @@ class NativeRenderer {
     uint64_t skipped_primitive = 0;
     uint64_t skipped_target = 0;
     uint64_t skipped_shader = 0;
+    uint64_t skipped_pending = 0;
     uint64_t skipped_empty = 0;
     uint64_t resolves = 0;
     uint64_t swaps = 0;
@@ -133,8 +134,8 @@ class NativeRenderer {
   const GpuRegisters& registers_;
   rex::graphics::DrawExtentEstimator extents_;
   bool valid_ = false;
-  std::unique_ptr<Pipelines> pipelines_;
   std::unique_ptr<PipelineReport> pipeline_report_;
+  std::unique_ptr<Pipelines> pipelines_;
   std::unique_ptr<Submissions> submissions_;
   std::unique_ptr<GuestMirror> mirror_;
   std::unique_ptr<RenderTargets> targets_;
@@ -170,6 +171,7 @@ class NativeRenderer {
   MirrorCounters reported_mirror_;
   Textures::Stats reported_textures_;
   Resolves::Stats reported_resolves_;
+  Pipelines::Stats reported_pipelines_;
   uint64_t reported_submissions_ = 0;
   std::array<uint64_t, kGpuCategories> reported_gpu_ns_{};
   std::vector<uint64_t> reported_pass_ns_;

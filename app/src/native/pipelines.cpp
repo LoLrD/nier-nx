@@ -1,12 +1,29 @@
 #include "pipelines.h"
 
+#include <algorithm>
 #include <array>
+#include <cstdio>
+#include <fstream>
+#include <iterator>
 
+#include <rex/cvar.h>
 #include <rex/graphics/pipeline/shader/spirv_translator.h>
 #include <rex/logging.h>
+#include <rex/platform.h>
 #include <rex/ui/vulkan/device.h>
 
-#include "pipeline_report.h"
+REXCVAR_DEFINE_BOOL(nier_async_pipelines, true, "NieR",
+                    "Native renderer: compile new pipelines on a worker thread and skip their draws until ready");
+REXCVAR_DEFINE_INT32(nier_pipeline_wait_ms, 3, "NieR",
+                     "Native renderer: how long a draw waits for its new pipeline before it is skipped");
+REXCVAR_DEFINE_INT32(nier_pipeline_compile_delay_ms, 0, "NieR",
+                     "Native renderer: extra delay of each pipeline compile, to test the skipped draws");
+REXCVAR_DEFINE_STRING(nier_pipeline_cache_file, "", "NieR",
+                      "Native renderer: file that keeps compiled pipelines between runs");
+
+#if REX_PLATFORM_SWITCH
+extern "C" void RexSwitchSetCurrentThreadPriority(int priority);
+#endif
 
 namespace nier::native {
 
@@ -15,6 +32,8 @@ using rex::graphics::SpirvShaderTranslator;
 namespace {
 
 constexpr VkShaderStageFlags kGuestStages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+constexpr int kWorkerPriority = 0x3B;
+constexpr std::chrono::seconds kSaveInterval{10};
 
 VkDescriptorSetLayout CreateSetLayout(const rex::ui::vulkan::VulkanDevice* device,
                                       const std::vector<VkDescriptorSetLayoutBinding>& bindings) {
@@ -32,11 +51,16 @@ VkFormat StencilFormat(VkFormat depth) {
 
 }  // namespace
 
-Pipelines::Pipelines(const rex::ui::vulkan::VulkanDevice* device)
+Pipelines::Pipelines(const rex::ui::vulkan::VulkanDevice* device, PipelineReport& report)
     : device_(device),
+      report_(report),
       shared_memory_binding_count_(
           1u << SpirvShaderTranslator::GetSharedMemoryStorageBufferCountLog2(device->properties().maxStorageBufferRange)),
-      create_flags_(PipelineCaptureFlags(device)) {
+      create_flags_(PipelineCaptureFlags(device)),
+      cache_path_(REXCVAR_GET(nier_pipeline_cache_file)),
+      async_(REXCVAR_GET(nier_async_pipelines)),
+      wait_(std::max(0, REXCVAR_GET(nier_pipeline_wait_ms))),
+      last_save_(std::chrono::steady_clock::now()) {
   shared_memory_layout_ =
       CreateSetLayout(device_, {{0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, shared_memory_binding_count_, kGuestStages,
                                  nullptr}});
@@ -47,16 +71,30 @@ Pipelines::Pipelines(const rex::ui::vulkan::VulkanDevice* device)
   constants[SpirvShaderTranslator::kConstantBufferFloatVertex].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
   constants[SpirvShaderTranslator::kConstantBufferFloatPixel].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
   constants_layout_ = CreateSetLayout(device_, constants);
+  LoadCache();
+  if (async_) {
+    worker_ = std::thread([this] { Work(); });
+  }
 }
 
 Pipelines::~Pipelines() {
+  if (worker_.joinable()) {
+    {
+      std::lock_guard lock(mutex_);
+      stopping_ = true;
+    }
+    work_ready_.notify_all();
+    worker_.join();
+  }
+  SaveCache();
   const auto& dfn = device_->functions();
   const VkDevice device = device_->device();
   for (auto& [hash, entries] : pipelines_) {
     for (Entry& entry : entries) {
-      dfn.vkDestroyPipeline(device, entry.pipeline, nullptr);
+      dfn.vkDestroyPipeline(device, entry.slot->pipeline.load(), nullptr);
     }
   }
+  dfn.vkDestroyPipelineCache(device, cache_, nullptr);
   for (auto& [key, layout] : layouts_) {
     dfn.vkDestroyPipelineLayout(device, layout, nullptr);
   }
@@ -101,19 +139,133 @@ VkPipelineLayout Pipelines::Layout(uint32_t vs_textures, uint32_t vs_samplers, u
   return it->second;
 }
 
-VkPipeline Pipelines::Get(const PipelineState& state, VkPipelineLayout layout) {
+Pipelines::Stats Pipelines::TakeStats() {
+  std::lock_guard lock(mutex_);
+  const Stats stats = stats_;
+  stats_.max_compile_us = 0;
+  return stats;
+}
+
+VkPipeline Pipelines::Get(const PipelineState& state, VkPipelineLayout layout, uint64_t vs_hash, uint64_t ps_hash,
+                          Status& status) {
   auto& entries = pipelines_[state.Hash() ^ uint64_t(layout)];
+  Slot* slot = nullptr;
   for (const Entry& entry : entries) {
     if (entry.layout == layout && entry.state == state) {
-      return entry.pipeline;
+      slot = entry.slot.get();
+      break;
     }
   }
-  const VkPipeline pipeline = Create(state, layout);
-  if (pipeline != VK_NULL_HANDLE) {
-    entries.push_back({state, layout, pipeline});
+  if (!slot) {
+    entries.push_back({state, layout, std::make_unique<Slot>()});
     ++pipeline_count_;
+    slot = entries.back().slot.get();
+    const Job job{state, layout, vs_hash, ps_hash, slot};
+    if (!async_) {
+      Compile(job);
+    } else {
+      std::unique_lock lock(mutex_);
+      jobs_.push_back(job);
+      work_ready_.notify_one();
+      work_done_.wait_for(lock, wait_, [slot] { return slot->done.load(std::memory_order_acquire); });
+    }
   }
+  if (!slot->done.load(std::memory_order_acquire)) {
+    status = Status::kPending;
+    return VK_NULL_HANDLE;
+  }
+  const VkPipeline pipeline = slot->pipeline.load(std::memory_order_acquire);
+  status = pipeline != VK_NULL_HANDLE ? Status::kReady : Status::kFailed;
   return pipeline;
+}
+
+void Pipelines::Compile(const Job& job) {
+  const auto start = std::chrono::steady_clock::now();
+  if (const int32_t delay = REXCVAR_GET(nier_pipeline_compile_delay_ms); delay > 0) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(delay));
+  }
+  const VkPipeline pipeline = Create(job.state, job.layout);
+  const uint64_t us =
+      std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start).count();
+  if (pipeline != VK_NULL_HANDLE) {
+    report_.Report(pipeline, fmt::format("vs {:016X} ps {:016X} module {:X}", job.vs_hash, job.ps_hash,
+                                         uint64_t(job.state.pixel_module)));
+  }
+  {
+    std::lock_guard lock(mutex_);
+    ++stats_.compiled;
+    stats_.compile_us += us;
+    stats_.max_compile_us = std::max(stats_.max_compile_us, us);
+    ++unsaved_;
+    job.slot->pipeline.store(pipeline, std::memory_order_release);
+    job.slot->done.store(true, std::memory_order_release);
+  }
+  work_done_.notify_all();
+}
+
+void Pipelines::Work() {
+#if REX_PLATFORM_SWITCH
+  RexSwitchSetCurrentThreadPriority(kWorkerPriority);
+#endif
+  std::unique_lock lock(mutex_);
+  while (true) {
+    work_ready_.wait_for(lock, kSaveInterval, [this] { return stopping_ || !jobs_.empty(); });
+    if (stopping_) {
+      return;
+    }
+    if (!jobs_.empty()) {
+      const Job job = jobs_.front();
+      jobs_.pop_front();
+      lock.unlock();
+      Compile(job);
+      lock.lock();
+      continue;
+    }
+    if (unsaved_ && std::chrono::steady_clock::now() - last_save_ >= kSaveInterval) {
+      lock.unlock();
+      SaveCache();
+      lock.lock();
+    }
+  }
+}
+
+void Pipelines::LoadCache() {
+  std::vector<char> data;
+  if (!cache_path_.empty()) {
+    std::ifstream file(cache_path_, std::ios::binary);
+    data.assign(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+  }
+  VkPipelineCacheCreateInfo info{VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};
+  info.initialDataSize = data.size();
+  info.pInitialData = data.empty() ? nullptr : data.data();
+  if (device_->functions().vkCreatePipelineCache(device_->device(), &info, nullptr, &cache_) != VK_SUCCESS) {
+    info.initialDataSize = 0;
+    info.pInitialData = nullptr;
+    device_->functions().vkCreatePipelineCache(device_->device(), &info, nullptr, &cache_);
+  }
+  REXLOG_INFO("[native] pipeline cache: {} KB loaded from '{}'", data.size() >> 10, cache_path_);
+}
+
+void Pipelines::SaveCache() {
+  if (cache_path_.empty()) {
+    return;
+  }
+  const auto& dfn = device_->functions();
+  size_t size = 0;
+  dfn.vkGetPipelineCacheData(device_->device(), cache_, &size, nullptr);
+  std::vector<char> data(size);
+  dfn.vkGetPipelineCacheData(device_->device(), cache_, &size, data.data());
+  const std::string temporary = cache_path_ + ".tmp";
+  {
+    std::ofstream file(temporary, std::ios::binary | std::ios::trunc);
+    file.write(data.data(), std::streamsize(size));
+  }
+  std::remove(cache_path_.c_str());
+  std::rename(temporary.c_str(), cache_path_.c_str());
+  std::lock_guard lock(mutex_);
+  unsaved_ = 0;
+  last_save_ = std::chrono::steady_clock::now();
+  stats_.saved_bytes = size;
 }
 
 VkPipeline Pipelines::Create(const PipelineState& state, VkPipelineLayout layout) const {
@@ -203,8 +355,8 @@ VkPipeline Pipelines::Create(const PipelineState& state, VkPipelineLayout layout
   info.pDynamicState = &dynamic;
   info.layout = layout;
   VkPipeline pipeline = VK_NULL_HANDLE;
-  if (device_->functions().vkCreateGraphicsPipelines(device_->device(), VK_NULL_HANDLE, 1, &info, nullptr,
-                                                     &pipeline) != VK_SUCCESS) {
+  if (device_->functions().vkCreateGraphicsPipelines(device_->device(), cache_, 1, &info, nullptr, &pipeline) !=
+      VK_SUCCESS) {
     REXLOG_ERROR("[native] could not create a graphics pipeline");
     return VK_NULL_HANDLE;
   }

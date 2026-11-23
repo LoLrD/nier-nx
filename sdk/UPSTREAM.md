@@ -87,3 +87,5 @@ code generator and runtime changes of masseffect-nx. The third-party sources are
   `src/ui/vulkan/vulkan_device.cpp`: cvar `vulkan_pipeline_statistics` enables `VK_KHR_pipeline_executable_properties`
   (feature `pipelineExecutableInfo` and its three functions), so NieR's native renderer can log the compiler statistics
   of each pipeline and collect NVK's NAK assembly on the console.
+- `include/rex/ui/vulkan/functions/device_1_0.inc`: `vkCreatePipelineCache`, `vkDestroyPipelineCache` and
+  `vkGetPipelineCacheData`, for the native renderer's pipeline cache kept on disk between runs.

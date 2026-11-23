@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <mutex>
 #include <string>
 #include <unordered_set>
 
@@ -28,6 +29,7 @@ class PipelineReport {
   bool enabled_;
   std::string assembly_path_;
   std::unordered_set<uint64_t> written_;
+  std::mutex mutex_;
 };
 
 }  // namespace nier::native

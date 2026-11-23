@@ -56,6 +56,7 @@ void PipelineReport::Report(VkPipeline pipeline, const std::string& label) {
   if (!enabled_) {
     return;
   }
+  std::lock_guard lock(mutex_);
   const auto& dfn = device_->functions();
   const VkPipelineInfoKHR info{VK_STRUCTURE_TYPE_PIPELINE_INFO_KHR, nullptr, pipeline};
   uint32_t count = 0;
