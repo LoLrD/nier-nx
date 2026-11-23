@@ -1,7 +1,7 @@
 import sys
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
 
 import xenos_dxt
 
@@ -22,6 +22,10 @@ RIM = (230, 230, 230, 255)
 FACE = (43, 43, 43, 255)
 GREY = (150, 150, 150, 255)
 LINE = 6
+TITLE_INK = (232, 232, 232)
+SELECTION_INK = (76, 77, 76)
+CHALK_INK = (255, 255, 255)
+CHALK_ALPHA = 170
 EMBLEM_CELL = (2, 5)
 SKILL_LABELS = [("L", 31, 30), ("ZL", 32, 30), ("R", 37, 27), ("ZR", 34, 27)]
 TITLES = [
@@ -158,8 +162,16 @@ def atlas() -> Image.Image:
     return image
 
 
+def inked(color: tuple, pitch: int, coverage: Image.Image, at: tuple) -> Image.Image:
+    alpha = Image.new("L", (pitch, 32), 0)
+    alpha.paste(coverage, at)
+    image = Image.new("RGBA", (pitch, 32), color + (0,))
+    image.putalpha(alpha)
+    return image
+
+
 def skill_label(label: str, width: int, height: int) -> Image.Image:
-    big = Image.new("RGBA", (width * SCALE, height * SCALE), (0, 0, 0, 0))
+    big = Image.new("L", (width * SCALE, height * SCALE), 0)
     draw = ImageDraw.Draw(big)
     size = 100
     while size > 20:
@@ -168,13 +180,12 @@ def skill_label(label: str, width: int, height: int) -> Image.Image:
         if right - left <= (width - 2) * SCALE and bottom - top <= (height - 2) * SCALE:
             break
         size -= 2
-    draw.text((width * SCALE // 2, height * SCALE // 2), label, font=font, fill=(226, 226, 226, 235), anchor="mm")
-    image = Image.new("RGBA", (128, 32), (0, 0, 0, 0))
-    image.alpha_composite(big.resize((width, height), Image.LANCZOS), (0, 0))
-    return image
+    draw.text((width * SCALE // 2, height * SCALE // 2), label, font=font, fill=255, anchor="mm")
+    small = big.resize((width, height), Image.LANCZOS).point(lambda a: round(a * CHALK_ALPHA / 255))
+    return inked(CHALK_INK, 128, small, (0, 0))
 
 
-def title(label: str, width: int, height: int, pitch: int) -> Image.Image:
+def title(label: str, width: int, height: int, pitch: int) -> tuple:
     big_w, big_h = width * SCALE, height * SCALE
     size = 120
     while size > 20:
@@ -185,22 +196,15 @@ def title(label: str, width: int, height: int, pitch: int) -> Image.Image:
         if sum(widths) <= big_w - 8 * SCALE and ascent + descent <= big_h - 2 * SCALE:
             break
         size -= 2
-    layer = Image.new("RGBA", (big_w, big_h), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(layer)
+    coverage = Image.new("L", (big_w, big_h), 0)
+    draw = ImageDraw.Draw(coverage)
     x = (big_w - sum(widths)) / 2
     for ch, advance in zip(label, widths):
-        draw.text((x, big_h / 2), ch, font=font, fill=(255, 255, 255, 255), anchor="lm")
+        draw.text((x, big_h / 2), ch, font=font, fill=255, anchor="lm")
         x += advance
-    glow = layer.filter(ImageFilter.GaussianBlur(3 * SCALE))
-    glow.putalpha(glow.split()[3].point(lambda a: min(255, int(a * 1.6))))
-    textured = Image.new("RGBA", (big_w, big_h), (0, 0, 0, 0))
-    textured.alpha_composite(glow)
-    tinted = layer.copy()
-    tinted.paste((232, 232, 232, 255), mask=layer.split()[3])
-    textured.alpha_composite(tinted)
-    image = Image.new("RGBA", (pitch, 32), (0, 0, 0, 0))
-    image.alpha_composite(textured.resize((width, height), Image.LANCZOS), (0, 0))
-    return image, sum(widths) / big_w
+    glow = coverage.filter(ImageFilter.GaussianBlur(3 * SCALE)).point(lambda a: min(255, int(a * 1.6)))
+    small = ImageChops.screen(coverage, glow).resize((width, height), Image.LANCZOS)
+    return inked(TITLE_INK, pitch, small, (0, 0)), sum(widths) / big_w
 
 
 def selection(label: str, width: int, height: int, pitch: int, top: int, fraction: float) -> Image.Image:
@@ -214,17 +218,15 @@ def selection(label: str, width: int, height: int, pitch: int, top: int, fractio
         if sum(widths) <= big_w - 2 * SCALE and ascent + descent <= big_h + 2 * SCALE:
             break
         size -= 2
-    layer = Image.new("RGBA", (big_w, big_h), (0, 0, 0, 0))
+    layer = Image.new("L", (big_w, big_h), 0)
     draw = ImageDraw.Draw(layer)
     x = 0.0
     for ch, advance in zip(label, widths):
-        draw.text((x, big_h / 2), ch, font=font, fill=(205, 205, 205, 200), anchor="lm")
+        draw.text((x, big_h / 2), ch, font=font, fill=255, anchor="lm")
         x += advance
     text = layer.crop((0, 0, int(x), big_h))
     target = max(1, round(fraction * width))
-    image = Image.new("RGBA", (pitch, 32), (0, 0, 0, 0))
-    image.alpha_composite(text.resize((target, height), Image.LANCZOS), ((width - target) // 2, top))
-    return image
+    return inked(SELECTION_INK, pitch, text.resize((target, height), Image.LANCZOS), ((width - target) // 2, top))
 
 
 def blocks(name: str, items: list) -> str:

@@ -7,6 +7,7 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools" / "switch_prompts"))
 
+import draw  # noqa: E402
 import xenos_dxt  # noqa: E402
 
 
@@ -22,6 +23,35 @@ def flat_image(width: int, height: int, alpha_bits: int) -> Image.Image:
                 for x in range(4):
                     image.putpixel((bx * 4 + x, by * 4 + y), color + (alpha,))
     return image
+
+
+def visible(image: Image.Image, kind: int, height: int) -> list:
+    pitch = image.width
+    decoded = xenos_dxt.decode(xenos_dxt.encode(image, kind, 128), pitch, 32, kind).crop((0, 0, pitch, height))
+    data = decoded.tobytes()
+    return [tuple(data[i:i + 4]) for i in range(0, len(data), 4) if data[i + 3] > 16]
+
+
+class SwitchArtTest(unittest.TestCase):
+    def test_title_glow_is_light_like_the_original(self) -> None:
+        image, _ = draw.title("Press the + Button", 265, 26, 384)
+        pixels = visible(image, 3, 32)
+        self.assertGreater(len(pixels), 1000)
+        self.assertGreaterEqual(min(min(p[:3]) for p in pixels), 200)
+
+    def test_selection_layer_is_dark_grey_with_full_coverage(self) -> None:
+        image = draw.selection("Press the + Button", 255, 14, 256, 0, 0.9)
+        pixels = visible(image, 3, 14)
+        self.assertGreater(len(pixels), 300)
+        self.assertLessEqual(max(max(p[:3]) for p in pixels), 90)
+        self.assertGreaterEqual(min(min(p[:3]) for p in pixels), 60)
+        self.assertEqual(max(p[3] for p in pixels), 255)
+
+    def test_skill_label_is_as_faint_as_the_original_chalk(self) -> None:
+        pixels = visible(draw.skill_label("ZL", 32, 30), 3, 30)
+        self.assertGreater(len(pixels), 50)
+        self.assertEqual(max(p[3] for p in pixels), 170)
+        self.assertGreaterEqual(min(min(p[:3]) for p in pixels), 200)
 
 
 class XenosDxtTest(unittest.TestCase):
