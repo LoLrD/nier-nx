@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -45,7 +46,20 @@ static void Append64(std::vector<uint8_t>& out, uint64_t value) {
 struct Column {
   std::string name;
   uint8_t type;
+  uint8_t storage = 0x50;
+  uint64_t constant = 0;
 };
+
+static void AppendNumber(std::vector<uint8_t>& out, uint8_t type, uint64_t value) {
+  if (type == 6 || type == 9) {
+    Append64(out, value);
+  } else if (type == 0xC) {
+    Append64(out, 0);
+    Append64(out, value);
+  } else {
+    Append32(out, uint32_t(value));
+  }
+}
 
 static std::vector<uint8_t> Utf(const std::vector<Column>& columns, const std::vector<std::vector<uint64_t>>& rows,
                                 const std::vector<std::vector<std::string>>& strings) {
@@ -64,8 +78,11 @@ static std::vector<uint8_t> Utf(const std::vector<Column>& columns, const std::v
   }
   std::vector<uint8_t> schema;
   for (size_t i = 0; i < columns.size(); ++i) {
-    schema.push_back(uint8_t(0x50 | columns[i].type));
+    schema.push_back(uint8_t(columns[i].storage | columns[i].type));
     Append32(schema, name_offsets[i]);
+    if (columns[i].storage & 0x20) {
+      AppendNumber(schema, columns[i].type, columns[i].constant);
+    }
   }
   std::vector<uint8_t> row_data;
   uint16_t row_width = 0;
@@ -73,12 +90,13 @@ static std::vector<uint8_t> Utf(const std::vector<Column>& columns, const std::v
     const size_t start = row_data.size();
     size_t string_index = 0;
     for (size_t c = 0; c < columns.size(); ++c) {
+      if (!(columns[c].storage & 0x40)) {
+        continue;
+      }
       if (columns[c].type == 0xA) {
         Append32(row_data, add_string(strings[r][string_index++]));
-      } else if (columns[c].type == 6) {
-        Append64(row_data, rows[r][c]);
       } else {
-        Append32(row_data, uint32_t(rows[r][c]));
+        AppendNumber(row_data, columns[c].type, rows[r][c]);
       }
     }
     row_width = uint16_t(row_data.size() - start);
@@ -89,7 +107,10 @@ static std::vector<uint8_t> Utf(const std::vector<Column>& columns, const std::v
   const uint32_t strings_offset = uint32_t(rows_offset + row_data.size());
   const uint32_t data_offset = uint32_t(strings_offset + names.size());
   Put32(table, 4, data_offset);
-  Put32(table, 8, rows_offset);
+  table[8] = 0;
+  table[9] = 1;
+  table[10] = uint8_t(rows_offset >> 8);
+  table[11] = uint8_t(rows_offset);
   Put32(table, 12, strings_offset);
   Put32(table, 16, data_offset);
   Put32(table, 20, 7);
@@ -172,6 +193,46 @@ int main() {
       return true;
     };
     Check(ReadCpkToc(read_broken).empty(), "a_file_that_is_not_a_cpk_has_no_files");
+  }
+  {
+    const std::vector<Column> toc_columns = {{"DirName", 0xA},       {"Extra", 9},       {"Wide", 0xC},
+                                             {"FileName", 0xA},      {"FileSize", 4, 0x70, 99},
+                                             {"FileOffset", 6}};
+    const std::vector<uint8_t> toc =
+        Chunk("TOC ", Utf(toc_columns, {{0, 7, 8, 0, 33, 0x800}}, {{"TEXT", "NIER_TEXT.TXD"}}));
+    const std::vector<Column> header_columns = {{"ContentOffset", 6, 0x30, 0x400}, {"TocOffset", 6}};
+    std::vector<uint8_t> cpk = Chunk("CPK ", Utf(header_columns, {{0, 0x400}}, {{}}));
+    cpk.resize(0x400);
+    cpk.insert(cpk.end(), toc.begin(), toc.end());
+    const auto read = [&](uint64_t offset, std::span<uint8_t> out) {
+      if (offset + out.size() > cpk.size()) {
+        return false;
+      }
+      std::memcpy(out.data(), cpk.data() + offset, out.size());
+      return true;
+    };
+    const std::vector<CpkFile> files = ReadCpkToc(read);
+    Check(files.size() == 1 && files[0].path == "TEXT/NIER_TEXT.TXD" && files[0].size == 33 &&
+              files[0].offset == 0x400 + 0x800,
+          "wide_columns_and_default_values_keep_the_row_layout");
+  }
+  {
+    std::vector<uint8_t> huge(16, 0);
+    std::memcpy(huge.data(), "CPK ", 4);
+    huge[8] = 0x00;
+    huge[9] = 0x00;
+    huge[10] = 0x00;
+    huge[11] = 0xF0;
+    uint64_t requested = 0;
+    const auto read_huge = [&](uint64_t offset, std::span<uint8_t> out) {
+      requested = std::max<uint64_t>(requested, out.size());
+      if (offset + out.size() > huge.size()) {
+        return false;
+      }
+      std::memcpy(out.data(), huge.data() + offset, out.size());
+      return true;
+    };
+    Check(ReadCpkToc(read_huge).empty() && requested <= 16, "an_absurd_table_size_is_refused_before_reading_it");
   }
   return failures ? 1 : 0;
 }

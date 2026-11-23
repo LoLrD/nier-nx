@@ -11,8 +11,9 @@ namespace {
 
 constexpr uint32_t kChunkHeaderBytes = 16;
 constexpr uint32_t kUtfBase = 8;
-constexpr uint8_t kStorageConstant = 0x30;
-constexpr uint8_t kStorageRow = 0x50;
+constexpr uint32_t kMaxChunkBytes = 64u << 20;
+constexpr uint8_t kFlagDefault = 0x20;
+constexpr uint8_t kFlagRow = 0x40;
 constexpr uint8_t kTypeString = 0xA;
 
 uint64_t Big(std::span<const uint8_t> bytes, size_t at, size_t size) {
@@ -33,8 +34,11 @@ size_t TypeSize(uint8_t type) {
       return 2;
     case 6:
     case 7:
+    case 9:
     case 0xB:
       return 8;
+    case 0xC:
+      return 16;
     default:
       return 4;
   }
@@ -64,20 +68,28 @@ class UtfTable {
     UtfTable table;
     table.bytes_ = std::move(bytes);
     const std::span<const uint8_t> b = table.bytes_;
-    table.rows_offset_ = uint32_t(Big(b, 8, 4));
+    table.rows_offset_ = uint32_t(Big(b, 10, 2));
     table.strings_offset_ = uint32_t(Big(b, 12, 4));
     const size_t columns = Big(b, 24, 2);
     table.row_width_ = uint32_t(Big(b, 26, 2));
     table.rows_ = uint32_t(Big(b, 28, 4));
     size_t at = 32;
+    size_t per_row_width = 0;
     for (size_t i = 0; i < columns && at + 5 <= b.size(); ++i) {
       Column column{table.String(uint32_t(Big(b, at + 1, 4))), uint8_t(b[at] & 0xF0), uint8_t(b[at] & 0x0F), 0};
       at += 5;
-      if (column.storage == kStorageConstant) {
-        column.constant_at = uint32_t(at);
+      if (column.flags & kFlagDefault) {
+        column.default_at = uint32_t(at);
         at += TypeSize(column.type);
       }
+      if (column.flags & kFlagRow) {
+        per_row_width += TypeSize(column.type);
+      }
       table.columns_.push_back(std::move(column));
+    }
+    const uint64_t rows_end = kUtfBase + uint64_t(table.rows_offset_) + uint64_t(table.rows_) * table.row_width_;
+    if (table.row_width_ < per_row_width || table.rows_ > b.size() || rows_end > b.size()) {
+      return std::nullopt;
     }
     return table;
   }
@@ -87,12 +99,15 @@ class UtfTable {
   std::optional<Cell> Get(uint32_t row, std::string_view name) const {
     size_t at = kUtfBase + rows_offset_ + size_t(row) * row_width_;
     for (const Column& column : columns_) {
-      const bool per_row = column.storage == kStorageRow;
+      const bool per_row = column.flags & kFlagRow;
       if (column.name == name) {
-        if (!per_row && column.storage != kStorageConstant) {
-          return Cell{};
+        if (per_row) {
+          return Read(at, column.type);
         }
-        return Read(per_row ? at : column.constant_at, column.type);
+        if (column.flags & kFlagDefault) {
+          return Read(column.default_at, column.type);
+        }
+        return Cell{};
       }
       if (per_row) {
         at += TypeSize(column.type);
@@ -104,9 +119,9 @@ class UtfTable {
  private:
   struct Column {
     std::string name;
-    uint8_t storage;
+    uint8_t flags;
     uint8_t type;
-    uint32_t constant_at;
+    uint32_t default_at;
   };
 
   std::string String(uint32_t offset) const {
@@ -147,6 +162,9 @@ std::optional<UtfTable> ReadChunk(const CpkReader& read, uint64_t offset, const 
   }
   const uint32_t size = uint32_t(header[8]) | uint32_t(header[9]) << 8 | uint32_t(header[10]) << 16 |
                         uint32_t(header[11]) << 24;
+  if (size > kMaxChunkBytes) {
+    return std::nullopt;
+  }
   std::vector<uint8_t> bytes(size);
   if (!read(offset + kChunkHeaderBytes, bytes)) {
     return std::nullopt;
