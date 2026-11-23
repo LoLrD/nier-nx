@@ -41,7 +41,7 @@
 | Sealed Verse | Запечатанный стих |
 | Lunar Tear | Лунная слеза |
 | Popola / Devola | Попола / Девола |
-| Village | Деревня |
+| Village, `<NIER>`'s Village | Деревня (имя героя не ставим: его не просклонять; «Деревенская библиотека», «Покинуть деревню?») |
 | Seafront | Приморье |
 | Junk Heap | Свалка |
 | The Aerie | Гнездовье |
@@ -116,9 +116,10 @@
 | Mayor of Seafront | мэр Приморья |
 | Item Shopkeeper / Material Shopkeeper | торговец припасами / торговец материалами |
 | Tackle Shopkeeper / Fishmonger | торговец снастями / торговец рыбой |
+| Tackle Shop / Fish Shop | Лавка снастей / Рыбная лавка |
 | Strange-Thing Shopkeeper | торговец диковинами |
 | Grocer / Blacksmith | бакалейщик / кузнец |
-| Tavern Keeper | трактирщик (в деревне — трактирщица) |
+| Tavern Keeper | трактирщик в Приморье (подпись 15), трактирщица в деревне (подпись 81) |
 | Florist / Fortune-teller | торговка цветами / гадалка |
 | Villager / Resident / Guard | житель деревни / житель города / стражник |
 | Defense System | система защиты |
