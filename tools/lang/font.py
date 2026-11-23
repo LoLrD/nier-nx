@@ -8,6 +8,7 @@ from PIL import Image, ImageDraw, ImageFont
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "switch_prompts"))
 
 import cpk  # noqa: E402
+import kpky  # noqa: E402
 import xenos_dxt  # noqa: E402
 
 FACE = "/System/Library/Fonts/Times.ttc"
@@ -86,10 +87,7 @@ def put_glyph(texture: bytearray, page: int, x: int, y: int, image: np.ndarray) 
 
 
 def glyph_table(main: bytes) -> tuple:
-    entries = struct.unpack_from(">I", main, 4)[0]
-    offsets = struct.unpack_from(f">{entries}I", main, 8)
-    sizes = struct.unpack_from(f">{entries}I", main, 8 + 4 * entries)
-    start, size = next((o, s) for o, s in zip(offsets, sizes) if main[o:o + 4] == b"TNOF")
+    start, size = kpky.find(main, b"TNOF")
     count = struct.unpack_from(">I", main, start + 4)[0]
     codes_at = start + size - 4 * count
     records_at = codes_at - 16 * count
