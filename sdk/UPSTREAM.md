@@ -89,3 +89,6 @@ code generator and runtime changes of masseffect-nx. The third-party sources are
   of each pipeline and collect NVK's NAK assembly on the console.
 - `include/rex/ui/vulkan/functions/device_1_0.inc`: `vkCreatePipelineCache`, `vkDestroyPipelineCache` and
   `vkGetPipelineCacheData`, for the native renderer's pipeline cache kept on disk between runs.
+- `include/rex/graphics/pipeline/shader/spirv_translator.h`, `src/graphics/pipeline/shader/spirv_translator.cpp`: the
+  pixel shader modification has `position_shift`. NieR's native renderer draws the shadow map and the shadow mask at a
+  reduced resolution; PsParamGen positions of such draws are multiplied by `2^position_shift` back to guest pixels.

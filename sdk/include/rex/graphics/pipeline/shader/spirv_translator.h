@@ -89,6 +89,9 @@ class SpirvShaderTranslator : public ShaderTranslator {
       // For host render targets - depth / stencil output mode.
       DepthStencilMode depth_stencil_mode : 3;
       uint32_t implicit_lod : 1;
+      // The draw is rendered at 1 / 2^position_shift of the guest resolution: PsParamGen positions
+      // are multiplied back to guest pixels.
+      uint32_t position_shift : 2;
     } pixel;
     uint64_t value = 0;
 

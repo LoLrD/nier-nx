@@ -14,6 +14,7 @@ using nier::native::TargetPoint;
 using nier::native::TilePosition;
 using nier::native::TargetSet;
 using nier::native::UsedRows;
+using nier::native::DownscaleShift;
 using nier::native::ExtentFor;
 using nier::native::TargetKey;
 using nier::native::TargetsFor;
@@ -144,6 +145,35 @@ int main() {
     Check(UsedRows(scene, 576) == 576, "rows_below_the_limit_are_kept");
     Check(UsedRows(post, 576) == 576, "single_target_keeps_estimated_rows");
     Check(UsedRows(shadow, 100000) == 2048 / 13 * 16, "rows_never_exceed_the_edram");
+  }
+  {
+    TargetSet shadow_map{};
+    shadow_map.depth = TargetKey{0, 13, true, 0};
+    shadow_map.scale = {1, 1};
+    TargetSet depth_clear = shadow_map;
+    depth_clear.scale = {2, 2};
+    TargetSet scene_1024{};
+    scene_1024.color[0] = TargetKey{0x1D4, 13, false, 0};
+    scene_1024.depth = TargetKey{0, 13, true, 0};
+    scene_1024.scale = {1, 1};
+    TargetSet scene_768{};
+    scene_768.color[0] = TargetKey{0x10E, 10, false, 0};
+    scene_768.depth = TargetKey{0, 10, true, 0};
+    scene_768.scale = {1, 1};
+    TargetSet shadow_mask{};
+    shadow_mask.color[0] = TargetKey{0xB8, 8, false, 0};
+    shadow_mask.depth = TargetKey{0, 8, true, 0};
+    shadow_mask.scale = {1, 1};
+    TargetSet depth_768{};
+    depth_768.depth = TargetKey{0, 10, true, 0};
+    depth_768.scale = {1, 1};
+    Check(DownscaleShift(shadow_map, 1, 2) == 1, "shadow_map_pass_uses_the_map_shift");
+    Check(DownscaleShift(depth_clear, 1, 2) == 0, "multisampled_depth_only_pass_keeps_full_size");
+    Check(DownscaleShift(scene_1024, 1, 2) == 0, "scene_with_the_shadow_map_depth_keeps_full_size");
+    Check(DownscaleShift(scene_768, 1, 2) == 0, "scene_keeps_full_size");
+    Check(DownscaleShift(shadow_mask, 1, 2) == 2, "shadow_mask_pass_uses_the_mask_shift");
+    Check(DownscaleShift(depth_768, 1, 2) == 0, "narrow_depth_only_pass_keeps_full_size");
+    Check(DownscaleShift(shadow_map, 0, 0) == 0, "zero_shifts_turn_it_off");
   }
   return failures ? 1 : 0;
 }

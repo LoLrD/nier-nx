@@ -197,7 +197,7 @@ bool RenderTargets::Begins(const TargetSet& set) const {
   return !rendering_ || !(Bound{set.color, set.depth} == bound_);
 }
 
-void RenderTargets::Begin(VkCommandBuffer command_buffer, const TargetSet& set, uint32_t rows) {
+void RenderTargets::Begin(VkCommandBuffer command_buffer, const TargetSet& set, uint32_t rows, uint32_t shift) {
   if (Begins(set)) {
     End(command_buffer);
     claimed_rows_ = 0;
@@ -207,14 +207,16 @@ void RenderTargets::Begin(VkCommandBuffer command_buffer, const TargetSet& set, 
     End(command_buffer);
   }
   const Bound bound{set.color, set.depth};
-  Own(command_buffer, bound, claimed_rows_, rows);
+  Own(command_buffer, bound, claimed_rows_, rows, shift);
   claimed_rows_ = std::max(claimed_rows_, rows);
   BeginRendering(command_buffer, bound);
 }
 
-void RenderTargets::Own(VkCommandBuffer command_buffer, const Bound& bound, uint32_t from_rows, uint32_t to_rows) {
+void RenderTargets::Own(VkCommandBuffer command_buffer, const Bound& bound, uint32_t from_rows, uint32_t to_rows,
+                        uint32_t shift) {
   if (bound.depth) {
-    if (const Target* depth = Get(command_buffer, *bound.depth)) {
+    if (Target* depth = Get(command_buffer, *bound.depth)) {
+      depth->shift = shift;
       edram_.Write(*bound.depth, 0, from_rows, depth->extent.width, std::min(to_rows, depth->extent.height),
                    depth->owner, ++sequence_);
     }
@@ -223,7 +225,8 @@ void RenderTargets::Own(VkCommandBuffer command_buffer, const Bound& bound, uint
     if (!color) {
       continue;
     }
-    if (const Target* target = Get(command_buffer, *color)) {
+    if (Target* target = Get(command_buffer, *color)) {
+      target->shift = shift;
       Claim(command_buffer, *color, 0, from_rows, target->extent.width, std::min(to_rows, target->extent.height),
             false);
     }
@@ -325,7 +328,7 @@ void RenderTargets::ClearDepth(VkCommandBuffer command_buffer, const TargetKey& 
 void RenderTargets::Claim(VkCommandBuffer command_buffer, const TargetKey& key, uint32_t x0, uint32_t y0, uint32_t x1,
                           uint32_t y1, bool newer_than_rendering) {
   Target* target = key.is_depth ? nullptr : Get(command_buffer, key);
-  if (!target) {
+  if (!target || target->shift) {
     return;
   }
   std::unordered_map<uint32_t, std::vector<VkImageCopy>> copies;
@@ -340,7 +343,7 @@ void RenderTargets::Claim(VkCommandBuffer command_buffer, const TargetKey& key, 
       continue;
     }
     const auto source = targets_.find(source_key);
-    if (source == targets_.end()) {
+    if (source == targets_.end() || source->second.shift) {
       continue;
     }
     const TargetPoint from = TilePosition(source_key, foreign.tile);

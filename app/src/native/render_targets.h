@@ -32,6 +32,7 @@ class RenderTargets {
     VkDeviceSize bytes = 0;
     uint32_t owner = 0;
     uint64_t rendered = 0;
+    uint32_t shift = 0;
   };
   struct Stats {
     uint64_t transfers = 0;
@@ -58,7 +59,7 @@ class RenderTargets {
   void Claim(VkCommandBuffer command_buffer, const TargetKey& key, uint32_t x0, uint32_t y0, uint32_t x1, uint32_t y1,
              bool newer_than_rendering);
   bool Begins(const TargetSet& set) const;
-  void Begin(VkCommandBuffer command_buffer, const TargetSet& set, uint32_t rows);
+  void Begin(VkCommandBuffer command_buffer, const TargetSet& set, uint32_t rows, uint32_t shift);
   void End(VkCommandBuffer command_buffer);
   void ClearColor(VkCommandBuffer command_buffer, const TargetKey& key, const VkRect2D& rect, const float color[4]);
   void ClearDepth(VkCommandBuffer command_buffer, const TargetKey& key, const VkRect2D& rect, float depth,
@@ -72,7 +73,7 @@ class RenderTargets {
   };
 
   void CreateConverter();
-  void Own(VkCommandBuffer command_buffer, const Bound& bound, uint32_t from_rows, uint32_t to_rows);
+  void Own(VkCommandBuffer command_buffer, const Bound& bound, uint32_t from_rows, uint32_t to_rows, uint32_t shift);
   void BeginRendering(VkCommandBuffer command_buffer, const Bound& bound);
   void ConvertDepth(VkCommandBuffer command_buffer, const Target& depth, const Target& color,
                     const std::vector<VkImageCopy>& regions);

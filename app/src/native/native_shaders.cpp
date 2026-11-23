@@ -113,7 +113,8 @@ VulkanShader* NativeShaders::ShaderFor(uint64_t hash, uint32_t scale) {
 
 std::optional<NativeShaders::PreparedDraw> NativeShaders::PrepareDraw(const RegisterFile& regs,
                                                                        Shader::HostVertexShaderType host_type,
-                                                                       uint32_t scale_x, uint32_t scale_y) {
+                                                                       uint32_t scale_x, uint32_t scale_y,
+                                                                       uint32_t position_shift) {
   if (!vertex_hash_) {
     return std::nullopt;
   }
@@ -133,7 +134,8 @@ std::optional<NativeShaders::PreparedDraw> NativeShaders::PrepareDraw(const Regi
                          pixel_shader->GetInterpolatorInputMask(regs.Get<reg::SQ_PROGRAM_CNTL>(),
                                                                 regs.Get<reg::SQ_CONTEXT_MISC>(), param_gen_pos)
                    : 0;
-  PreparedDraw prepared{vertex_shader, nullptr, pixel_shader, nullptr};
+  PreparedDraw prepared{vertex_shader, nullptr, pixel_shader, nullptr,
+                        pixel_shader && param_gen_pos < xenos::kMaxInterpolators};
   prepared.vertex =
       Translate(*translators_[0], *vertex_shader,
                 VertexModification(*vertex_shader, host_type, interpolator_mask, param_gen_pos != UINT32_MAX, regs));
@@ -142,7 +144,7 @@ std::optional<NativeShaders::PreparedDraw> NativeShaders::PrepareDraw(const Regi
   }
   if (pixel_shader) {
     prepared.pixel = Translate(*translators_[scale], *pixel_shader,
-                               PixelModification(*pixel_shader, interpolator_mask, param_gen_pos, regs));
+                               PixelModification(*pixel_shader, interpolator_mask, param_gen_pos, position_shift, regs));
     if (!prepared.pixel) {
       return std::nullopt;
     }
@@ -185,7 +187,7 @@ NativeShaders::Modification NativeShaders::VertexModification(const Shader& shad
 }
 
 NativeShaders::Modification NativeShaders::PixelModification(const Shader& shader, uint32_t interpolator_mask,
-                                                             uint32_t param_gen_pos,
+                                                             uint32_t param_gen_pos, uint32_t position_shift,
                                                              const RegisterFile& regs) const {
   using DepthStencilMode = Modification::DepthStencilMode;
   Modification modification(translators_[0]->GetDefaultPixelShaderModification(
@@ -200,6 +202,7 @@ NativeShaders::Modification NativeShaders::PixelModification(const Shader& shade
     modification.pixel.param_gen_interpolator = param_gen_pos;
     modification.pixel.param_gen_point =
         uint32_t(regs.Get<reg::VGT_DRAW_INITIATOR>().prim_type == xenos::PrimitiveType::kPointList);
+    modification.pixel.position_shift = position_shift;
   }
   modification.pixel.depth_stencil_mode =
       shader.implicit_early_z_write_allowed() &&

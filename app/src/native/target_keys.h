@@ -59,6 +59,7 @@ struct TargetPoint {
 
 TargetPoint TilePosition(const TargetKey& key, uint32_t tile);
 uint32_t UsedRows(const TargetSet& set, uint32_t estimated_rows);
+uint32_t DownscaleShift(const TargetSet& set, uint32_t shadow_map_shift, uint32_t shadow_mask_shift);
 
 class EdramOwnership {
  public:

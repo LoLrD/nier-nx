@@ -38,6 +38,7 @@ class NativeShaders {
     rex::graphics::vulkan::VulkanShader::VulkanTranslation* vertex;
     rex::graphics::vulkan::VulkanShader* pixel_shader;
     rex::graphics::vulkan::VulkanShader::VulkanTranslation* pixel;
+    bool pixel_position;
   };
 
   explicit NativeShaders(const rex::ui::vulkan::VulkanDevice* device);
@@ -48,7 +49,7 @@ class NativeShaders {
   void Load(uint32_t type, const uint32_t* words_big_endian, uint32_t size_words);
   std::optional<PreparedDraw> PrepareDraw(const rex::graphics::RegisterFile& regs,
                                           rex::graphics::Shader::HostVertexShaderType host_type, uint32_t scale_x,
-                                          uint32_t scale_y);
+                                          uint32_t scale_y, uint32_t position_shift);
   VkShaderModule PixelModule(rex::graphics::vulkan::VulkanShader::VulkanTranslation& translation,
                              const rex::graphics::SpirvShaderTranslator::SystemConstants& system,
                              std::span<const uint32_t> fetch_constants);
@@ -67,7 +68,8 @@ class NativeShaders {
                                   uint32_t interpolator_mask, bool param_gen_used,
                                   const rex::graphics::RegisterFile& regs) const;
   Modification PixelModification(const rex::graphics::Shader& shader, uint32_t interpolator_mask,
-                                 uint32_t param_gen_pos, const rex::graphics::RegisterFile& regs) const;
+                                 uint32_t param_gen_pos, uint32_t position_shift,
+                                 const rex::graphics::RegisterFile& regs) const;
   static constexpr uint32_t kScales = 3;
 
   static uint32_t ScaleIndex(uint32_t scale_x, uint32_t scale_y);

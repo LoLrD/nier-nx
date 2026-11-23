@@ -10,6 +10,7 @@
 
 #include <fmt/format.h>
 
+#include <rex/cvar.h>
 #include <rex/graphics/registers.h>
 #include <rex/graphics/util/draw.h>
 #include <rex/hash.h>
@@ -31,6 +32,11 @@
 #if REX_PLATFORM_SWITCH
 extern "C" void RexSwitchPerfCount(unsigned id);
 #endif
+
+REXCVAR_DEFINE_INT32(nier_shadow_map_shift, 1, "NieR",
+                     "Native renderer: the shadow map is drawn at 1/2^N of its size (0 = full size)");
+REXCVAR_DEFINE_INT32(nier_shadow_mask_shift, 1, "NieR",
+                     "Native renderer: the screen-space shadow mask is drawn at 1/2^N of its size (0 = full size)");
 
 namespace nier::native {
 
@@ -375,26 +381,33 @@ VkDescriptorSet NativeRenderer::EmptyTextureSet() {
   return submissions_->AllocateShared(layout, XXH3_64bits(&layout, sizeof(layout)), fresh);
 }
 
+uint32_t NativeRenderer::DownscaleFor(const TargetSet& targets) const {
+  return DownscaleShift(targets, uint32_t(std::clamp(REXCVAR_GET(nier_shadow_map_shift), 0, 3)),
+                        uint32_t(std::clamp(REXCVAR_GET(nier_shadow_mask_shift), 0, 3)));
+}
+
 VkRect2D NativeRenderer::SetDynamicState(const RegisterFile& regs, const draw_util::ViewportInfo& viewport_info,
-                                     const SampleScale& scale, bool polygonal) {
+                                     const SampleScale& scale, bool polygonal, uint32_t shift) {
   const auto& dfn = device_->functions();
   const VkCommandBuffer cmd = submissions_->main();
   VkViewport viewport{-1.0f, -1.0f, 1.0f, 1.0f, viewport_info.z_min, viewport_info.z_max};
   if (viewport_info.xy_extent[0] && viewport_info.xy_extent[1]) {
-    viewport.x = float(viewport_info.xy_offset[0]);
-    viewport.y = float(viewport_info.xy_offset[1]);
-    viewport.width = float(viewport_info.xy_extent[0]);
-    viewport.height = float(viewport_info.xy_extent[1]);
+    const float factor = 1.0f / float(1u << shift);
+    viewport.x = float(viewport_info.xy_offset[0]) * factor;
+    viewport.y = float(viewport_info.xy_offset[1]) * factor;
+    viewport.width = float(viewport_info.xy_extent[0]) * factor;
+    viewport.height = float(viewport_info.xy_extent[1]) * factor;
   }
   dfn.vkCmdSetViewport(cmd, 0, 1, &viewport);
   draw_util::Scissor scissor;
   draw_util::GetScissor(regs, scissor);
   const VkExtent2D area = targets_->render_area();
-  const uint32_t left = std::min(scissor.offset[0] * scale.x, area.width);
-  const uint32_t top = std::min(scissor.offset[1] * scale.y, area.height);
+  const uint32_t round = (1u << shift) - 1;
+  const uint32_t left = std::min((scissor.offset[0] * scale.x) >> shift, area.width);
+  const uint32_t top = std::min((scissor.offset[1] * scale.y) >> shift, area.height);
   const VkRect2D rect{{int32_t(left), int32_t(top)},
-                      {std::min(scissor.extent[0] * scale.x, area.width - left),
-                       std::min(scissor.extent[1] * scale.y, area.height - top)}};
+                      {std::min((scissor.extent[0] * scale.x + round) >> shift, area.width - left),
+                       std::min((scissor.extent[1] * scale.y + round) >> shift, area.height - top)}};
   VkRect2D host_rect = rect;
   if (PerfSkip(kSkipPixels)) {
     host_rect.extent = {0, 0};
@@ -479,7 +492,7 @@ NativeRenderer::DrawResult NativeRenderer::RecordDraw(const RegisterFile& regs) 
     return DrawResult::kDone;
   }
   const SampleScale scale = ScaleFor(regs.Get<reg::RB_SURFACE_INFO>().msaa_samples);
-  const auto prepared = shaders_.PrepareDraw(regs, draw.vs_type, scale.x, scale.y);
+  auto prepared = shaders_.PrepareDraw(regs, draw.vs_type, scale.x, scale.y, 0);
   if (!prepared) {
     ++stats_.skipped_shader;
     return DrawResult::kDone;
@@ -502,6 +515,14 @@ NativeRenderer::DrawResult NativeRenderer::RecordDraw(const RegisterFile& regs) 
   if (!any || !supported) {
     ++stats_.skipped_target;
     return DrawResult::kDone;
+  }
+  const uint32_t shift = DownscaleFor(targets);
+  if (shift && prepared->pixel_position) {
+    prepared = shaders_.PrepareDraw(regs, draw.vs_type, scale.x, scale.y, shift);
+    if (!prepared) {
+      ++stats_.skipped_shader;
+      return DrawResult::kDone;
+    }
   }
   BeginSubmission();
   if (!submissions_->HasUniformSpace(kDrawUniformBytes)) {
@@ -592,7 +613,7 @@ NativeRenderer::DrawResult NativeRenderer::RecordDraw(const RegisterFile& regs) 
     frame_passes_.push_back(current_pass_);
   }
   targets_->Begin(cmd, targets,
-                  UsedRows(targets, extents_.EstimateMaxY(true, *prepared->vertex_shader) * targets.scale.y));
+                  UsedRows(targets, extents_.EstimateMaxY(true, *prepared->vertex_shader) * targets.scale.y), shift);
   if (!targets_->rendering()) {
     ++stats_.skipped_target;
     return DrawResult::kDone;
@@ -607,7 +628,7 @@ NativeRenderer::DrawResult NativeRenderer::RecordDraw(const RegisterFile& regs) 
   const std::array<VkDescriptorSet, 4> sets = {shared_set_, submissions_->constants_set(), vs_set, ps_set};
   dfn.vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0, uint32_t(sets.size()), sets.data(),
                               uint32_t(offsets.size()), offsets.data());
-  const VkRect2D scissor = SetDynamicState(regs, viewport, targets.scale, polygonal);
+  const VkRect2D scissor = SetDynamicState(regs, viewport, targets.scale, polygonal, shift);
   if (!trace_pass_.draws++) {
     trace_pass_.first_scissor = scissor;
   }

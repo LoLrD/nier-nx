@@ -14,6 +14,8 @@ using namespace rex::graphics;
 namespace {
 
 constexpr uint32_t kMaxHeightSamples = 8192;
+constexpr uint32_t kShadowMapPitchTiles = 13;
+constexpr uint32_t kShadowMaskPitchTiles = 8;
 
 }  // namespace
 
@@ -140,6 +142,20 @@ uint32_t UsedRows(const TargetSet& set, uint32_t estimated_rows) {
     rows = std::min(rows, distance / key.pitch_tiles * xenos::kEdramTileHeightSamples);
   }
   return rows;
+}
+
+uint32_t DownscaleShift(const TargetSet& set, uint32_t shadow_map_shift, uint32_t shadow_mask_shift) {
+  if (set.scale.x != 1 || set.scale.y != 1 || !set.depth) {
+    return 0;
+  }
+  const bool any_color = std::any_of(set.color.begin(), set.color.end(), [](const auto& color) { return bool(color); });
+  if (!any_color) {
+    return set.depth->pitch_tiles >= kShadowMapPitchTiles ? shadow_map_shift : 0;
+  }
+  const auto& color = set.color[0];
+  return color && color->pitch_tiles == kShadowMaskPitchTiles && set.depth->pitch_tiles == kShadowMaskPitchTiles
+             ? shadow_mask_shift
+             : 0;
 }
 
 }  // namespace nier::native

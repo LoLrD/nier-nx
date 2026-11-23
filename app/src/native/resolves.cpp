@@ -45,6 +45,7 @@ struct DepthConstants {
   int32_t source_offset[2];
   int32_t dest_offset[2];
   int32_t scale_shift;
+  int32_t down_shift;
 };
 
 uint64_t ImageKey(uint32_t address, VkFormat format, uint32_t width, uint32_t height) {
@@ -247,14 +248,15 @@ void Resolves::CopyColor(VkCommandBuffer command_buffer, const ResolvePlan& plan
   }
   VkImageBlit blit{};
   blit.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-  blit.srcOffsets[0] = {int32_t(plan.source_x), int32_t(plan.source_y), 0};
-  blit.srcOffsets[1] = {int32_t(source_right), int32_t(source_bottom), 1};
+  const uint32_t shift = source.shift;
+  blit.srcOffsets[0] = {int32_t(plan.source_x >> shift), int32_t(plan.source_y >> shift), 0};
+  blit.srcOffsets[1] = {int32_t(source_right >> shift), int32_t(source_bottom >> shift), 1};
   blit.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
   blit.dstOffsets[0] = {int32_t(plan.dest_x), int32_t(plan.dest_y), 0};
   blit.dstOffsets[1] = {int32_t(plan.dest_x + plan.dest_width * (source_right - plan.source_x) / plan.source_width),
                         int32_t(plan.dest_y + plan.dest_height * (source_bottom - plan.source_y) / plan.source_height),
                         1};
-  const bool scaled = plan.source_width != plan.dest_width || plan.source_height != plan.dest_height;
+  const bool scaled = shift || plan.source_width != plan.dest_width || plan.source_height != plan.dest_height;
   device_->functions().vkCmdBlitImage(command_buffer, source.image, VK_IMAGE_LAYOUT_GENERAL, dest.image,
                                       VK_IMAGE_LAYOUT_GENERAL, 1, &blit,
                                       scaled ? VK_FILTER_LINEAR : VK_FILTER_NEAREST);
@@ -291,9 +293,10 @@ void Resolves::CopyDepth(VkCommandBuffer command_buffer, const ResolvePlan& plan
   rendering.colorAttachmentCount = uint32_t(attachments.size());
   rendering.pColorAttachments = attachments.data();
   const uint32_t scale = std::max(plan.source_width / std::max(plan.dest_width, 1u), 1u);
-  const DepthConstants constants{{int32_t(plan.source_x), int32_t(plan.source_y)},
+  const DepthConstants constants{{int32_t(plan.source_x >> source.shift), int32_t(plan.source_y >> source.shift)},
                                  {int32_t(plan.dest_x), int32_t(plan.dest_y)},
-                                 int32_t(std::bit_width(scale) - 1)};
+                                 int32_t(std::bit_width(scale) - 1),
+                                 int32_t(source.shift)};
   const VkViewport viewport{float(plan.dest_x), float(plan.dest_y), float(plan.dest_width), float(plan.dest_height),
                             0.0f, 1.0f};
   dfn.vkCmdBeginRendering(command_buffer, &rendering);

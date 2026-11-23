@@ -3218,6 +3218,11 @@ void SpirvShaderTranslator::StartFragmentShaderInMain() {
           spv::OpFMul, type_float_, param_gen_x,
           builder_->makeFloatConstant(1.0f / float(draw_resolution_scale_x_)));
     }
+    if (modification.pixel.position_shift) {
+      param_gen_x = builder_->createNoContractionBinOp(
+          spv::OpFMul, type_float_, param_gen_x,
+          builder_->makeFloatConstant(float(1u << modification.pixel.position_shift)));
+    }
     param_gen_x = builder_->createUnaryBuiltinCall(type_float_, ext_inst_glsl_std_450_,
                                                    GLSLstd450FAbs, param_gen_x);
     if (!modification.pixel.param_gen_point) {
@@ -3253,6 +3258,11 @@ void SpirvShaderTranslator::StartFragmentShaderInMain() {
       param_gen_y = builder_->createNoContractionBinOp(
           spv::OpFMul, type_float_, param_gen_y,
           builder_->makeFloatConstant(1.0f / float(draw_resolution_scale_y_)));
+    }
+    if (modification.pixel.position_shift) {
+      param_gen_y = builder_->createNoContractionBinOp(
+          spv::OpFMul, type_float_, param_gen_y,
+          builder_->makeFloatConstant(float(1u << modification.pixel.position_shift)));
     }
     param_gen_y = builder_->createUnaryBuiltinCall(type_float_, ext_inst_glsl_std_450_,
                                                    GLSLstd450FAbs, param_gen_y);

@@ -120,8 +120,9 @@ class NativeRenderer {
   VkDescriptorSet BindTextures(const rex::graphics::RegisterFile& regs, const rex::graphics::SpirvShader& shader,
                                bool pixel, TextureConstantInfo& info, uint32_t& textures, uint32_t& samplers,
                                bool& out_of_memory);
+  uint32_t DownscaleFor(const TargetSet& targets) const;
   VkRect2D SetDynamicState(const rex::graphics::RegisterFile& regs, const rex::graphics::draw_util::ViewportInfo& viewport,
-                       const SampleScale& scale, bool polygonal);
+                       const SampleScale& scale, bool polygonal, uint32_t shift);
   void DumpFrame(uint32_t frontbuffer, uint32_t width, uint32_t height);
   void PresentInto(VkCommandBuffer command_buffer, VkImage output, VkImageView output_view, bool written_before,
                    uint32_t frontbuffer, uint32_t width, uint32_t height);
