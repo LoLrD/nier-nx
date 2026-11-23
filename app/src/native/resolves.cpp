@@ -267,9 +267,49 @@ void Resolves::CopyColor(VkCommandBuffer command_buffer, const ResolvePlan& plan
                         int32_t(plan.dest_y + plan.dest_height * (source_bottom - plan.source_y) / plan.source_height),
                         1};
   const bool scaled = shift || plan.source_width != plan.dest_width || plan.source_height != plan.dest_height;
+  if (shift) {
+    ExtendEdges(command_buffer, source, uint32_t(blit.srcOffsets[0].x), uint32_t(blit.srcOffsets[0].y),
+                uint32_t(blit.srcOffsets[1].x), uint32_t(blit.srcOffsets[1].y));
+  }
   device_->functions().vkCmdBlitImage(command_buffer, source.image, VK_IMAGE_LAYOUT_GENERAL, dest.image,
                                       VK_IMAGE_LAYOUT_GENERAL, 1, &blit,
                                       scaled ? VK_FILTER_LINEAR : VK_FILTER_NEAREST);
+}
+
+void Resolves::ExtendEdges(VkCommandBuffer command_buffer, const RenderTargets::Target& source, uint32_t left,
+                           uint32_t top, uint32_t right, uint32_t bottom) {
+  const bool column = right < source.extent.width;
+  const bool row = bottom < source.extent.height;
+  std::array<VkImageCopy, 3> regions{};
+  uint32_t count = 0;
+  const auto add = [&](int32_t from_x, int32_t from_y, int32_t to_x, int32_t to_y, uint32_t width, uint32_t height) {
+    VkImageCopy& region = regions[count++];
+    region.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    region.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    region.srcOffset = {from_x, from_y, 0};
+    region.dstOffset = {to_x, to_y, 0};
+    region.extent = {width, height, 1};
+  };
+  if (column) {
+    add(int32_t(right - 1), int32_t(top), int32_t(right), int32_t(top), 1, bottom - top);
+  }
+  if (row) {
+    add(int32_t(left), int32_t(bottom - 1), int32_t(left), int32_t(bottom), right - left, 1);
+  }
+  if (column && row) {
+    add(int32_t(right - 1), int32_t(bottom - 1), int32_t(right), int32_t(bottom), 1, 1);
+  }
+  if (!count) {
+    return;
+  }
+  const auto& dfn = device_->functions();
+  dfn.vkCmdCopyImage(command_buffer, source.image, VK_IMAGE_LAYOUT_GENERAL, source.image, VK_IMAGE_LAYOUT_GENERAL, count,
+                     regions.data());
+  VkMemoryBarrier barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
+  barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+  barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+  dfn.vkCmdPipelineBarrier(command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &barrier,
+                           0, nullptr, 0, nullptr);
 }
 
 void Resolves::Publish(const ResolvePlan& plan, DestImage& dest, uint32_t bytes_per_pixel, uint64_t submission) {

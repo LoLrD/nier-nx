@@ -85,6 +85,8 @@ class Resolves {
   DestImage* Dest(VkCommandBuffer command_buffer, const ResolvePlan& plan, VkFormat format);
   void CopyColor(VkCommandBuffer command_buffer, const ResolvePlan& plan, const RenderTargets::Target& source,
                  const DestImage& dest);
+  void ExtendEdges(VkCommandBuffer command_buffer, const RenderTargets::Target& source, uint32_t left, uint32_t top,
+                   uint32_t right, uint32_t bottom);
   void CopyDepth(VkCommandBuffer command_buffer, const ResolvePlan& plan, const RenderTargets::Target& source,
                  const DestImage& dest, const DestImage& raw);
   void Readback(VkCommandBuffer command_buffer, const ResolvePlan& plan, const DestImage& dest, uint64_t submission);
