@@ -60,6 +60,19 @@ class WorkTest(unittest.TestCase):
                 dict(entry("6:15", "EID_6_BOOKW010_Y", 1), en="Short line.", ru="Д")]
         self.assertEqual([row["ru"] for row in work.harmonize(rows)], ["Б", "Б", "Б", "В", "Г", "Д"])
 
+    def test_review_fixes_may_touch_some_lines_but_must_stay_valid(self) -> None:
+        source = [entry("0:15", "a", 1), entry("1:15", "a", 1)]
+        source[1]["en"] = "Press <ICON=2> now"
+        fixes = [(TKD, "0:15", "Слово"), (TKD, "1:15", "Нажмите сейчас"), (TKD, "7:15", "Чужая")]
+        self.assertEqual(work.fix_issues(source, fixes), [f"{TKD} 1:15: tags differ", f"{TKD} 7:15: not in the review"])
+
+    def test_fixes_replace_existing_lines(self) -> None:
+        self.assertEqual(work.apply_fixes({"1:15": "Старое", "2:15": "Два"}, {"1:15": "Новое"}),
+                         {"1:15": "Новое", "2:15": "Два"})
+
+    def test_russian_interrobang_order(self) -> None:
+        self.assertEqual(work.russian_punctuation("Что!? <PAGE>Да!?!"), "Что?! <PAGE>Да?!!")
+
     def test_merge_keeps_existing_lines_and_orders_by_record(self) -> None:
         merged = work.merge({"10:15": "Старое"}, {"2:15": "Два", "10:15": "Новое", "1:15": "Один"})
         self.assertEqual(list(merged.items()), [("1:15", "Один"), ("2:15", "Два"), ("10:15", "Старое")])

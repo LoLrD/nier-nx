@@ -84,6 +84,27 @@ def harmonize(rows: list) -> list:
     return [dict(row, ru=chosen.get((row["en"], speaker(row["id"])), row["ru"])) for row in rows]
 
 
+def fix_issues(source: list, fixes: list) -> list:
+    expected = {(entry["path"], entry["key"]): entry["en"] for entry in source}
+    found = []
+    for path, key, text in fixes:
+        if (path, key) not in expected:
+            found.append(f"{path} {key}: not in the review")
+            continue
+        found += [f"{path} {key}: {problem}"
+                  for problem in textfiles.problems(textfiles.switch_english(expected[(path, key)]), text)]
+    return found
+
+
+def apply_fixes(existing: dict, fixes: dict) -> dict:
+    return {**existing, **fixes}
+
+
+def russian_punctuation(text: str) -> str:
+    parts = re.split(r"(<[^<>]*>)", text)
+    return "".join(part if part.startswith("<") else part.replace("!?", "?!") for part in parts)
+
+
 def merge(existing: dict, new: dict) -> dict:
     combined = {**new, **existing}
     return dict(sorted(combined.items(), key=lambda item: tuple(int(part) for part in item[0].split(":"))))
@@ -100,7 +121,7 @@ def japanese_reference(archive: Path, path: str, rows: list, listing: dict) -> l
     return []
 
 
-def source_entries(archive: Path, language: str) -> list:
+def source_entries(archive: Path, language: str, translated: bool = False) -> list:
     listing = cpk.files(archive)
     entries = []
     for path in sorted(listing):
@@ -114,15 +135,65 @@ def source_entries(archive: Path, language: str) -> list:
         for index, fields in enumerate(rows):
             for column in textfiles.text_columns(path):
                 english, key = fields[column], f"{index}:{column}"
-                if not english.strip() or JAPANESE.search(english) or key in done:
+                if not english.strip() or JAPANESE.search(english) or (key in done) != translated:
                     continue
                 reference = ""
                 if japanese and isinstance(japanese[0], str):
                     reference = japanese[index]
                 elif japanese:
                     reference = japanese[index][column]
-                entries.append({"path": path, "key": key, "id": ids[index], "en": english, "ja": reference})
+                entries.append({"path": path, "key": key, "id": ids[index], "en": english, "ja": reference,
+                                "ru": done.get(key, "")})
     return entries
+
+
+def review_split(language: str, words: int) -> int:
+    rows = source_entries(ARCHIVE, language, translated=True)
+    folder = WORK / language / "audit" / "source"
+    folder.mkdir(parents=True, exist_ok=True)
+    for number, part in enumerate(chunk(rows, words)):
+        lines = ["\t".join(textfiles.escape(entry[field]) for field in ("path", "key", "id", "en", "ja", "ru"))
+                 for entry in part]
+        (folder / f"{number:02d}.tsv").write_text("".join(line + "\n" for line in lines))
+        print(f"{number:02d}: {len(part)} texts, {sum(len(entry['en'].split()) for entry in part)} words")
+    return 0
+
+
+def check_fixes(language: str, number: str) -> int:
+    source = [dict(zip(("path", "key", "id", "en", "ja", "ru"), row))
+              for row in read_rows(WORK / language / "audit" / "source" / f"{number}.tsv", 6)]
+    fixes = [tuple(row[:3]) for row in read_rows(WORK / language / "audit" / "fixes" / f"{number}.tsv", 5)]
+    found = fix_issues(source, fixes)
+    for line in found:
+        print(line)
+    print(f"{number}: {len(fixes)} fixes, {len(found)} problems")
+    return 1 if found else 0
+
+
+def apply_review(language: str) -> int:
+    grouped, categories = {}, Counter()
+    for fixes in sorted((WORK / language / "audit" / "fixes").glob("*.tsv")):
+        for row in read_rows(fixes, 5):
+            grouped.setdefault(row[0], {})[row[1]] = row[2]
+            categories[row[3] if len(row) > 3 else ""] += 1
+    for path, rows in grouped.items():
+        table = ROOT / "lang" / language / (path + ".tsv")
+        table.write_text(textfiles.format_table(apply_fixes(textfiles.parse_table(table.read_text()), rows)))
+    print(f"{sum(categories.values())} fixes applied:", dict(categories.most_common()))
+    return 0
+
+
+def punctuate(language: str) -> int:
+    changed = 0
+    for table in sorted((ROOT / "lang" / language).rglob("*.tsv")):
+        if table.parent == ROOT / "lang" / language:
+            continue
+        rows = textfiles.parse_table(table.read_text())
+        fixed = {key: russian_punctuation(text) for key, text in rows.items()}
+        changed += sum(rows[key] != fixed[key] for key in rows)
+        table.write_text(textfiles.format_table(fixed))
+    print(f"{changed} lines punctuated")
+    return 0
 
 
 def read_rows(path: Path, columns: int) -> list:
@@ -190,7 +261,25 @@ def main() -> int:
     check_parser.add_argument("number")
     merge_parser = commands.add_parser("merge")
     merge_parser.add_argument("language")
+    review_parser = commands.add_parser("review-split")
+    review_parser.add_argument("language")
+    review_parser.add_argument("--words", type=int, default=13000)
+    fixes_parser = commands.add_parser("check-fixes")
+    fixes_parser.add_argument("language")
+    fixes_parser.add_argument("number")
+    apply_parser = commands.add_parser("apply-review")
+    apply_parser.add_argument("language")
+    punctuate_parser = commands.add_parser("punctuate")
+    punctuate_parser.add_argument("language")
     args = parser.parse_args()
+    if args.command == "review-split":
+        return review_split(args.language, args.words)
+    if args.command == "check-fixes":
+        return check_fixes(args.language, args.number)
+    if args.command == "apply-review":
+        return apply_review(args.language)
+    if args.command == "punctuate":
+        return punctuate(args.language)
     if args.command == "split":
         return split(args.language, args.words)
     if args.command == "check":
