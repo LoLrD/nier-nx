@@ -35,7 +35,7 @@ extern "C" void RexSwitchPerfCount(unsigned id);
 
 REXCVAR_DEFINE_INT32(nier_readback_limit_kb, 16, "NieR",
                      "Native renderer: largest resolve, in KB, that is also written back to guest memory");
-REXCVAR_DEFINE_INT32(nier_shadow_map_shift, 1, "NieR",
+REXCVAR_DEFINE_INT32(nier_shadow_map_shift, 0, "NieR",
                      "Native renderer: the shadow map is drawn at 1/2^N of its size (0 = full size)");
 REXCVAR_DEFINE_INT32(nier_shadow_mask_shift, 1, "NieR",
                      "Native renderer: the screen-space shadow mask is drawn at 1/2^N of its size (0 = full size)");
