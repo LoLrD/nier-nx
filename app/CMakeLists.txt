@@ -6,6 +6,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(REXSDK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../sdk" CACHE PATH "Path to the ReXGlue SDK source tree")
 
+add_compile_definitions(REX_PPC_FIXED_FLUSH_MODE)
+
 include(generated/rexglue.cmake)
 
 set(NIER_SOURCES

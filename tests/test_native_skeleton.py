@@ -11,6 +11,7 @@ INCLUDES = [
     ROOT / "sdk" / "thirdparty" / "fmt" / "include",
     ROOT / "sdk" / "thirdparty" / "spdlog" / "include",
     ROOT / "app" / "src" / "native",
+    ROOT / "sdk" / "thirdparty" / "simde",
 ]
 SDK_LIBS = ROOT / "out" / "build" / "mac"
 SDK_LINK = [
@@ -78,6 +79,9 @@ class NativeSkeletonTest(unittest.TestCase):
 
     def test_tiling(self) -> None:
         self.check("tiling", [], link_sdk=True)
+
+    def test_fixed_flush_mode(self) -> None:
+        self.check("fixed_flush_mode", [], link_sdk=True)
 
     def test_texture_loader(self) -> None:
         self.check("texture_loader", ["texture_loader.cpp"], link_sdk=True)
