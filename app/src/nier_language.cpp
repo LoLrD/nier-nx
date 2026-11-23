@@ -7,8 +7,8 @@
 #include <rex/cvar.h>
 
 REXCVAR_DEFINE_STRING(nier_language_dir, "", "NieR",
-                      "Folder with translated game text files laid out like the archive (TEXT/...); they replace "
-                      "the English ones. Empty keeps the original texts");
+                      "Folder with translated game texts and fonts laid out like the archive (TEXT/..., FONT/...); "
+                      "the texts replace the English ones. Empty keeps the original texts");
 
 namespace nier {
 
@@ -19,7 +19,7 @@ std::vector<TranslatedFile> LoadTranslatedFiles(std::span<const CpkFile> toc) {
     return files;
   }
   for (const CpkFile& file : toc) {
-    if (!file.path.starts_with("TEXT/")) {
+    if (!file.path.starts_with("TEXT/") && !file.path.starts_with("FONT/")) {
       continue;
     }
     std::ifstream in(dir + "/" + file.path, std::ios::binary);

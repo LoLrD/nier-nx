@@ -67,6 +67,10 @@ LanguagePlan PlanLanguage(std::span<const CpkFile> toc, std::span<const Translat
     const TranslatedFile& file = files[index];
     const auto entry =
         std::find_if(toc.begin(), toc.end(), [&](const CpkFile& candidate) { return candidate.path == file.path; });
+    if (entry != toc.end() && entry->size == file.bytes.size()) {
+      plan.patches.push_back({entry->offset, file.bytes});
+      continue;
+    }
     if (entry == toc.end() || !entry->size_cell.width || !entry->offset_cell.width) {
       plan.left_out.push_back(file.path);
       continue;

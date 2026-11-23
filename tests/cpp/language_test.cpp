@@ -92,6 +92,21 @@ int main() {
     Check(plan.left_out.empty(), "nothing_is_left_out_when_it_fits");
   }
   {
+    const std::vector<uint8_t> glyphs = Pattern(0x10);
+    const std::vector<TranslatedFile> translated = {{"2D/TITLE.2DP", glyphs}};
+    const LanguagePlan plan = PlanLanguage(files, translated);
+    const auto read_patched = [&](uint64_t offset, std::span<uint8_t> out) {
+      const bool ok = read(offset, out);
+      ApplyReadPatches(plan.patches, offset, out);
+      return ok;
+    };
+    const std::vector<CpkFile> after = ReadCpkToc(read_patched);
+    std::vector<uint8_t> content(0x10);
+    Check(plan.left_out.empty() && plan.patches.size() == 1 && after.size() == 5 &&
+              after[4].offset == files[4].offset && read_patched(files[4].offset, content) && content == glyphs,
+          "a_file_of_the_same_size_is_replaced_where_it_is");
+  }
+  {
     const std::vector<TranslatedFile> translated = {{"TEXT/INFO_TEXT/INFOWINDOW.EN.INW", Pattern(0x3000)}};
     const LanguagePlan plan = PlanLanguage(files, translated);
     Check(plan.patches.empty() && plan.left_out.size() == 1, "a_translation_that_fits_nowhere_keeps_the_english");
