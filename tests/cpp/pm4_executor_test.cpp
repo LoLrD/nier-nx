@@ -265,6 +265,7 @@ int main() {
     exec.Execute(reader);
     Check(bus.memory[0x9000] == 1000 && bus.memory[0x9000 + 16] == 1000 && bus.memory[0x9000 + 4] == 0,
           "zpd_fake_sample_count");
+    Check(exec.stats().zpd_events == 1 && exec.stats().zpd_results == 1, "zpd_events_and_results_are_counted");
   }
   {
     GpuRegisters regs;

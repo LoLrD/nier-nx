@@ -311,6 +311,7 @@ void Pm4Executor::EventWriteExt(RingReader& data) {
 
 void Pm4Executor::EventWriteZpd(RingReader& data) {
   SetRegister(XE_GPU_REG_VGT_EVENT_INITIATOR, data.Read() & 0x3F);
+  ++stats_.zpd_events;
   const uint32_t address = registers_.Get(XE_GPU_REG_RB_SAMPLE_COUNT_ADDR);
   if (!address) {
     return;
@@ -323,6 +324,7 @@ void Pm4Executor::EventWriteZpd(RingReader& data) {
     bus_.StoreWord(address + i * 4, 0);
   }
   if (finished) {
+    ++stats_.zpd_results;
     bus_.StoreWord(address, kFakeSampleCount);
     bus_.StoreWord(address + 16, kFakeSampleCount);
   }

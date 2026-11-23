@@ -42,6 +42,8 @@ struct Pm4Stats {
   uint64_t overflows = 0;
   uint64_t coher_events = 0;
   uint64_t coher_bytes = 0;
+  uint64_t zpd_events = 0;
+  uint64_t zpd_results = 0;
 };
 
 class Pm4Executor {

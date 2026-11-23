@@ -355,7 +355,7 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem, private 
     REXLOG_INFO(
         "[native] 10 s: {} packets, {} draws, {} resolves, {} swaps, {} interrupts, {} shader loads, {} waits ({} slow, "
         "{} ms, last {} {:X} ref {:X} mask {:X} value {:X} func {}), {} "
-        "overflows, {} coher events {} MB, {} progress wakes, {} unique shaders, {} shader translations, {} specialized, {} failed, "
+        "overflows, {} coher events {} MB, {} occlusion events ({} results), {} progress wakes, {} unique shaders, {} shader translations, {} specialized, {} failed, "
         "{} ms translating (max {} ms), ring thread cpu {} ms",
         s.packets - last_.packets, s.draws - last_.draws, s.resolves - last_.resolves, s.swaps - last_.swaps,
         s.interrupts - last_.interrupts, s.shader_loads - last_.shader_loads, s.waits - last_.waits,
@@ -363,7 +363,8 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem, private 
         s.slow_wait_info & 0x10 ? "mem" : "reg", s.slow_wait_poll, s.slow_wait_reference, s.slow_wait_mask,
         s.slow_wait_value, s.slow_wait_info & 7,
         s.overflows - last_.overflows, s.coher_events - last_.coher_events,
-        (s.coher_bytes - last_.coher_bytes) >> 20, SharedGpuProgress().notifies() - reported_notifies_,
+        (s.coher_bytes - last_.coher_bytes) >> 20, s.zpd_events - last_.zpd_events, s.zpd_results - last_.zpd_results,
+        SharedGpuProgress().notifies() - reported_notifies_,
         shader_dump_ ? shader_dump_->unique() : 0, t.translations, t.specialized,
         t.failures, t.translate_us / 1000, t.max_translate_us / 1000, (ThreadCpuUs() - reported_cpu_us_) / 1000);
     reported_cpu_us_ = ThreadCpuUs();
