@@ -383,15 +383,29 @@ VkDescriptorSet NativeRenderer::EmptyTextureSet() {
   return submissions_->AllocateShared(layout, XXH3_64bits(&layout, sizeof(layout)), fresh);
 }
 
-uint32_t NativeRenderer::DownscaleFor(const TargetSet& targets, bool after_shadow_map) const {
+uint32_t NativeRenderer::DownscaleFor(const TargetSet& targets, bool writes_depth) {
+  if (scaled_shift_ && ((targets.depth && targets.depth == scaled_depth_) ||
+                        (targets.color[0] && targets.color[0] == scaled_color_))) {
+    return scaled_shift_;
+  }
+  uint32_t shift = 0;
   switch (KindOf(targets)) {
     case PassKind::kShadowMap:
-      return uint32_t(std::clamp(REXCVAR_GET(nier_shadow_map_shift), 0, 3));
+      shift = writes_depth ? uint32_t(std::clamp(REXCVAR_GET(nier_shadow_map_shift), 0, 3)) : 0;
+      break;
     case PassKind::kScreen640:
-      return after_shadow_map ? uint32_t(std::clamp(REXCVAR_GET(nier_shadow_mask_shift), 0, 3)) : 0;
+      shift = after_shadow_map_ ? uint32_t(std::clamp(REXCVAR_GET(nier_shadow_mask_shift), 0, 3)) : 0;
+      break;
     default:
-      return 0;
+      break;
   }
+  after_shadow_map_ = false;
+  if (shift) {
+    scaled_shift_ = shift;
+    scaled_color_ = targets.color[0];
+    scaled_depth_ = targets.depth;
+  }
+  return shift;
 }
 
 VkRect2D NativeRenderer::SetDynamicState(const RegisterFile& regs, const draw_util::ViewportInfo& viewport_info,
@@ -555,12 +569,8 @@ NativeRenderer::DrawResult NativeRenderer::RecordDraw(const RegisterFile& regs) 
   if (ps_set == VK_NULL_HANDLE) {
     return out_of_memory ? DrawResult::kOutOfMemory : DrawResult::kRetry;
   }
-  if (shift_targets_ != targets) {
-    shift_targets_ = targets;
-    pass_shift_ = DownscaleFor(targets, after_shadow_map_);
-    after_shadow_map_ = false;
-  }
-  const uint32_t shift = pass_shift_;
+  const uint32_t shift =
+      DownscaleFor(targets, prepared->pixel_shader && prepared->pixel_shader->writes_depth());
   if (shift && prepared->pixel_position) {
     prepared = shaders_.PrepareDraw(regs, draw.vs_type, scale.x, scale.y, shift);
     if (!prepared) {
@@ -674,7 +684,9 @@ void NativeRenderer::Resolve(const RegisterFile& regs) {
   if (!valid_) {
     return;
   }
-  shift_targets_.reset();
+  scaled_shift_ = 0;
+  scaled_color_.reset();
+  scaled_depth_.reset();
   draw_util::ResolveInfo info;
   if (!draw_util::GetResolveInfo(regs, *memory_, 1, 1, false, false, info)) {
     return;
@@ -697,7 +709,7 @@ void NativeRenderer::Resolve(const RegisterFile& regs) {
       plan.clear_color ? " clear-colour" : "", plan.clear_depth ? " clear-depth" : "", plan.readback ? " readback" : "",
       plan.dest_swap ? " swap" : ""));
   resolves_->Resolve(submissions_->main(), plan, submissions_->current());
-  after_shadow_map_ |= resolves_->TakeShadowMapResolved();
+  after_shadow_map_ = resolves_->TakeShadowMapResolved();
 }
 
 void NativeRenderer::PresentInto(VkCommandBuffer cmd, VkImage output, VkImageView output_view, bool written_before,

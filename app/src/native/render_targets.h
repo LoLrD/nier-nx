@@ -78,6 +78,7 @@ class RenderTargets {
   void Own(VkCommandBuffer command_buffer, const Bound& bound, uint32_t from_rows, uint32_t to_rows, uint32_t shift,
            bool shadow_map);
   void BeginRendering(VkCommandBuffer command_buffer, const Bound& bound);
+  void Mark(VkCommandBuffer command_buffer, const Bound& bound, uint32_t shift, bool shadow_map);
   void ConvertDepth(VkCommandBuffer command_buffer, const Target& depth, const Target& color,
                     const std::vector<VkImageCopy>& regions);
   VkDescriptorSet ConvertSet(const Target& depth, const Target& color);
@@ -93,6 +94,8 @@ class RenderTargets {
   uint64_t bytes_ = 0;
   Bound bound_;
   uint32_t claimed_rows_ = 0;
+  uint32_t bound_shift_ = 0;
+  bool bound_shadow_map_ = false;
   VkDescriptorSetLayout convert_set_layout_ = VK_NULL_HANDLE;
   VkPipelineLayout convert_layout_ = VK_NULL_HANDLE;
   VkPipeline convert_pipeline_ = VK_NULL_HANDLE;

@@ -120,7 +120,7 @@ class NativeRenderer {
   VkDescriptorSet BindTextures(const rex::graphics::RegisterFile& regs, const rex::graphics::SpirvShader& shader,
                                bool pixel, TextureConstantInfo& info, uint32_t& textures, uint32_t& samplers,
                                bool& out_of_memory);
-  uint32_t DownscaleFor(const TargetSet& targets, bool after_shadow_map) const;
+  uint32_t DownscaleFor(const TargetSet& targets, bool writes_depth);
   VkRect2D SetDynamicState(const rex::graphics::RegisterFile& regs, const rex::graphics::draw_util::ViewportInfo& viewport,
                        const SampleScale& scale, bool polygonal, uint32_t shift);
   void DumpFrame(uint32_t frontbuffer, uint32_t width, uint32_t height);
@@ -197,8 +197,9 @@ class NativeRenderer {
   std::vector<uint64_t> bind_handles_;
   VkPipeline bound_pipeline_ = VK_NULL_HANDLE;
   uint64_t bound_submission_ = 0;
-  std::optional<TargetSet> shift_targets_;
-  uint32_t pass_shift_ = 0;
+  std::optional<TargetKey> scaled_color_;
+  std::optional<TargetKey> scaled_depth_;
+  uint32_t scaled_shift_ = 0;
   bool after_shadow_map_ = false;
   std::set<std::vector<uint16_t>> traced_frames_;
   std::vector<uint16_t> frame_passes_;
