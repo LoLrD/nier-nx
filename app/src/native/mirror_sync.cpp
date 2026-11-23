@@ -36,6 +36,7 @@ MirrorDecision MirrorSync::Use(uint32_t address, uint32_t size, const uint8_t* p
     hashed_bytes_ += range.content.Reset({&span, 1});
   }
   const uint64_t wait = PendingWait(key, physical_base);
+  ForceReaders(key);
   range.stale = false;
   if (size > small_range_bytes_) {
     max_large_size_ = std::max(max_large_size_, size);
@@ -72,7 +73,7 @@ uint64_t MirrorSync::PendingWait(uint64_t key, const uint8_t* physical_base) {
         interval.begin >= end) {
       continue;
     }
-    if (interval.key == key) {
+    if (interval.key == key || interval.forced) {
       wait = interval.submission;
       continue;
     }
@@ -83,6 +84,14 @@ uint64_t MirrorSync::PendingWait(uint64_t key, const uint8_t* physical_base) {
     }
   }
   return wait;
+}
+
+void MirrorSync::ForceReaders(uint64_t key) {
+  for (Interval& interval : intervals_) {
+    if (interval.key == key && interval.submission > completed_) {
+      interval.forced = true;
+    }
+  }
 }
 
 void MirrorSync::Record(Range& range, uint64_t key, uint64_t submission) {

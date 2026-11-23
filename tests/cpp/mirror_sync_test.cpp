@@ -58,6 +58,17 @@ int main() {
   {
     MirrorSync sync;
     sync.Use(100, 100, base, 1);
+    memory[150] = 0x55;
+    auto refreshed = sync.Use(100, 100, base, 2);
+    auto overlap = sync.Use(150, 100, base, 2);
+    Check(refreshed.action == MirrorAction::kCopy && refreshed.wait_submission == 1, "refreshed_key_waits_for_reader");
+    Check(overlap.action == MirrorAction::kCopy && overlap.wait_submission == 1,
+          "refreshed_key_keeps_old_readers_blocking_overlaps");
+    memory[150] = 0x11;
+  }
+  {
+    MirrorSync sync;
+    sync.Use(100, 100, base, 1);
     memory[220] = 0x55;
     auto overlap = sync.Use(150, 100, base, 2);
     Check(overlap.action == MirrorAction::kCopy && overlap.wait_submission == 0,

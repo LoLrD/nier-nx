@@ -42,6 +42,7 @@ class MirrorSync {
     uint32_t end;
     uint64_t submission;
     uint64_t key;
+    bool forced = false;
   };
 
   using Ranges = std::map<uint64_t, Range>;
@@ -50,6 +51,7 @@ class MirrorSync {
   Ranges& RangesFor(uint32_t size) { return size > small_range_bytes_ ? large_ : small_; }
   static HashSpan Span(const uint8_t* physical_base, uint64_t key);
   uint64_t PendingWait(uint64_t key, const uint8_t* physical_base);
+  void ForceReaders(uint64_t key);
   void Record(Range& range, uint64_t key, uint64_t submission);
   void InvalidateOverlaps(uint64_t key);
   void InvalidateOverlaps(Ranges& ranges, uint64_t key, uint32_t reach);
