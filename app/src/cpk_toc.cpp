@@ -47,15 +47,19 @@ size_t TypeSize(uint8_t type) {
 struct Cell {
   uint64_t number = 0;
   std::string text;
+  size_t at = 0;
+  uint8_t width = 0;
+  bool per_row = false;
 };
 
 class UtfTable {
  public:
-  static std::optional<UtfTable> Parse(std::vector<uint8_t> bytes) {
+  static std::optional<UtfTable> Parse(std::vector<uint8_t> bytes, uint64_t base) {
     if (bytes.size() < 32) {
       return std::nullopt;
     }
-    if (std::memcmp(bytes.data(), "@UTF", 4) != 0) {
+    const bool plain = std::memcmp(bytes.data(), "@UTF", 4) == 0;
+    if (!plain) {
       uint8_t key = 0x5F;
       for (uint8_t& byte : bytes) {
         byte ^= key;
@@ -67,6 +71,8 @@ class UtfTable {
     }
     UtfTable table;
     table.bytes_ = std::move(bytes);
+    table.base_ = base;
+    table.plain_ = plain;
     const std::span<const uint8_t> b = table.bytes_;
     table.rows_offset_ = uint32_t(Big(b, 10, 2));
     table.strings_offset_ = uint32_t(Big(b, 12, 4));
@@ -96,13 +102,24 @@ class UtfTable {
 
   uint32_t rows() const { return rows_; }
 
+  CpkCell Where(const std::optional<Cell>& cell) const {
+    if (!cell || !cell->per_row || !plain_) {
+      return {};
+    }
+    return {base_ + cell->at, cell->width};
+  }
+
   std::optional<Cell> Get(uint32_t row, std::string_view name) const {
     size_t at = kUtfBase + rows_offset_ + size_t(row) * row_width_;
     for (const Column& column : columns_) {
       const bool per_row = column.flags & kFlagRow;
       if (column.name == name) {
         if (per_row) {
-          return Read(at, column.type);
+          auto cell = Read(at, column.type);
+          if (cell) {
+            cell->per_row = true;
+          }
+          return cell;
         }
         if (column.flags & kFlagDefault) {
           return Read(column.default_at, column.type);
@@ -139,6 +156,8 @@ class UtfTable {
       return std::nullopt;
     }
     Cell cell;
+    cell.at = at;
+    cell.width = uint8_t(size);
     if (type == kTypeString) {
       cell.text = String(uint32_t(Big(bytes_, at, 4)));
     } else {
@@ -149,6 +168,8 @@ class UtfTable {
 
   std::vector<uint8_t> bytes_;
   std::vector<Column> columns_;
+  uint64_t base_ = 0;
+  bool plain_ = false;
   uint32_t rows_offset_ = 0;
   uint32_t strings_offset_ = 0;
   uint32_t row_width_ = 0;
@@ -169,7 +190,7 @@ std::optional<UtfTable> ReadChunk(const CpkReader& read, uint64_t offset, const 
   if (!read(offset + kChunkHeaderBytes, bytes)) {
     return std::nullopt;
   }
-  return UtfTable::Parse(std::move(bytes));
+  return UtfTable::Parse(std::move(bytes), offset + kChunkHeaderBytes);
 }
 
 }  // namespace
@@ -195,13 +216,14 @@ std::vector<CpkFile> ReadCpkToc(const CpkReader& read) {
     const auto dir = toc->Get(row, "DirName");
     const auto name = toc->Get(row, "FileName");
     const auto size = toc->Get(row, "FileSize");
+    const auto extract_size = toc->Get(row, "ExtractSize");
     const auto offset = toc->Get(row, "FileOffset");
     if (!name || !size || !offset) {
       continue;
     }
     const std::string directory = dir && dir->text != "<NULL>" ? dir->text : std::string();
     files.push_back({directory.empty() ? name->text : directory + "/" + name->text, base + offset->number,
-                     size->number});
+                     size->number, base, toc->Where(size), toc->Where(extract_size), toc->Where(offset)});
   }
   return files;
 }

@@ -15,6 +15,9 @@ set(NIER_SOURCES
     src/nier_input_script.cpp
     src/nier_resolution.cpp
     src/nier_switch_prompts.cpp
+    src/nier_archive_patches.cpp
+    src/nier_language.cpp
+    src/language_patches.cpp
     src/cpk_toc.cpp
     src/read_patches.cpp
     src/native/draw_constants.cpp

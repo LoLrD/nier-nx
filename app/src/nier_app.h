@@ -27,7 +27,7 @@
 #include "nier_fps_meter.h"
 #include "nier_input_driver.h"
 #include "nier_input_script.h"
-#include "nier_switch_prompts.h"
+#include "nier_archive_patches.h"
 #include "native/native_graphics_system.h"
 
 REXCVAR_DECLARE(std::string, nier_input_script);
@@ -42,7 +42,7 @@ class NierApp : public rex::ReXApp {
   }
 
   void OnPreSetup(rex::RuntimeConfig& config) override {
-    nier::InstallSwitchPrompts();
+    nier::InstallArchivePatches();
     if (REXCVAR_GET(nier_renderer) == "native") {
       config.graphics = nier::native::CreateNativeGraphicsSystem();
     }

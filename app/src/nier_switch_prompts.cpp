@@ -1,28 +1,17 @@
 #include "nier_switch_prompts.h"
 
-#include <algorithm>
-#include <cctype>
 #include <cstdint>
 #include <cstring>
-#include <mutex>
-#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
-#include <unordered_map>
 #include <utility>
 #include <vector>
 
 #include <rex/cvar.h>
-#include <rex/filesystem.h>
-#include <rex/filesystem/entry.h>
-#include <rex/filesystem/file.h>
-#include <rex/filesystem/read_filter.h>
 #include <rex/logging.h>
 
-#include "cpk_toc.h"
 #include "nier_switch_prompts_data.h"
-#include "read_patches.h"
 
 REXCVAR_DEFINE_BOOL(nier_switch_prompts, true, "NieR",
                     "Show Nintendo Switch button icons and button names instead of the Xbox 360 ones");
@@ -107,116 +96,52 @@ constexpr TextEdit kTextEdits[] = {
      "入手した地図は <ICON=12> で表示可能です。    "},
 };
 
-bool EndsWithCpk(std::string_view name) {
-  return name.size() >= 4 && std::equal(name.end() - 4, name.end(), ".cpk", [](char a, char b) {
-           return std::tolower(static_cast<unsigned char>(a)) == b;
-         });
-}
-
-class SwitchPrompts {
- public:
-  void Filter(rex::filesystem::Entry& entry, uint64_t offset, std::span<uint8_t> data) {
-    if (!EndsWithCpk(entry.name())) {
-      return;
-    }
-    const std::vector<ReadPatch>* patches = nullptr;
-    {
-      std::lock_guard lock(mutex_);
-      auto it = patches_.find(&entry);
-      if (it == patches_.end()) {
-        auto built = Build(entry);
-        if (!built) {
-          return;
-        }
-        it = patches_.emplace(&entry, std::move(*built)).first;
-      }
-      patches = &it->second;
-    }
-    ApplyReadPatches(*patches, offset, data);
-  }
-
- private:
-  static std::optional<std::vector<ReadPatch>> Build(rex::filesystem::Entry& entry) {
-    rex::filesystem::File* file = nullptr;
-    if (XFAILED(entry.Open(rex::filesystem::FileAccess::kGenericRead, &file))) {
-      REXLOG_WARN("[switch_prompts] could not open {}, will try again", entry.path());
-      return std::nullopt;
-    }
-    bool failed = false;
-    const auto read = [file, &failed](uint64_t offset, std::span<uint8_t> out) {
-      size_t done = 0;
-      const bool ok = XSUCCEEDED(file->ReadSync(out, size_t(offset), &done)) && done == out.size();
-      failed |= !ok;
-      return ok;
-    };
-    std::vector<ReadPatch> patches;
-    uint32_t icons = 0;
-    uint32_t texts = 0;
-    uint32_t skipped = 0;
-    for (const CpkFile& cpk_file : ReadCpkToc(read)) {
-      for (const ImageEdit& edit : kImageEdits) {
-        if (cpk_file.path != edit.file) {
-          continue;
-        }
-        std::vector<uint8_t> bytes(edit.size);
-        if (!read(cpk_file.offset + edit.offset, bytes) || Fnv1a64(bytes) != edit.original_hash) {
-          ++skipped;
-          continue;
-        }
-        for (const switch_prompts::Block& block : edit.blocks) {
-          std::memcpy(bytes.data() + block.offset, block.bytes, sizeof(block.bytes));
-        }
-        patches.push_back({cpk_file.offset + edit.offset, std::move(bytes)});
-        ++icons;
-      }
-      std::vector<uint8_t> content;
-      for (const TextEdit& edit : kTextEdits) {
-        if (cpk_file.path != edit.file) {
-          continue;
-        }
-        if (content.empty()) {
-          content.resize(size_t(cpk_file.size));
-          if (!read(cpk_file.offset, content)) {
-            content.clear();
-          }
-        }
-        if (auto patch = TextPatch(content, cpk_file.offset, edit.original, edit.replacement)) {
-          patches.push_back(std::move(*patch));
-          ++texts;
-        } else {
-          ++skipped;
-        }
-      }
-    }
-    file->Destroy();
-    if (failed) {
-      REXLOG_WARN("[switch_prompts] could not read {}, will try again", entry.path());
-      return std::nullopt;
-    }
-    REXLOG_INFO("[switch_prompts] {}: {} icon patches, {} text patches, {} left as they were", entry.path(), icons,
-                texts, skipped);
-    return patches;
-  }
-
-  std::mutex mutex_;
-  std::unordered_map<const rex::filesystem::Entry*, std::vector<ReadPatch>> patches_;
-};
-
-SwitchPrompts& Prompts() {
-  static SwitchPrompts prompts;
-  return prompts;
-}
-
-void Filter(rex::filesystem::Entry& entry, uint64_t offset, std::span<uint8_t> data) {
-  Prompts().Filter(entry, offset, data);
-}
-
 }  // namespace
 
-void InstallSwitchPrompts() {
-  if (REXCVAR_GET(nier_switch_prompts)) {
-    rex::filesystem::SetReadFilter(Filter);
+std::vector<ReadPatch> SwitchPromptPatches(std::span<const CpkFile> toc, const CpkReader& read,
+                                           const std::string& archive) {
+  std::vector<ReadPatch> patches;
+  uint32_t icons = 0;
+  uint32_t texts = 0;
+  uint32_t skipped = 0;
+  for (const CpkFile& cpk_file : toc) {
+    for (const ImageEdit& edit : kImageEdits) {
+      if (cpk_file.path != edit.file) {
+        continue;
+      }
+      std::vector<uint8_t> bytes(edit.size);
+      if (!read(cpk_file.offset + edit.offset, bytes) || Fnv1a64(bytes) != edit.original_hash) {
+        ++skipped;
+        continue;
+      }
+      for (const switch_prompts::Block& block : edit.blocks) {
+        std::memcpy(bytes.data() + block.offset, block.bytes, sizeof(block.bytes));
+      }
+      patches.push_back({cpk_file.offset + edit.offset, std::move(bytes)});
+      ++icons;
+    }
+    std::vector<uint8_t> content;
+    for (const TextEdit& edit : kTextEdits) {
+      if (cpk_file.path != edit.file) {
+        continue;
+      }
+      if (content.empty()) {
+        content.resize(size_t(cpk_file.size));
+        if (!read(cpk_file.offset, content)) {
+          content.clear();
+        }
+      }
+      if (auto patch = TextPatch(content, cpk_file.offset, edit.original, edit.replacement)) {
+        patches.push_back(std::move(*patch));
+        ++texts;
+      } else {
+        ++skipped;
+      }
+    }
   }
+  REXLOG_INFO("[switch_prompts] {}: {} icon patches, {} text patches, {} left as they were", archive, icons, texts,
+              skipped);
+  return patches;
 }
 
 }  // namespace nier
