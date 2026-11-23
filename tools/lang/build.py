@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 
 import cpk
+import flash
 import font
 import textfiles
 import title
@@ -37,6 +38,8 @@ def main() -> int:
     target = args.out / args.language
     labels = textfiles.parse_table((tables / "titles.tsv").read_text())
     print(f"title menu: {title.build(args.title_archive, target, labels)} items drawn")
+    texts = textfiles.parse_table((tables / "TEXT" / "NIER_TEXT.TXD.tsv").read_text())
+    print(f"{flash.PACK}: {flash.build(args.title_archive, target, texts)} reports drawn")
     listed = sorted(path.relative_to(target).as_posix() for path in target.rglob("*")
                     if path.is_file() and path.name != "files.txt")
     (target / "files.txt").write_text("".join(f"{path}\n" for path in listed))
