@@ -19,6 +19,6 @@ struct LanguagePlan {
   std::vector<std::string> left_out;
 };
 
-LanguagePlan PlanLanguage(std::span<const CpkFile> toc, std::span<const TranslatedFile> files);
+LanguagePlan PlanLanguage(std::span<const CpkFile> toc, std::span<const TranslatedFile> files, const CpkReader& read);
 
 }  // namespace nier

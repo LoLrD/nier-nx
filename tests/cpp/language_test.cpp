@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <span>
@@ -70,7 +71,7 @@ int main() {
   {
     const std::vector<uint8_t> russian = Pattern(0x2000);
     const std::vector<TranslatedFile> translated = {{"TEXT/INFO_TEXT/INFOWINDOW.EN.INW", russian}};
-    const LanguagePlan plan = PlanLanguage(files, translated);
+    const LanguagePlan plan = PlanLanguage(files, translated, read);
     const auto read_patched = [&](uint64_t offset, std::span<uint8_t> out) {
       const bool ok = read(offset, out);
       ApplyReadPatches(plan.patches, offset, out);
@@ -94,7 +95,7 @@ int main() {
   {
     const std::vector<uint8_t> glyphs = Pattern(0x10);
     const std::vector<TranslatedFile> translated = {{"2D/TITLE.2DP", glyphs}};
-    const LanguagePlan plan = PlanLanguage(files, translated);
+    const LanguagePlan plan = PlanLanguage(files, translated, read);
     const auto read_patched = [&](uint64_t offset, std::span<uint8_t> out) {
       const bool ok = read(offset, out);
       ApplyReadPatches(plan.patches, offset, out);
@@ -107,13 +108,32 @@ int main() {
           "a_file_of_the_same_size_is_replaced_where_it_is");
   }
   {
+    const CpkFile& french = files[2];
+    std::vector<uint8_t> russian(french.size, 'e');
+    std::fill(russian.begin() + 0x10, russian.begin() + 0x20, 'R');
+    russian[0x100] = 'R';
+    russian[0x103] = 'R';
+    const std::vector<TranslatedFile> translated = {{"TEXT/INFO_TEXT/INFOWINDOW.FR.INW", russian}};
+    const LanguagePlan plan = PlanLanguage(files, translated, read);
+    std::vector<nier::ReadPatch> patches = {{french.offset + 0x80, {'X', 'X'}}};
+    patches.insert(patches.end(), plan.patches.begin(), plan.patches.end());
+    std::vector<uint8_t> content(french.size);
+    read(french.offset, content);
+    ApplyReadPatches(patches, french.offset, content);
+    std::vector<uint8_t> expected = russian;
+    expected[0x80] = 'X';
+    expected[0x81] = 'X';
+    Check(plan.patches.size() == 2 && content == expected,
+          "a_same_size_translation_changes_only_the_bytes_that_differ");
+  }
+  {
     const std::vector<TranslatedFile> translated = {{"TEXT/INFO_TEXT/INFOWINDOW.EN.INW", Pattern(0x3000)}};
-    const LanguagePlan plan = PlanLanguage(files, translated);
+    const LanguagePlan plan = PlanLanguage(files, translated, read);
     Check(plan.patches.empty() && plan.left_out.size() == 1, "a_translation_that_fits_nowhere_keeps_the_english");
   }
   {
     const std::vector<TranslatedFile> translated = {{"TEXT/NOPE.EN", Pattern(8)}};
-    const LanguagePlan plan = PlanLanguage(files, translated);
+    const LanguagePlan plan = PlanLanguage(files, translated, read);
     Check(plan.patches.empty() && plan.left_out.size() == 1, "a_translation_without_a_file_in_the_archive_is_left_out");
   }
   return failures ? 1 : 0;

@@ -9,6 +9,7 @@ namespace nier {
 namespace {
 
 constexpr uint64_t kAlign = 0x800;
+constexpr size_t kMergeGap = 16;
 
 struct Space {
   uint64_t begin;
@@ -54,9 +55,38 @@ ReadPatch CellPatch(const CpkCell& cell, uint64_t value) {
   return patch;
 }
 
+std::vector<ReadPatch> ChangedRuns(uint64_t offset, std::span<const uint8_t> original,
+                                   std::span<const uint8_t> bytes) {
+  std::vector<ReadPatch> runs;
+  size_t at = 0;
+  while (at < bytes.size()) {
+    if (bytes[at] == original[at]) {
+      ++at;
+      continue;
+    }
+    size_t last = at;
+    for (size_t next = at + 1; next < bytes.size() && next - last <= kMergeGap; ++next) {
+      if (bytes[next] != original[next]) {
+        last = next;
+      }
+    }
+    runs.push_back({offset + at, std::vector<uint8_t>(bytes.begin() + at, bytes.begin() + last + 1)});
+    at = last + 1;
+  }
+  return runs;
+}
+
+std::vector<ReadPatch> InPlacePatches(const CpkFile& entry, std::span<const uint8_t> bytes, const CpkReader& read) {
+  std::vector<uint8_t> original(bytes.size());
+  if (!read(entry.offset, original)) {
+    return {{entry.offset, std::vector<uint8_t>(bytes.begin(), bytes.end())}};
+  }
+  return ChangedRuns(entry.offset, original, bytes);
+}
+
 }  // namespace
 
-LanguagePlan PlanLanguage(std::span<const CpkFile> toc, std::span<const TranslatedFile> files) {
+LanguagePlan PlanLanguage(std::span<const CpkFile> toc, std::span<const TranslatedFile> files, const CpkReader& read) {
   std::vector<Space> spaces = SpareSpace(toc);
   std::vector<size_t> order(files.size());
   std::iota(order.begin(), order.end(), size_t(0));
@@ -68,7 +98,8 @@ LanguagePlan PlanLanguage(std::span<const CpkFile> toc, std::span<const Translat
     const auto entry =
         std::find_if(toc.begin(), toc.end(), [&](const CpkFile& candidate) { return candidate.path == file.path; });
     if (entry != toc.end() && entry->size == file.bytes.size()) {
-      plan.patches.push_back({entry->offset, file.bytes});
+      const std::vector<ReadPatch> runs = InPlacePatches(*entry, file.bytes, read);
+      plan.patches.insert(plan.patches.end(), runs.begin(), runs.end());
       continue;
     }
     if (entry == toc.end() || !entry->size_cell.width || !entry->offset_cell.width) {

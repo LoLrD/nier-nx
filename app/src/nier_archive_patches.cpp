@@ -85,7 +85,7 @@ class ArchivePatches {
     }
     const std::vector<TranslatedFile> translated = LoadTranslatedFiles(toc);
     if (!translated.empty()) {
-      LanguagePlan plan = PlanLanguage(toc, translated);
+      LanguagePlan plan = PlanLanguage(toc, translated, read);
       Append(result, std::move(plan.patches));
       REXLOG_INFO("[language] {}: {} of {} translated files placed", entry.path(),
                   translated.size() - plan.left_out.size(), translated.size());
