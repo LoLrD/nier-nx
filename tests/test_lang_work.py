@@ -28,6 +28,15 @@ class WorkTest(unittest.TestCase):
         self.assertEqual(work.record_ids(rows, TKD), ["EID_0050_a_NIER030_Y", "EID_0050_a_NIER030_Y",
                                                      "EID_0060_b_KAINE010_Y"])
 
+    def test_english_texts_and_scene_captions_are_translated(self) -> None:
+        self.assertTrue(work.text_path("TEXT/TALK_TEXT/TALK_A.EN.X360.TKD"))
+        self.assertTrue(work.text_path("TEXT/NIER_TEXT.TXD"))
+        self.assertTrue(work.text_path("TEXT/TALK_TEXT/TALKER_NAME.X360.TND"))
+        self.assertTrue(work.text_path("EVENT/CAPTION/EID_2000_A0120.EN.CAP"))
+        self.assertFalse(work.text_path("EVENT/CAPTION/EID_2000_A0120.FR.CAP"))
+        self.assertFalse(work.text_path("TEXT/TALK_TEXT/TALK_A.DE.X360.TKD"))
+        self.assertFalse(work.text_path("2D/TITLE.2DP"))
+
     def test_short_labels_of_the_menu_tables_are_names(self) -> None:
         self.assertTrue(work.is_name("TEXT/NIER_TEXT.TXD", "Beastbane"))
         self.assertFalse(work.is_name("TEXT/NIER_TEXT.TXD", "A blade forged long ago."))
@@ -40,6 +49,16 @@ class WorkTest(unittest.TestCase):
         done = [(TKD, "1:15", "Нажмите сейчас"), (TKD, "9:15", "Лишнее")]
         self.assertEqual(work.issues(source, done),
                          [f"{TKD} 0:15: missing", f"{TKD} 9:15: not in the chunk", f"{TKD} 1:15: tags differ"])
+
+    def test_repeated_long_lines_of_one_speaker_get_one_translation(self) -> None:
+        line = "Perhaps we should pay a visit to the old woman."
+        rows = [dict(entry("1:15", "EID_1_BOOKW010_Y", 1), en=line, ru="А"),
+                dict(entry("2:15", "EID_2_BOOKW010_Y", 1), en=line, ru="Б"),
+                dict(entry("3:15", "EID_3_BOOKW010_Y", 1), en=line, ru="Б"),
+                dict(entry("4:15", "EID_4_KAINE010_Y", 1), en=line, ru="В"),
+                dict(entry("5:15", "EID_5_BOOKW010_Y", 1), en="Short line.", ru="Г"),
+                dict(entry("6:15", "EID_6_BOOKW010_Y", 1), en="Short line.", ru="Д")]
+        self.assertEqual([row["ru"] for row in work.harmonize(rows)], ["Б", "Б", "Б", "В", "Г", "Д"])
 
     def test_merge_keeps_existing_lines_and_orders_by_record(self) -> None:
         merged = work.merge({"10:15": "Старое"}, {"2:15": "Два", "10:15": "Новое", "1:15": "Один"})

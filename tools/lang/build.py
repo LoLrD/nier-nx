@@ -19,7 +19,7 @@ def main() -> int:
     args = parser.parse_args()
     tables = ROOT / "lang" / args.language
     failed = False
-    for table in sorted((tables / "TEXT").rglob("*.tsv")):
+    for table in sorted(table for table in tables.rglob("*.tsv") if table.parent != tables):
         path = table.relative_to(tables).as_posix()[:-len(".tsv")]
         original = cpk.read(args.archive, path)
         english = textfiles.texts(original, path)

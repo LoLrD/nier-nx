@@ -1,6 +1,7 @@
 import argparse
 import re
 import sys
+from collections import Counter
 from pathlib import Path
 
 import cpk
@@ -12,10 +13,18 @@ WORK = ROOT / "out" / "lang" / "work"
 ID_COLUMNS = {".TXD": 0, ".TND": 0, ".TKD": 5, ".RAW": 4, ".INW": 4, ".CAP": 0}
 JAPANESE = re.compile(r"[぀-ヿ一-鿿]")
 NAME_LENGTH = 40
+REPEAT_LENGTH = 30
+SPEAKER = re.compile(r"([A-Z]+\d{3})_[A-Z]$")
 
 
 def extension(path: str) -> str:
     return path[path.rindex("."):]
+
+
+def text_path(path: str) -> bool:
+    if path.startswith("TEXT/"):
+        return ".EN." in path or extension(path) in (".TXD", ".TND")
+    return path.startswith("EVENT/CAPTION/") and ".EN." in path
 
 
 def record_ids(rows: list, path: str) -> list:
@@ -61,6 +70,20 @@ def issues(source: list, done: list) -> list:
     return found
 
 
+def speaker(ident: str) -> str:
+    found = SPEAKER.search(ident)
+    return found.group(1) if found else ""
+
+
+def harmonize(rows: list) -> list:
+    groups = {}
+    for row in rows:
+        if len(row["en"]) >= REPEAT_LENGTH:
+            groups.setdefault((row["en"], speaker(row["id"])), []).append(row["ru"])
+    chosen = {group: Counter(texts).most_common(1)[0][0] for group, texts in groups.items()}
+    return [dict(row, ru=chosen.get((row["en"], speaker(row["id"])), row["ru"])) for row in rows]
+
+
 def merge(existing: dict, new: dict) -> dict:
     combined = {**new, **existing}
     return dict(sorted(combined.items(), key=lambda item: tuple(int(part) for part in item[0].split(":"))))
@@ -81,7 +104,7 @@ def source_entries(archive: Path, language: str) -> list:
     listing = cpk.files(archive)
     entries = []
     for path in sorted(listing):
-        if not path.startswith("TEXT/") or not (".EN." in path or extension(path) in (".TXD", ".TND")):
+        if not text_path(path):
             continue
         rows = textfiles.records(cpk.read(archive, path))
         ids = record_ids(rows, path)
@@ -136,10 +159,17 @@ def check(language: str, number: str) -> int:
 
 
 def merge_done(language: str) -> int:
-    grouped = {}
+    rows = []
     for done in sorted((WORK / language / "done").glob("*.tsv")):
+        source = {(row[0], row[1]): row for row in read_rows(WORK / language / "source" / done.name, 5)}
         for path, key, text in read_rows(done, 3):
-            grouped.setdefault(path, {})[key] = text
+            rows.append({"path": path, "key": key, "id": source[(path, key)][2], "en": source[(path, key)][3],
+                         "ru": text})
+    harmonized = harmonize(rows)
+    print(f"{sum(a['ru'] != b['ru'] for a, b in zip(rows, harmonized))} repeated lines aligned")
+    grouped = {}
+    for row in harmonized:
+        grouped.setdefault(row["path"], {})[row["key"]] = row["ru"]
     for path, rows in grouped.items():
         table = ROOT / "lang" / language / (path + ".tsv")
         existing = textfiles.parse_table(table.read_text()) if table.exists() else {}
