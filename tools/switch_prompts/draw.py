@@ -169,10 +169,10 @@ def atlas() -> Image.Image:
     return image
 
 
-def inked(color: tuple, pitch: int, coverage: Image.Image, at: tuple) -> Image.Image:
-    alpha = Image.new("L", (pitch, 32), 0)
+def inked(color: tuple, pitch: int, coverage: Image.Image, at: tuple, rows: int = 32) -> Image.Image:
+    alpha = Image.new("L", (pitch, rows), 0)
     alpha.paste(coverage, at)
-    image = Image.new("RGBA", (pitch, 32), color + (0,))
+    image = Image.new("RGBA", (pitch, rows), color + (0,))
     image.putalpha(alpha)
     return image
 
@@ -192,16 +192,15 @@ def skill_label(label: str, width: int, height: int) -> Image.Image:
     return inked(CHALK_INK, 128, small, (0, 0))
 
 
-def layout(label: str, width: int, height: int) -> tuple:
-    size = TITLE_SIZE * SCALE
-    while True:
-        font = ImageFont.truetype(TITLE_THIN, round(size))
-        advances = [size * WORD_GAP if ch == " " else font.getlength(ch) + size * TRACKING for ch in label]
-        total = sum(advances) - size * TRACKING
-        _, top, _, bottom = font.getbbox(label, anchor="ls")
-        if total <= (width - 2) * SCALE and bottom - top <= height * SCALE:
-            break
-        size -= 1
+def measure(label: str, size: float) -> tuple:
+    font = ImageFont.truetype(TITLE_THIN, round(size))
+    advances = [size * WORD_GAP if ch == " " else font.getlength(ch) + size * TRACKING for ch in label]
+    _, top, _, bottom = font.getbbox(label, anchor="ls")
+    return font, advances, sum(advances) - size * TRACKING, top, bottom
+
+
+def placement(label: str, size: float) -> tuple:
+    font, advances, total, top, bottom = measure(label, size)
     x = -total / 2
     glyphs = []
     for ch, advance in zip(label, advances):
@@ -209,6 +208,15 @@ def layout(label: str, width: int, height: int) -> tuple:
             glyphs.append((ch, x + font.getlength(ch) / 2))
         x += advance
     return round(size), glyphs, -(top + bottom) / 2
+
+
+def layout(label: str, width: int, height: int) -> tuple:
+    size = TITLE_SIZE * SCALE
+    while True:
+        _, _, total, top, bottom = measure(label, size)
+        if total <= (width - 2) * SCALE and bottom - top <= height * SCALE:
+            return placement(label, size)
+        size -= 1
 
 
 def lettering(font_path: str, placement: tuple, width: int, height: int) -> Image.Image:
