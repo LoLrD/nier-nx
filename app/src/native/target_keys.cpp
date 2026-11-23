@@ -158,4 +158,10 @@ PassKind KindOf(const TargetSet& set) {
              : PassKind::kOther;
 }
 
+ScaledSpan ScaledRange(uint32_t begin, uint32_t length, uint32_t shift, uint32_t limit) {
+  const uint32_t first = std::min(begin >> shift, limit);
+  const uint32_t last = std::min((begin + length + (1u << shift) - 1) >> shift, limit);
+  return {first, last - first};
+}
+
 }  // namespace nier::native

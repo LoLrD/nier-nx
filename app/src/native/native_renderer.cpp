@@ -410,12 +410,9 @@ VkRect2D NativeRenderer::SetDynamicState(const RegisterFile& regs, const draw_ut
   draw_util::Scissor scissor;
   draw_util::GetScissor(regs, scissor);
   const VkExtent2D area = targets_->render_area();
-  const uint32_t round = (1u << shift) - 1;
-  const uint32_t left = std::min((scissor.offset[0] * scale.x) >> shift, area.width);
-  const uint32_t top = std::min((scissor.offset[1] * scale.y) >> shift, area.height);
-  const VkRect2D rect{{int32_t(left), int32_t(top)},
-                      {std::min((scissor.extent[0] * scale.x + round) >> shift, area.width - left),
-                       std::min((scissor.extent[1] * scale.y + round) >> shift, area.height - top)}};
+  const ScaledSpan columns = ScaledRange(scissor.offset[0] * scale.x, scissor.extent[0] * scale.x, shift, area.width);
+  const ScaledSpan rows = ScaledRange(scissor.offset[1] * scale.y, scissor.extent[1] * scale.y, shift, area.height);
+  const VkRect2D rect{{int32_t(columns.begin), int32_t(rows.begin)}, {columns.length, rows.length}};
   VkRect2D host_rect = rect;
   if (PerfSkip(kSkipPixels)) {
     host_rect.extent = {0, 0};

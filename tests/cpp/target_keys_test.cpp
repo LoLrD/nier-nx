@@ -15,6 +15,8 @@ using nier::native::TilePosition;
 using nier::native::TargetSet;
 using nier::native::UsedRows;
 using nier::native::KindOf;
+using nier::native::ScaledSpan;
+using nier::native::ScaledRange;
 using nier::native::PassKind;
 using nier::native::ExtentFor;
 using nier::native::TargetKey;
@@ -177,6 +179,18 @@ int main() {
     Check(KindOf(shadow_mask) == PassKind::kScreen640, "colour_and_depth_640_wide_may_be_the_shadow_mask");
     Check(KindOf(shadow_mask_msaa) == PassKind::kOther, "multisampled_640_pass_is_another_pass");
     Check(KindOf(depth_768) == PassKind::kOther, "narrow_depth_only_pass_is_another_pass");
+  }
+  {
+    const ScaledSpan odd = ScaledRange(1, 2, 1, 1000);
+    const ScaledSpan whole = ScaledRange(0, 640, 1, 1000);
+    const ScaledSpan full_size = ScaledRange(3, 5, 0, 1000);
+    const ScaledSpan clipped = ScaledRange(600, 4096, 1, 320);
+    const ScaledSpan outside = ScaledRange(900, 10, 1, 320);
+    Check(odd.begin == 0 && odd.length == 2, "an_odd_offset_keeps_its_right_edge");
+    Check(whole.begin == 0 && whole.length == 320, "a_full_width_halves");
+    Check(full_size.begin == 3 && full_size.length == 5, "no_shift_keeps_the_range");
+    Check(clipped.begin == 300 && clipped.length == 20, "the_range_stops_at_the_limit");
+    Check(outside.begin == 320 && outside.length == 0, "a_range_past_the_limit_is_empty");
   }
   return failures ? 1 : 0;
 }

@@ -67,6 +67,13 @@ TargetPoint TilePosition(const TargetKey& key, uint32_t tile);
 uint32_t UsedRows(const TargetSet& set, uint32_t estimated_rows);
 PassKind KindOf(const TargetSet& set);
 
+struct ScaledSpan {
+  uint32_t begin;
+  uint32_t length;
+};
+
+ScaledSpan ScaledRange(uint32_t begin, uint32_t length, uint32_t shift, uint32_t limit);
+
 class EdramOwnership {
  public:
   void Write(const TargetKey& key, uint32_t x0, uint32_t y0, uint32_t x1, uint32_t y1, uint32_t owner,
