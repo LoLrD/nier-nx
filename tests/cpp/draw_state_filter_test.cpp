@@ -7,6 +7,7 @@ using nier::native::DescriptorBinding;
 using nier::native::DescriptorBindingFilter;
 using nier::native::DynamicState;
 using nier::native::DrawWritesNothing;
+using nier::native::EarlyTestsHelp;
 using nier::native::DynamicStateFilter;
 using nier::native::RepeatedUniforms;
 
@@ -99,6 +100,25 @@ int main() {
     RB_STENCILREFMASK back{};
     back.stencilwritemask = 0xFF;
     Check(!DrawWritesNothing(0, depth, stencil, back), "back_face_stencil_op_is_a_write");
+  }
+  {
+    using rex::graphics::reg::RB_DEPTHCONTROL;
+    using rex::graphics::reg::RB_STENCILREFMASK;
+    RB_DEPTHCONTROL depth{};
+    depth.z_enable = 1;
+    RB_STENCILREFMASK stencil{};
+    Check(EarlyTestsHelp(true, false, depth, stencil, stencil), "killing_shader_with_a_read_only_depth_test_goes_early");
+    Check(!EarlyTestsHelp(false, false, depth, stencil, stencil), "shader_without_kill_is_left_to_the_translator");
+    Check(!EarlyTestsHelp(true, true, depth, stencil, stencil), "shader_writing_depth_stays_late");
+    depth.z_write_enable = 1;
+    Check(!EarlyTestsHelp(true, false, depth, stencil, stencil), "depth_write_with_kill_stays_late");
+    depth.z_write_enable = 0;
+    depth.stencil_enable = 1;
+    depth.stencilzpass = rex::graphics::xenos::StencilOp::kReplace;
+    stencil.stencilwritemask = 0xFF;
+    Check(!EarlyTestsHelp(true, false, depth, stencil, stencil), "stencil_write_with_kill_stays_late");
+    RB_DEPTHCONTROL off{};
+    Check(!EarlyTestsHelp(true, false, off, stencil, stencil), "no_depth_or_stencil_test_gains_nothing");
   }
   return failures ? 1 : 0;
 }

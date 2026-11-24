@@ -10,6 +10,7 @@
 
 using nier::native::AllowContraction;
 using nier::native::ByteRange;
+using nier::native::ForceEarlyFragmentTests;
 using nier::native::Specialize;
 using nier::native::SpecializableSlots;
 using nier::native::TextureFetchSlots;
@@ -249,6 +250,30 @@ int main() {
     const std::vector<UniformSlot> kept = TextureFetchSlots(slots, textures);
     Check(kept == std::vector<UniformSlot>{{false, 4}, {true, 24 * 3 + 12}},
           "vertex_shaders_keep_system_and_texture_fetch_slots_only");
+  }
+  {
+    const auto is_mode = [](const Instruction& instruction, uint32_t mode) {
+      return instruction.op == spv::OpExecutionMode && instruction.operands.size() == 2 &&
+             instruction.operands[0] == kMain && instruction.operands[1] == mode;
+    };
+    const std::vector<uint32_t> early = ForceEarlyFragmentTests(module);
+    const std::vector<Instruction> early_code = Decode(early);
+    size_t origin = early_code.size();
+    size_t tests = early_code.size();
+    for (size_t i = 0; i < early_code.size(); ++i) {
+      origin = is_mode(early_code[i], spv::ExecutionModeOriginUpperLeft) ? i : origin;
+      tests = is_mode(early_code[i], spv::ExecutionModeEarlyFragmentTests) ? i : tests;
+    }
+    Check(early.size() == module.size() + 3 && tests == origin + 1,
+          "early_fragment_tests_follow_the_other_execution_modes");
+    Check(std::equal(early.begin(), early.begin() + 5, module.begin()), "early_fragment_tests_keep_the_header");
+    Check(ForceEarlyFragmentTests(early) == early, "early_fragment_tests_are_added_once");
+    std::vector<uint32_t> depth = module;
+    const std::vector<uint32_t> replacing = {3u << 16 | spv::OpExecutionMode, kMain, spv::ExecutionModeDepthReplacing};
+    depth.insert(depth.begin() + 5 + 2 + 3 + 5 + 3, replacing.begin(), replacing.end());
+    Check(Decode(depth)[4].op == spv::OpExecutionMode && Decode(depth)[4].operands[1] == spv::ExecutionModeDepthReplacing,
+          "depth_replacing_test_module_is_well_formed");
+    Check(ForceEarlyFragmentTests(depth) == depth, "shaders_writing_depth_keep_late_tests");
   }
   return failures ? 1 : 0;
 }

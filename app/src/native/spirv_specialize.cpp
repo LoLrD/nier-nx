@@ -223,6 +223,31 @@ std::vector<uint32_t> AllowContraction(std::span<const uint32_t> module) {
   return result;
 }
 
+std::vector<uint32_t> ForceEarlyFragmentTests(std::span<const uint32_t> module) {
+  uint32_t entry = 0;
+  size_t insert_at = 0;
+  for (size_t at = kHeaderWords; at < module.size(); at += module[at] >> 16) {
+    const spv::Op op = spv::Op(module[at] & 0xFFFF);
+    if (op == spv::OpEntryPoint) {
+      entry = module[at + 2];
+      insert_at = at + (module[at] >> 16);
+    } else if (op == spv::OpExecutionMode) {
+      const spv::ExecutionMode mode = spv::ExecutionMode(module[at + 2]);
+      if (mode == spv::ExecutionModeDepthReplacing || mode == spv::ExecutionModeEarlyFragmentTests) {
+        return {module.begin(), module.end()};
+      }
+      insert_at = at + (module[at] >> 16);
+    } else if (insert_at) {
+      break;
+    }
+  }
+  std::vector<uint32_t> result(module.begin(), module.begin() + insert_at);
+  result.reserve(module.size() + 3);
+  result.insert(result.end(), {3u << 16 | spv::OpExecutionMode, entry, spv::ExecutionModeEarlyFragmentTests});
+  result.insert(result.end(), module.begin() + insert_at, module.end());
+  return result;
+}
+
 std::vector<UniformSlot> TextureFetchSlots(std::vector<UniformSlot> slots,
                                            std::span<const uint32_t> texture_fetch_constants) {
   std::erase_if(slots, [&](const UniformSlot& slot) {

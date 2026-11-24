@@ -52,7 +52,7 @@ class NativeShaders {
                                           uint32_t scale_y, uint32_t position_shift);
   VkShaderModule PixelModule(rex::graphics::vulkan::VulkanShader::VulkanTranslation& translation,
                              const rex::graphics::SpirvShaderTranslator::SystemConstants& system,
-                             std::span<const uint32_t> fetch_constants);
+                             std::span<const uint32_t> fetch_constants, bool early_tests);
   VkShaderModule VertexModule(const rex::graphics::vulkan::VulkanShader& shader,
                               rex::graphics::vulkan::VulkanShader::VulkanTranslation& translation,
                               const rex::graphics::SpirvShaderTranslator::SystemConstants& system,
@@ -80,7 +80,7 @@ class NativeShaders {
   VkShaderModule SpecializedModule(rex::graphics::vulkan::VulkanShader::VulkanTranslation& translation,
                                    const rex::graphics::vulkan::VulkanShader* vertex_shader,
                                    const rex::graphics::SpirvShaderTranslator::SystemConstants& system,
-                                   std::span<const uint32_t> fetch_constants);
+                                   std::span<const uint32_t> fetch_constants, bool early_tests);
   rex::graphics::vulkan::VulkanShader* ShaderFor(uint64_t hash, uint32_t scale);
   void Analyze(rex::graphics::vulkan::VulkanShader& shader);
   rex::graphics::vulkan::VulkanShader::VulkanTranslation* Translate(rex::graphics::SpirvShaderTranslator& translator,
@@ -99,6 +99,7 @@ class NativeShaders {
     const rex::graphics::vulkan::VulkanShader::VulkanTranslation* translation = nullptr;
     std::vector<uint32_t> values;
     bool contract = false;
+    bool early_tests = false;
     VkShaderModule module = VK_NULL_HANDLE;
   };
 

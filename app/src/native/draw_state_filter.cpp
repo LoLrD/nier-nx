@@ -75,6 +75,12 @@ bool DrawWritesNothing(uint32_t color_mask, rex::graphics::reg::RB_DEPTHCONTROL 
   return !front_writes && !back_writes;
 }
 
+bool EarlyTestsHelp(bool kills_pixels, bool writes_depth, rex::graphics::reg::RB_DEPTHCONTROL depth,
+                    rex::graphics::reg::RB_STENCILREFMASK front, rex::graphics::reg::RB_STENCILREFMASK back) {
+  return kills_pixels && !writes_depth && (depth.z_enable || depth.stencil_enable) &&
+         DrawWritesNothing(0, depth, front, back);
+}
+
 bool RepeatedUniforms::Find(uint32_t stream, const void* data, size_t size, uint32_t& offset) const {
   const Entry& entry = entries_[stream];
   if (!entry.valid || entry.bytes.size() != size || std::memcmp(entry.bytes.data(), data, size) != 0) {

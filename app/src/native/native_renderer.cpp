@@ -44,6 +44,9 @@ REXCVAR_DEFINE_BOOL(nier_mirror_staging, true, "NieR",
 REXCVAR_DEFINE_BOOL(nier_draw_state_filter, true, "NieR",
                     "Native renderer: skip dynamic state, descriptor bindings and constant uploads that repeat the "
                     "previous draw");
+REXCVAR_DEFINE_BOOL(nier_early_depth_tests, true, "NieR",
+                    "Native renderer: run depth/stencil tests before pixel shaders that kill pixels when the draw "
+                    "writes neither depth nor stencil (same result, hidden pixels are not shaded)");
 REXCVAR_DEFINE_BOOL(nier_store_cards, true, "NieR",
                     "Native renderer: find changed guest memory from store cards instead of hashing it (needs code "
                     "generated with REX_STORE_CARDS)");
@@ -799,8 +802,14 @@ NativeRenderer::DrawResult NativeRenderer::RecordDraw(const RegisterFile& regs) 
                             ? shaders_.VertexModule(*prepared->vertex_shader, *prepared->vertex, system, fetches)
                             : prepared->vertex->shader_module();
   if (prepared->pixel) {
+    const bool early_tests =
+        REXCVAR_GET(nier_early_depth_tests) && !prepared->pixel_shader->memexport_eM_written() &&
+        EarlyTestsHelp(prepared->pixel_shader->kills_pixels(), prepared->pixel_shader->writes_depth(),
+                       draw_util::GetNormalizedDepthControl(regs),
+                       regs.Get<reg::RB_STENCILREFMASK>(XE_GPU_REG_RB_STENCILREFMASK),
+                       regs.Get<reg::RB_STENCILREFMASK>(XE_GPU_REG_RB_STENCILREFMASK_BF));
     state.pixel_module = PerfSkip(kGenericShaders) ? prepared->pixel->shader_module()
-                                                   : shaders_.PixelModule(*prepared->pixel, system, fetches);
+                                                   : shaders_.PixelModule(*prepared->pixel, system, fetches, early_tests);
   }
   if (PerfSkip(kSkipPixelShaders)) {
     state.pixel_module = VK_NULL_HANDLE;

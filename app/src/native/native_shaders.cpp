@@ -56,18 +56,19 @@ NativeShaders::~NativeShaders() {
 }
 
 VkShaderModule NativeShaders::PixelModule(VulkanShader::VulkanTranslation& translation,
-                                          const SystemConstants& system, std::span<const uint32_t> fetch_constants) {
-  return SpecializedModule(translation, nullptr, system, fetch_constants);
+                                          const SystemConstants& system, std::span<const uint32_t> fetch_constants,
+                                          bool early_tests) {
+  return SpecializedModule(translation, nullptr, system, fetch_constants, early_tests);
 }
 
 VkShaderModule NativeShaders::VertexModule(const VulkanShader& shader, VulkanShader::VulkanTranslation& translation,
                                            const SystemConstants& system, std::span<const uint32_t> fetch_constants) {
-  return SpecializedModule(translation, &shader, system, fetch_constants);
+  return SpecializedModule(translation, &shader, system, fetch_constants, false);
 }
 
 VkShaderModule NativeShaders::SpecializedModule(VulkanShader::VulkanTranslation& translation,
                                                 const VulkanShader* vertex_shader, const SystemConstants& system,
-                                                std::span<const uint32_t> fetch_constants) {
+                                                std::span<const uint32_t> fetch_constants, bool early_tests) {
   const std::vector<uint8_t>& binary = translation.translated_binary();
   const std::span<const uint32_t> words(reinterpret_cast<const uint32_t*>(binary.data()), binary.size() / 4);
   auto [it, inserted] = specializations_.try_emplace(&translation);
@@ -83,7 +84,7 @@ VkShaderModule NativeShaders::SpecializedModule(VulkanShader::VulkanTranslation&
     }
   }
   const bool contract = !vertex_shader && !PerfSkip(kExactMath);
-  if (specialization.slots.empty() && !contract) {
+  if (specialization.slots.empty() && !contract && !early_tests) {
     return translation.shader_module();
   }
   const auto* system_words = reinterpret_cast<const uint32_t*>(&system);
@@ -93,15 +94,20 @@ VkShaderModule NativeShaders::SpecializedModule(VulkanShader::VulkanTranslation&
     values.push_back(slot.fetch ? fetch_constants[slot.offset / 4] : system_words[slot.offset / 4]);
   }
   LastModule& last = last_modules_[vertex_shader ? 1 : 0];
-  if (last.translation == &translation && last.contract == contract && last.values == values) {
+  if (last.translation == &translation && last.contract == contract && last.early_tests == early_tests &&
+      last.values == values) {
     return last.module;
   }
   auto [module, created] = specialization.modules.try_emplace(
-      XXH3_64bits_withSeed(values.data(), values.size() * sizeof(uint32_t), contract), VK_NULL_HANDLE);
+      XXH3_64bits_withSeed(values.data(), values.size() * sizeof(uint32_t), uint64_t(contract) | uint64_t(early_tests) << 1),
+      VK_NULL_HANDLE);
   if (created) {
     std::vector<uint32_t> specialized = Specialize(words, kSpecializedSystemFields, specialization.slots, values);
     if (contract) {
       specialized = AllowContraction(specialized);
+    }
+    if (early_tests) {
+      specialized = ForceEarlyFragmentTests(specialized);
     }
     module->second =
         rex::ui::vulkan::util::CreateShaderModule(device_, specialized.data(), specialized.size() * sizeof(uint32_t));
@@ -111,6 +117,7 @@ VkShaderModule NativeShaders::SpecializedModule(VulkanShader::VulkanTranslation&
   last.translation = &translation;
   last.values = values;
   last.contract = contract;
+  last.early_tests = early_tests;
   last.module = result;
   return result;
 }

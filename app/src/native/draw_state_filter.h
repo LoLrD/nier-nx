@@ -67,6 +67,8 @@ class DescriptorBindingFilter {
 
 bool DrawWritesNothing(uint32_t color_mask, rex::graphics::reg::RB_DEPTHCONTROL depth,
                        rex::graphics::reg::RB_STENCILREFMASK front, rex::graphics::reg::RB_STENCILREFMASK back);
+bool EarlyTestsHelp(bool kills_pixels, bool writes_depth, rex::graphics::reg::RB_DEPTHCONTROL depth,
+                    rex::graphics::reg::RB_STENCILREFMASK front, rex::graphics::reg::RB_STENCILREFMASK back);
 
 class RepeatedUniforms {
  public:

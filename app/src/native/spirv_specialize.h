@@ -27,5 +27,6 @@ std::vector<UniformSlot> TextureFetchSlots(std::vector<UniformSlot> slots,
 std::vector<uint32_t> Specialize(std::span<const uint32_t> module, std::span<const ByteRange> system_ranges,
                                  std::span<const UniformSlot> slots, std::span<const uint32_t> values);
 std::vector<uint32_t> AllowContraction(std::span<const uint32_t> module);
+std::vector<uint32_t> ForceEarlyFragmentTests(std::span<const uint32_t> module);
 
 }  // namespace nier::native
