@@ -64,17 +64,17 @@ int main() {
   }
   {
     RepeatedUniforms uniforms;
-    const uint32_t a[4] = {1, 2, 3, 4};
-    const uint32_t b[4] = {1, 2, 3, 5};
+    const uint64_t a = 0x1234;
+    const uint64_t b = 0x1235;
     uint32_t offset = 0;
-    Check(!uniforms.Find(0, a, sizeof(a), offset), "unknown_uniform_not_found");
-    uniforms.Remember(0, a, sizeof(a), 256);
-    Check(uniforms.Find(0, a, sizeof(a), offset) && offset == 256, "same_bytes_reuse_offset");
-    Check(!uniforms.Find(0, b, sizeof(b), offset), "different_bytes_not_reused");
-    Check(!uniforms.Find(0, a, sizeof(a) - 4, offset), "different_size_not_reused");
-    Check(!uniforms.Find(1, a, sizeof(a), offset), "streams_are_separate");
+    Check(!uniforms.Find(0, a, 16, offset), "unknown_uniform_not_found");
+    uniforms.Remember(0, a, 16, 256);
+    Check(uniforms.Find(0, a, 16, offset) && offset == 256, "same_hash_and_size_reuse_offset");
+    Check(!uniforms.Find(0, b, 16, offset), "different_hash_not_reused");
+    Check(!uniforms.Find(0, a, 12, offset), "different_size_not_reused");
+    Check(!uniforms.Find(1, a, 16, offset), "streams_are_separate");
     uniforms.Clear();
-    Check(!uniforms.Find(0, a, sizeof(a), offset), "cleared_uniform_not_found");
+    Check(!uniforms.Find(0, a, 16, offset), "cleared_uniform_not_found");
   }
   {
     using rex::graphics::reg::RB_DEPTHCONTROL;

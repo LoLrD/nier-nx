@@ -81,21 +81,17 @@ bool EarlyTestsHelp(bool kills_pixels, bool writes_depth, rex::graphics::reg::RB
          DrawWritesNothing(0, depth, front, back);
 }
 
-bool RepeatedUniforms::Find(uint32_t stream, const void* data, size_t size, uint32_t& offset) const {
+bool RepeatedUniforms::Find(uint32_t stream, uint64_t hash, size_t size, uint32_t& offset) const {
   const Entry& entry = entries_[stream];
-  if (!entry.valid || entry.bytes.size() != size || std::memcmp(entry.bytes.data(), data, size) != 0) {
+  if (!entry.valid || entry.size != size || entry.hash != hash) {
     return false;
   }
   offset = entry.offset;
   return true;
 }
 
-void RepeatedUniforms::Remember(uint32_t stream, const void* data, size_t size, uint32_t offset) {
-  Entry& entry = entries_[stream];
-  const auto* bytes = static_cast<const uint8_t*>(data);
-  entry.bytes.assign(bytes, bytes + size);
-  entry.offset = offset;
-  entry.valid = true;
+void RepeatedUniforms::Remember(uint32_t stream, uint64_t hash, size_t size, uint32_t offset) {
+  entries_[stream] = {hash, size, offset, true};
 }
 
 void RepeatedUniforms::Clear() {

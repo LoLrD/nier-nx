@@ -3,7 +3,6 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <vector>
 
 #include <rex/graphics/registers.h>
 #include <rex/ui/vulkan/api.h>
@@ -72,13 +71,14 @@ bool EarlyTestsHelp(bool kills_pixels, bool writes_depth, rex::graphics::reg::RB
 
 class RepeatedUniforms {
  public:
-  bool Find(uint32_t stream, const void* data, size_t size, uint32_t& offset) const;
-  void Remember(uint32_t stream, const void* data, size_t size, uint32_t offset);
+  bool Find(uint32_t stream, uint64_t hash, size_t size, uint32_t& offset) const;
+  void Remember(uint32_t stream, uint64_t hash, size_t size, uint32_t offset);
   void Clear();
 
  private:
   struct Entry {
-    std::vector<uint8_t> bytes;
+    uint64_t hash = 0;
+    size_t size = 0;
     uint32_t offset = 0;
     bool valid = false;
   };

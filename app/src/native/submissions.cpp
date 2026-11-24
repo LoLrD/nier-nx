@@ -5,6 +5,7 @@
 #include <vector>
 
 #include <rex/graphics/pipeline/shader/spirv_translator.h>
+#include <rex/hash.h>
 #include <rex/logging.h>
 #include <rex/math.h>
 #include <rex/platform.h>
@@ -239,14 +240,15 @@ bool Submissions::Uniform(const void* data, size_t size, size_t reserve, uint32_
 
 bool Submissions::RepeatedUniform(uint32_t stream, const void* data, size_t size, size_t reserve, uint32_t& offset,
                                   bool& reused) {
-  reused = repeated_.Find(stream, data, size, offset);
+  const uint64_t hash = XXH3_64bits(data, size);
+  reused = repeated_.Find(stream, hash, size, offset);
   if (reused) {
     return true;
   }
   if (!Uniform(data, size, reserve, offset)) {
     return false;
   }
-  repeated_.Remember(stream, data, size, offset);
+  repeated_.Remember(stream, hash, size, offset);
   return true;
 }
 
