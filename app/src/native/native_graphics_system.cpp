@@ -34,6 +34,7 @@
 #include "ring_state.h"
 #include "native_renderer.h"
 #include "native_shaders.h"
+#include "nier_npc_lod.h"
 #include "shader_dump.h"
 
 REXCVAR_DEFINE_STRING(nier_renderer, "xenos", "NieR", "Graphics: xenos (SDK emulation) or native")
@@ -47,6 +48,8 @@ REXCVAR_DEFINE_INT32(nier_frame_dump_interval, 120, "NieR", "Native renderer: fr
 REXCVAR_DEFINE_STRING(nier_shader_dump_dir, "", "NieR",
                       "Native renderer: write each new shader microcode the game loads to this folder")
     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
+
+REXCVAR_DECLARE(double, nier_npc_update_scale);
 
 namespace nier::native {
 
@@ -387,6 +390,7 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem, private 
     reported_cpu_us_ = ThreadCpuUs();
     last_ = s;
     reported_notifies_ = SharedGpuProgress().notifies();
+    REXLOG_INFO("[native] {}", NierNpcLodReport(REXCVAR_GET(nier_npc_update_scale)));
     if (renderer_) {
       REXLOG_INFO("{}", renderer_->Report());
     }

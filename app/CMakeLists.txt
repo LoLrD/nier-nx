@@ -13,6 +13,8 @@ include(generated/rexglue.cmake)
 set(NIER_SOURCES
     src/main.cpp
     src/nier_d3d_wait.cpp
+    src/nier_npc_lod.cpp
+    src/nier_npc_lod_hook.cpp
     src/nier_input_driver.cpp
     src/nier_input_script.cpp
     src/nier_resolution.cpp
