@@ -21,6 +21,6 @@ class NierScriptInputDriver : public rex::input::InputDriver {
  private:
   NierInputScript script_;
   std::chrono::steady_clock::time_point start_;
-  uint16_t last_buttons_ = 0;
+  uint32_t last_buttons_ = 0;
   uint32_t packet_number_ = 0;
 };

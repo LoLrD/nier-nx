@@ -32,14 +32,16 @@ rex::X_RESULT NierScriptInputDriver::GetDeviceState(rex::input::DeviceId id, rex
   }
   const auto since_start =
       std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start_);
-  const uint16_t buttons = script_.ButtonsAt(since_start);
+  const uint32_t buttons = script_.ButtonsAt(since_start);
   if (buttons != last_buttons_) {
     last_buttons_ = buttons;
     ++packet_number_;
   }
   std::memset(out_state, 0, sizeof(*out_state));
   out_state->packet_number = packet_number_;
-  out_state->gamepad.buttons = buttons;
+  out_state->gamepad.buttons = uint16_t(buttons);
+  out_state->gamepad.thumb_lx = NierStickAxis(buttons, kNierStickLeft, kNierStickRight);
+  out_state->gamepad.thumb_ly = NierStickAxis(buttons, kNierStickDown, kNierStickUp);
   return X_ERROR_SUCCESS;
 }
 

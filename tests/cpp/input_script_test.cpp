@@ -34,6 +34,18 @@ int main() {
     Check(good->ButtonsAt(milliseconds(2010)) == (kNierButtonA | kNierButtonDpadDown), "A+DPAD_DOWN combined");
   }
 
+  auto stick = NierInputScript::Load(Write("nier_stick.tsv", "1000\tLS_UP+LS_RIGHT\t500\n1200\tA\t10\n"));
+  Check(stick.has_value(), "stick directions load");
+  if (stick) {
+    const uint32_t held = stick->ButtonsAt(milliseconds(1205));
+    Check(held == (kNierStickUp | kNierStickRight | kNierButtonA), "stick directions combine with buttons");
+    Check(NierStickAxis(held, kNierStickLeft, kNierStickRight) == 32767, "right stick axis full positive");
+    Check(NierStickAxis(held, kNierStickDown, kNierStickUp) == 32767, "up stick axis full positive");
+    Check(NierStickAxis(kNierStickLeft, kNierStickLeft, kNierStickRight) == -32768, "left stick axis full negative");
+    Check(NierStickAxis(0, kNierStickLeft, kNierStickRight) == 0, "released stick centred");
+    Check(uint16_t(held) == kNierButtonA, "stick bits stay out of the button word");
+  }
+
   auto bad = NierInputScript::Load(Write("nier_bad.tsv", "1000\tSTART\t100\n2000\tA\t50\n3000\tJUMP\t10\n"));
   Check(!bad.has_value(), "unknown button rejected");
   if (!bad) {

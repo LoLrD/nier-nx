@@ -21,18 +21,24 @@ inline constexpr uint16_t kNierButtonA = 0x1000;
 inline constexpr uint16_t kNierButtonB = 0x2000;
 inline constexpr uint16_t kNierButtonX = 0x4000;
 inline constexpr uint16_t kNierButtonY = 0x8000;
+inline constexpr uint32_t kNierStickUp = 0x10000;
+inline constexpr uint32_t kNierStickDown = 0x20000;
+inline constexpr uint32_t kNierStickLeft = 0x40000;
+inline constexpr uint32_t kNierStickRight = 0x80000;
+
+int16_t NierStickAxis(uint32_t buttons, uint32_t negative, uint32_t positive);
 
 class NierInputScript {
  public:
   static std::expected<NierInputScript, std::string> Load(const std::filesystem::path& path);
 
-  uint16_t ButtonsAt(std::chrono::milliseconds since_start) const;
+  uint32_t ButtonsAt(std::chrono::milliseconds since_start) const;
 
  private:
   struct Press {
     std::chrono::milliseconds start;
     std::chrono::milliseconds end;
-    uint16_t buttons;
+    uint32_t buttons;
   };
 
   std::vector<Press> presses_;

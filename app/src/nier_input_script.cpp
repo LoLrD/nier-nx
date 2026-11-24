@@ -11,7 +11,7 @@
 
 namespace {
 
-constexpr std::array<std::pair<std::string_view, uint16_t>, 14> kButtonNames{{
+constexpr std::array<std::pair<std::string_view, uint32_t>, 18> kButtonNames{{
     {"DPAD_UP", kNierButtonDpadUp},
     {"DPAD_DOWN", kNierButtonDpadDown},
     {"DPAD_LEFT", kNierButtonDpadLeft},
@@ -26,6 +26,10 @@ constexpr std::array<std::pair<std::string_view, uint16_t>, 14> kButtonNames{{
     {"B", kNierButtonB},
     {"X", kNierButtonX},
     {"Y", kNierButtonY},
+    {"LS_UP", kNierStickUp},
+    {"LS_DOWN", kNierStickDown},
+    {"LS_LEFT", kNierStickLeft},
+    {"LS_RIGHT", kNierStickRight},
 }};
 
 std::optional<int64_t> ParseMilliseconds(std::string_view text) {
@@ -37,8 +41,8 @@ std::optional<int64_t> ParseMilliseconds(std::string_view text) {
   return value;
 }
 
-std::optional<uint16_t> ParseButtons(std::string_view text) {
-  uint16_t buttons = 0;
+std::optional<uint32_t> ParseButtons(std::string_view text) {
+  uint32_t buttons = 0;
   while (!text.empty()) {
     const auto plus = text.find('+');
     const auto name = text.substr(0, plus);
@@ -49,7 +53,7 @@ std::optional<uint16_t> ParseButtons(std::string_view text) {
     buttons |= it->second;
     text = plus == std::string_view::npos ? std::string_view{} : text.substr(plus + 1);
   }
-  return buttons == 0 ? std::nullopt : std::optional<uint16_t>(buttons);
+  return buttons == 0 ? std::nullopt : std::optional<uint32_t>(buttons);
 }
 
 }  // namespace
@@ -88,8 +92,15 @@ std::expected<NierInputScript, std::string> NierInputScript::Load(const std::fil
   return script;
 }
 
-uint16_t NierInputScript::ButtonsAt(std::chrono::milliseconds since_start) const {
-  uint16_t buttons = 0;
+int16_t NierStickAxis(uint32_t buttons, uint32_t negative, uint32_t positive) {
+  if (buttons & positive) {
+    return 32767;
+  }
+  return buttons & negative ? -32768 : 0;
+}
+
+uint32_t NierInputScript::ButtonsAt(std::chrono::milliseconds since_start) const {
+  uint32_t buttons = 0;
   for (const auto& press : presses_) {
     if (since_start >= press.start && since_start < press.end) {
       buttons |= press.buttons;
