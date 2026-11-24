@@ -16,6 +16,7 @@
 #include <rex/ui/vulkan/api.h>
 
 #include "draw_constants.h"
+#include "draw_state_filter.h"
 #include "gpu_registers.h"
 #include "guest_mirror.h"
 #include "mirror_sync.h"
@@ -70,6 +71,12 @@ class NativeRenderer {
     uint64_t mirror_staged = 0;
     uint64_t mirror_staged_bytes = 0;
     uint64_t mirror_flushes = 0;
+    uint64_t dynamic_calls = 0;
+    uint64_t dynamic_skipped = 0;
+    uint64_t set_binds = 0;
+    uint64_t set_binds_skipped = 0;
+    uint64_t uniforms_written = 0;
+    uint64_t uniforms_reused = 0;
     uint64_t us_draws = 0;
     uint64_t us_mirror = 0;
     uint64_t us_textures = 0;
@@ -202,6 +209,9 @@ class NativeRenderer {
   std::vector<uint64_t> bind_handles_;
   VkPipeline bound_pipeline_ = VK_NULL_HANDLE;
   uint64_t bound_submission_ = 0;
+  DynamicStateFilter dynamic_filter_;
+  DescriptorBindingFilter binding_filter_;
+  uint64_t filter_submission_ = 0;
   std::optional<TargetKey> scaled_color_;
   std::optional<TargetKey> scaled_depth_;
   uint32_t scaled_shift_ = 0;

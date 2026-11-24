@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <chrono>
 #include <cstring>
 #include <fstream>
@@ -38,6 +39,11 @@ REXCVAR_DEFINE_INT32(nier_readback_limit_kb, 16, "NieR",
 REXCVAR_DEFINE_BOOL(nier_mirror_staging, true, "NieR",
                     "Native renderer: copy changed vertex/index ranges still read by the GPU through a GPU copy "
                     "instead of waiting for the GPU");
+REXCVAR_DEFINE_BOOL(nier_draw_state_filter, true, "NieR",
+                    "Native renderer: skip dynamic state, descriptor bindings and constant uploads that repeat the "
+                    "previous draw");
+REXCVAR_DEFINE_BOOL(nier_gpu_shader_marks, false, "NieR",
+                    "Native renderer: GPU timestamps at every pixel shader change (per-shader GPU times in the report)");
 REXCVAR_DEFINE_INT32(nier_shadow_map_shift, 0, "NieR",
                      "Native renderer: the shadow map is drawn at 1/2^N of its size (0 = full size)");
 REXCVAR_DEFINE_INT32(nier_shadow_mask_shift, 1, "NieR",
@@ -447,7 +453,8 @@ VkRect2D NativeRenderer::SetDynamicState(const RegisterFile& regs, const draw_ut
     viewport.width = float(viewport_info.xy_extent[0]) * factor;
     viewport.height = float(viewport_info.xy_extent[1]) * factor;
   }
-  dfn.vkCmdSetViewport(cmd, 0, 1, &viewport);
+  DynamicState next;
+  next.viewport = viewport;
   draw_util::Scissor scissor;
   draw_util::GetScissor(regs, scissor);
   const VkExtent2D area = targets_->render_area();
@@ -460,29 +467,60 @@ VkRect2D NativeRenderer::SetDynamicState(const RegisterFile& regs, const draw_ut
   } else if (PerfSkip(kQuarterScreen)) {
     host_rect.extent = {rect.extent.width / 2, rect.extent.height / 2};
   }
-  dfn.vkCmdSetScissor(cmd, 0, 1, &host_rect);
+  next.scissor = host_rect;
   float slope = 0.0f, constant = 0.0f;
   draw_util::GetPreferredFacePolygonOffset(regs, polygonal, slope, constant);
   constant *= regs.Get<reg::RB_DEPTH_INFO>().depth_format == xenos::DepthRenderTargetFormat::kD24S8
                   ? draw_util::kD3D10PolygonOffsetFactorUnorm24
                   : draw_util::kD3D10PolygonOffsetFactorFloat24;
   slope *= xenos::kPolygonOffsetScaleSubpixelUnit * float(std::max(scale.x, scale.y));
-  dfn.vkCmdSetDepthBias(cmd, constant, 0.0f, slope);
-  const float blend[4] = {regs.Get<float>(XE_GPU_REG_RB_BLEND_RED), regs.Get<float>(XE_GPU_REG_RB_BLEND_GREEN),
-                          regs.Get<float>(XE_GPU_REG_RB_BLEND_BLUE), regs.Get<float>(XE_GPU_REG_RB_BLEND_ALPHA)};
-  dfn.vkCmdSetBlendConstants(cmd, blend);
+  next.depth_bias_constant = constant;
+  next.depth_bias_slope = slope;
+  next.blend = {regs.Get<float>(XE_GPU_REG_RB_BLEND_RED), regs.Get<float>(XE_GPU_REG_RB_BLEND_GREEN),
+                regs.Get<float>(XE_GPU_REG_RB_BLEND_BLUE), regs.Get<float>(XE_GPU_REG_RB_BLEND_ALPHA)};
   const auto depth = draw_util::GetNormalizedDepthControl(regs);
   auto front = regs.Get<reg::RB_STENCILREFMASK>(XE_GPU_REG_RB_STENCILREFMASK);
   auto back = front;
   if (polygonal && depth.backface_enable) {
     back = regs.Get<reg::RB_STENCILREFMASK>(XE_GPU_REG_RB_STENCILREFMASK_BF);
   }
-  dfn.vkCmdSetStencilCompareMask(cmd, VK_STENCIL_FACE_FRONT_BIT, front.stencilmask);
-  dfn.vkCmdSetStencilCompareMask(cmd, VK_STENCIL_FACE_BACK_BIT, back.stencilmask);
-  dfn.vkCmdSetStencilWriteMask(cmd, VK_STENCIL_FACE_FRONT_BIT, front.stencilwritemask);
-  dfn.vkCmdSetStencilWriteMask(cmd, VK_STENCIL_FACE_BACK_BIT, back.stencilwritemask);
-  dfn.vkCmdSetStencilReference(cmd, VK_STENCIL_FACE_FRONT_BIT, front.stencilref);
-  dfn.vkCmdSetStencilReference(cmd, VK_STENCIL_FACE_BACK_BIT, back.stencilref);
+  next.compare_mask = {front.stencilmask, back.stencilmask};
+  next.write_mask = {front.stencilwritemask, back.stencilwritemask};
+  next.reference = {front.stencilref, back.stencilref};
+  const uint32_t changed = REXCVAR_GET(nier_draw_state_filter) ? dynamic_filter_.Changed(next) : kAllDynamicState;
+  const uint32_t calls = uint32_t(std::popcount(changed));
+  stats_.dynamic_calls += calls;
+  stats_.dynamic_skipped += 10 - calls;
+  if (changed & kViewportBit) {
+    dfn.vkCmdSetViewport(cmd, 0, 1, &next.viewport);
+  }
+  if (changed & kScissorBit) {
+    dfn.vkCmdSetScissor(cmd, 0, 1, &next.scissor);
+  }
+  if (changed & kDepthBiasBit) {
+    dfn.vkCmdSetDepthBias(cmd, next.depth_bias_constant, 0.0f, next.depth_bias_slope);
+  }
+  if (changed & kBlendBit) {
+    dfn.vkCmdSetBlendConstants(cmd, next.blend.data());
+  }
+  if (changed & kCompareMaskFrontBit) {
+    dfn.vkCmdSetStencilCompareMask(cmd, VK_STENCIL_FACE_FRONT_BIT, next.compare_mask[0]);
+  }
+  if (changed & kCompareMaskBackBit) {
+    dfn.vkCmdSetStencilCompareMask(cmd, VK_STENCIL_FACE_BACK_BIT, next.compare_mask[1]);
+  }
+  if (changed & kWriteMaskFrontBit) {
+    dfn.vkCmdSetStencilWriteMask(cmd, VK_STENCIL_FACE_FRONT_BIT, next.write_mask[0]);
+  }
+  if (changed & kWriteMaskBackBit) {
+    dfn.vkCmdSetStencilWriteMask(cmd, VK_STENCIL_FACE_BACK_BIT, next.write_mask[1]);
+  }
+  if (changed & kReferenceFrontBit) {
+    dfn.vkCmdSetStencilReference(cmd, VK_STENCIL_FACE_FRONT_BIT, next.reference[0]);
+  }
+  if (changed & kReferenceBackBit) {
+    dfn.vkCmdSetStencilReference(cmd, VK_STENCIL_FACE_BACK_BIT, next.reference[1]);
+  }
   return rect;
 }
 
@@ -640,16 +678,27 @@ NativeRenderer::DrawResult NativeRenderer::RecordDraw(const RegisterFile& regs) 
   alignas(16) uint8_t floats[Submissions::kFloatConstantsBytes];
   uint32_t bools[40];
   std::array<uint32_t, Translator::kConstantBufferCount> offsets{};
-  submissions_->Uniform(&system, sizeof(system), sizeof(system), offsets[Translator::kConstantBufferSystem]);
+  const bool filter = REXCVAR_GET(nier_draw_state_filter);
+  auto upload = [&](uint32_t stream, const void* data, size_t size, size_t reserve) {
+    if (!filter) {
+      submissions_->Uniform(data, size, reserve, offsets[stream]);
+      ++stats_.uniforms_written;
+      return;
+    }
+    bool reused = false;
+    submissions_->RepeatedUniform(stream, data, size, reserve, offsets[stream], reused);
+    ++(reused ? stats_.uniforms_reused : stats_.uniforms_written);
+  };
+  upload(Translator::kConstantBufferSystem, &system, sizeof(system), sizeof(system));
   uint32_t size = PackFloatConstants(regs, prepared->vertex_shader->constant_register_map(), false, floats);
-  submissions_->Uniform(floats, size, Submissions::kFloatConstantsBytes, offsets[Translator::kConstantBufferFloatVertex]);
+  upload(Translator::kConstantBufferFloatVertex, floats, size, Submissions::kFloatConstantsBytes);
   size = prepared->pixel_shader
              ? PackFloatConstants(regs, prepared->pixel_shader->constant_register_map(), true, floats)
              : PackFloatConstants(regs, Shader::ConstantRegisterMap{}, true, floats);
-  submissions_->Uniform(floats, size, Submissions::kFloatConstantsBytes, offsets[Translator::kConstantBufferFloatPixel]);
+  upload(Translator::kConstantBufferFloatPixel, floats, size, Submissions::kFloatConstantsBytes);
   CopyBoolLoopConstants(regs, bools);
-  submissions_->Uniform(bools, sizeof(bools), sizeof(bools), offsets[Translator::kConstantBufferBoolLoop]);
-  submissions_->Uniform(fetches, sizeof(fetches), sizeof(fetches), offsets[Translator::kConstantBufferFetch]);
+  upload(Translator::kConstantBufferBoolLoop, bools, sizeof(bools), sizeof(bools));
+  upload(Translator::kConstantBufferFetch, fetches, sizeof(fetches), sizeof(fetches));
   const VkCommandBuffer cmd = submissions_->main();
   if (targets_->Begins(targets)) {
     targets_->End(cmd);
@@ -669,15 +718,30 @@ NativeRenderer::DrawResult NativeRenderer::RecordDraw(const RegisterFile& regs) 
     return DrawResult::kDone;
   }
   const auto& dfn = device_->functions();
+  if (submissions_->current() != filter_submission_) {
+    dynamic_filter_.Reset();
+    binding_filter_.Reset();
+    filter_submission_ = submissions_->current();
+  }
   if (pipeline != bound_pipeline_ || submissions_->current() != bound_submission_ || PerfSkip(kRebindPipelines)) {
     dfn.vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
     bound_pipeline_ = pipeline;
     bound_submission_ = submissions_->current();
   }
-  submissions_->Mark(GpuCategory::kDraws, LabelId(current_pass_, prepared->pixel_shader, prepared->pixel));
-  const std::array<VkDescriptorSet, 4> sets = {shared_set_, submissions_->constants_set(), vs_set, ps_set};
-  dfn.vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0, uint32_t(sets.size()), sets.data(),
-                              uint32_t(offsets.size()), offsets.data());
+  submissions_->Mark(GpuCategory::kDraws,
+                     REXCVAR_GET(nier_gpu_shader_marks)
+                         ? LabelId(current_pass_, prepared->pixel_shader, prepared->pixel)
+                         : LabelId(current_pass_, nullptr, nullptr));
+  const DescriptorBinding binding{layout, {shared_set_, submissions_->constants_set(), vs_set, ps_set}, offsets};
+  const uint32_t first_set = filter ? binding_filter_.FirstChanged(binding) : 0;
+  if (first_set < kBoundSets) {
+    ++stats_.set_binds;
+    dfn.vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, first_set, kBoundSets - first_set,
+                                binding.sets.data() + first_set, first_set <= kConstantsSet ? kDynamicOffsets : 0,
+                                binding.offsets.data());
+  } else {
+    ++stats_.set_binds_skipped;
+  }
   const VkRect2D scissor = SetDynamicState(regs, viewport, targets.scale, polygonal, shift);
   if (!trace_pass_.draws++) {
     trace_pass_.first_scissor = scissor;
@@ -741,6 +805,8 @@ void NativeRenderer::Resolve(const RegisterFile& regs) {
   }
   resolves_->Resolve(submissions_->main(), plan, submissions_->current());
   bound_pipeline_ = VK_NULL_HANDLE;
+  dynamic_filter_.Reset();
+  binding_filter_.Reset();
   after_shadow_map_ = resolves_->TakeShadowMapResolved();
 }
 
@@ -1042,6 +1108,11 @@ std::string NativeRenderer::Report() {
                       (p.compile_us - reported_pipelines_.compile_us) / 1000, p.max_compile_us / 1000,
                       p.saved_bytes >> 10);
   reported_pipelines_ = p;
+  line += fmt::format("; draw state: dynamic {} set {} skipped, sets bound {} skipped {}, uniforms written {} "
+                      "reused {}",
+                      s.dynamic_calls - r.dynamic_calls, s.dynamic_skipped - r.dynamic_skipped,
+                      s.set_binds - r.set_binds, s.set_binds_skipped - r.set_binds_skipped,
+                      s.uniforms_written - r.uniforms_written, s.uniforms_reused - r.uniforms_reused);
   line += fmt::format("; ms draws {} (mirror {}, textures {}), resolves {}, present {}, gpu wait {}",
                       (s.us_draws - r.us_draws) / 1000, (s.us_mirror - r.us_mirror) / 1000,
                       (s.us_textures - r.us_textures) / 1000, (s.us_resolves - r.us_resolves) / 1000,

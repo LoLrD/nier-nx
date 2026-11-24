@@ -8,6 +8,7 @@
 
 #include <rex/ui/vulkan/api.h>
 
+#include "draw_state_filter.h"
 #include "gpu_times.h"
 
 namespace rex::ui::vulkan {
@@ -41,6 +42,8 @@ class Submissions {
   void Begin();
   bool HasUniformSpace(VkDeviceSize bytes) const;
   bool Uniform(const void* data, size_t size, size_t reserve, uint32_t& offset);
+  bool RepeatedUniform(uint32_t stream, const void* data, size_t size, size_t reserve, uint32_t& offset,
+                       bool& reused);
   VkDescriptorSet Allocate(VkDescriptorSetLayout layout);
   VkDescriptorSet AllocateShared(VkDescriptorSetLayout layout, uint64_t key, bool& fresh);
   void Mark(GpuCategory category, uint16_t pass = 0);
@@ -87,6 +90,7 @@ class Submissions {
   uint64_t timestamp_mask_ = 0;
   std::array<uint64_t, kGpuCategories> gpu_ns_{};
   std::vector<uint64_t> pass_ns_;
+  RepeatedUniforms repeated_;
 };
 
 }  // namespace nier::native

@@ -158,6 +158,7 @@ void Submissions::Begin() {
   dfn.vkResetDescriptorPool(d, slot.descriptors, 0);
   slot.shared_sets.clear();
   slot.uniform_used = 0;
+  repeated_.Clear();
   VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
   begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
   dfn.vkBeginCommandBuffer(slot.upload, &begin);
@@ -231,6 +232,19 @@ bool Submissions::Uniform(const void* data, size_t size, size_t reserve, uint32_
   std::memcpy(slot.uniform_mapping + start, data, size);
   slot.uniform_used = start + reserve;
   offset = uint32_t(start);
+  return true;
+}
+
+bool Submissions::RepeatedUniform(uint32_t stream, const void* data, size_t size, size_t reserve, uint32_t& offset,
+                                  bool& reused) {
+  reused = repeated_.Find(stream, data, size, offset);
+  if (reused) {
+    return true;
+  }
+  if (!Uniform(data, size, reserve, offset)) {
+    return false;
+  }
+  repeated_.Remember(stream, data, size, offset);
   return true;
 }
 
