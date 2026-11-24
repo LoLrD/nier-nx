@@ -34,6 +34,7 @@
 #include "ring_state.h"
 #include "native_renderer.h"
 #include "native_shaders.h"
+#include "nier_frame_pacing.h"
 #include "nier_npc_lod.h"
 #include "shader_dump.h"
 
@@ -391,6 +392,7 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem, private 
     last_ = s;
     reported_notifies_ = SharedGpuProgress().notifies();
     REXLOG_INFO("[native] {}", NierNpcLodReport(REXCVAR_GET(nier_npc_update_scale)));
+    REXLOG_INFO("[native] {}", NierFramePacingReport());
     if (renderer_) {
       REXLOG_INFO("{}", renderer_->Report());
     }
