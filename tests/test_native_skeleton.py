@@ -98,6 +98,9 @@ class NativeSkeletonTest(unittest.TestCase):
     def test_vector_estimates(self) -> None:
         self.check("vector_estimates", [], link_sdk=True)
 
+    def test_crt_memory(self) -> None:
+        self.check("crt_memory", [], link_sdk=True)
+
     def test_texture_loader(self) -> None:
         self.check("texture_loader", ["texture_loader.cpp"], link_sdk=True)
 

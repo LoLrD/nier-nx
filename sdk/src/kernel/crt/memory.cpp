@@ -10,6 +10,7 @@
 #include <cstring>
 
 #include <rex/hook.h>
+#include <rex/system/xmemory.h>
 
 namespace rex::kernel::crt {
 
@@ -17,16 +18,8 @@ namespace rex::kernel::crt {
 // Standard memory operations
 // ---------------------------------------------------------------------------
 
-static void* native_memcpy(void* dst, const void* src, size_t n) {
-  return std::memcpy(dst, src, n);
-}
-
 static void* native_memmove(void* dst, const void* src, size_t n) {
   return std::memmove(dst, src, n);
-}
-
-static void* native_memset(void* dst, int val, size_t n) {
-  return std::memset(dst, val, n);
 }
 
 static void* native_memchr(const void* ptr, int val, size_t n) {
@@ -71,11 +64,38 @@ static int native_memmove_s(void* dst, size_t dstsz, const void* src, size_t cou
   return 0;
 }
 
+static void MarkStoreCards(uint8_t* base, uint32_t address, uint32_t length) {
+#if defined(REX_STORE_CARDS)
+  if (!length) {
+    return;
+  }
+  const uint32_t first = address >> 12;
+  const uint32_t last = uint32_t((uint64_t(address) + length - 1) >> 12);
+  std::memset(base + first, 0, last - first + 1);
+#else
+  (void)base;
+  (void)address;
+  (void)length;
+#endif
+}
+
 }  // namespace rex::kernel::crt
 
-REX_HOOK(rexcrt_memcpy, rex::kernel::crt::native_memcpy)
+REX_HOOK_RAW(rexcrt_memcpy) {
+  const uint32_t dst = ctx.r3.u32;
+  const uint32_t length = ctx.r5.u32;
+  std::memmove(rex::memory::GuestPtr<uint8_t*>(base, dst), rex::memory::GuestPtr<uint8_t*>(base, ctx.r4.u32), length);
+  rex::kernel::crt::MarkStoreCards(base, dst, length);
+}
+
+REX_HOOK_RAW(rexcrt_memset) {
+  const uint32_t dst = ctx.r3.u32;
+  const uint32_t length = ctx.r5.u32;
+  std::memset(rex::memory::GuestPtr<uint8_t*>(base, dst), int(ctx.r4.u32 & 0xFF), length);
+  rex::kernel::crt::MarkStoreCards(base, dst, length);
+}
+
 REX_HOOK(rexcrt_memmove, rex::kernel::crt::native_memmove)
-REX_HOOK(rexcrt_memset, rex::kernel::crt::native_memset)
 REX_HOOK(rexcrt_memchr, rex::kernel::crt::native_memchr)
 REX_HOOK(rexcrt_XMemCpy, rex::kernel::crt::native_XMemCpy)
 REX_HOOK(rexcrt_XMemSet, rex::kernel::crt::native_XMemSet)

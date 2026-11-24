@@ -474,3 +474,9 @@
 "0x82169248" = { }  # 232 bytes, refs=2, first_ref=0x8200F6A0
 "0x8216A440" = { }  # 232 bytes, refs=2, first_ref=0x8200F6E0
 "0x8235F388" = { }  # 120 bytes, refs=10, first_ref=0x8203B358
+
+# Native CRT (sdk/src/kernel/crt/memory.cpp): the game's own memcpy (forward copy, returns r3) and memset (r3 dst, r4 value,
+# r5 count), checked by hand in the disassembly.
+[rexcrt]
+memcpy = 0x825D3010
+memset = 0x825D3D90

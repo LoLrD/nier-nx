@@ -113,3 +113,6 @@ code generator and runtime changes of masseffect-nx. The third-party sources are
   must be built with `-fno-strict-aliasing`.
 - `include/rex/ppc/intrinsics.h`, `src/codegen/builders/vector.cpp`: `vrefp`/`vrsqrtefp` use the ARM estimate plus one
   Newton-Raphson step (finer than the PPC's 1/4096) instead of a full division and square root.
+- `src/kernel/crt/memory.cpp`: `rexcrt_memcpy`/`rexcrt_memset` are raw hooks that keep `r3` and, under
+  `REX_STORE_CARDS`, mark the store cards of the destination pages; `memcpy` uses `memmove`, so a forward copy onto an
+  earlier overlap gives the guest's result.
