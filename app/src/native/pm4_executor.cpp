@@ -376,11 +376,16 @@ void Pm4Executor::Draw(RingReader& data, bool has_viz_query, uint32_t count) {
 void Pm4Executor::ImLoadImmediate(RingReader& data) {
   const uint32_t type = data.Read();
   const uint32_t size = data.Read() & 0xFFFF;
+  ++stats_.shader_loads;
+  if (const uint32_t* direct = data.Contiguous(size)) {
+    data.Skip(size);
+    bus_.ShaderLoad(type, 0, direct, size);
+    return;
+  }
   inline_microcode_.resize(size);
   for (uint32_t i = 0; i < size; ++i) {
     inline_microcode_[i] = __builtin_bswap32(data.Read());
   }
-  ++stats_.shader_loads;
   bus_.ShaderLoad(type, 0, inline_microcode_.data(), size);
 }
 

@@ -59,5 +59,14 @@ int main() {
     reader.Skip(2);
     Check(reader.Pending() == 1 && reader.Read() == 3 && reader.position() == 3, "linear_reader_has_no_wrap");
   }
+  {
+    std::vector<uint32_t> ring(8);
+    RingReader reader(ring.data(), 8, 5, 3);
+    Check(reader.Contiguous(3) == ring.data() + 5, "words_before_the_end_are_contiguous");
+    Check(reader.Contiguous(4) == nullptr, "words_across_the_end_are_not_contiguous");
+    std::vector<uint32_t> buffer(16);
+    RingReader linear(buffer.data(), 0, 4, 16);
+    Check(linear.Contiguous(12) == buffer.data() + 4, "linear_reader_is_always_contiguous");
+  }
   return failures ? 1 : 0;
 }

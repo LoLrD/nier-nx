@@ -50,6 +50,10 @@ class RingReader {
     return value;
   }
 
+  const uint32_t* Contiguous(uint32_t words) const {
+    return !mask_ || position_ + words <= mask_ + 1 ? words_ + position_ : nullptr;
+  }
+
   void Skip(uint32_t words) { position_ = mask_ ? (position_ + words) & mask_ : position_ + words; }
 
   uint32_t position() const { return position_; }

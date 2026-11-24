@@ -121,11 +121,15 @@ uint32_t NativeShaders::ScaleIndex(uint32_t scale_x, uint32_t scale_y) {
 
 void NativeShaders::Load(uint32_t type, const uint32_t* words_big_endian, uint32_t size_words) {
   const uint64_t hash = XXH3_64bits(words_big_endian, size_t(size_words) * sizeof(uint32_t));
+  uint64_t& current = type == uint32_t(xenos::ShaderType::kVertex) ? vertex_hash_ : pixel_hash_;
+  if (current == hash) {
+    return;
+  }
   auto& entry = microcode_[hash];
   if (entry.second.empty()) {
     entry = {type, std::vector<uint32_t>(words_big_endian, words_big_endian + size_words)};
   }
-  (type == uint32_t(xenos::ShaderType::kVertex) ? vertex_hash_ : pixel_hash_) = hash;
+  current = hash;
 }
 
 VulkanShader* NativeShaders::ShaderFor(uint64_t hash, uint32_t scale) {
