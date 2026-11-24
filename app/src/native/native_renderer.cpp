@@ -1055,6 +1055,17 @@ void NativeRenderer::Swap(rex::ui::Presenter* presenter, uint32_t frontbuffer, u
     stats_.us_presenter += us_refresh - std::min(us_refresh, us_paint);
   }
   Flush();
+  const uint64_t now_us = uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(
+                                       std::chrono::steady_clock::now().time_since_epoch())
+                                       .count());
+  const std::array<uint64_t, 3> mark = {stats_.us_draws + stats_.us_resolves + stats_.us_present, stats_.us_gpu_wait,
+                                        textures_->stats().upload_bytes};
+  if (last_swap_us_) {
+    slow_frames_.Add({double(now_us - last_swap_us_) / 1000.0, double(mark[0] - frame_mark_[0]) / 1000.0,
+                      double(mark[1] - frame_mark_[1]) / 1000.0, double(mark[2] - frame_mark_[2]) / 1048576.0});
+  }
+  last_swap_us_ = now_us;
+  frame_mark_ = mark;
   const uint64_t now_ms = NowMs();
   frame_clock_ms_ = AdvanceFrameClock(frame_clock_ms_, last_swap_ms_, now_ms);
   last_swap_ms_ = now_ms;
@@ -1236,6 +1247,10 @@ std::string NativeRenderer::Report() {
                       (p.compile_us - reported_pipelines_.compile_us) / 1000, p.max_compile_us / 1000,
                       p.saved_bytes >> 10);
   reported_pipelines_ = p;
+  line += fmt::format("; slow frames {} of {} (worst {:.0f} ms): ring busy {}, gpu wait {}, texture uploads {}, other {}",
+                      slow_frames_.slow, slow_frames_.frames, slow_frames_.worst_ms, slow_frames_.ring,
+                      slow_frames_.gpu, slow_frames_.uploads, slow_frames_.other);
+  slow_frames_ = {};
   if (recorder_) {
     const std::array<uint64_t, 4> now = {recorder_->commands(), recorder_->drain_waits(), recorder_->drain_wait_us(),
                                          recorder_->full_waits()};

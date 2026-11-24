@@ -26,6 +26,7 @@
 #include "render_targets.h"
 #include "resolve_plan.h"
 #include "resolves.h"
+#include "slow_frames.h"
 #include "store_cards.h"
 #include "submissions.h"
 #include "target_keys.h"
@@ -189,6 +190,9 @@ class NativeRenderer {
   uint64_t last_eviction_ms_ = 0;
   uint64_t frame_clock_ms_ = 0;
   uint64_t last_swap_ms_ = 0;
+  SlowFrames slow_frames_;
+  uint64_t last_swap_us_ = 0;
+  std::array<uint64_t, 3> frame_mark_{};
   std::deque<uint64_t> swap_marks_;
   Presented presented_;
   Stats stats_;

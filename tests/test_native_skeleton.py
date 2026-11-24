@@ -83,6 +83,9 @@ class NativeSkeletonTest(unittest.TestCase):
     def test_fixed_flush_mode(self) -> None:
         self.check("fixed_flush_mode", [], link_sdk=True)
 
+    def test_slow_frames(self) -> None:
+        self.check("slow_frames", ["slow_frames.cpp"])
+
     def test_vk_recorder(self) -> None:
         self.check("vk_recorder", ["vk_recorder.cpp"], link_sdk=True)
 
