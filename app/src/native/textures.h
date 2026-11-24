@@ -115,6 +115,7 @@ class Textures {
     uint64_t last_submission;
     uint64_t shape;
     uint64_t cards_serial;
+    TextureFootprint footprint;
   };
   struct Retired {
     Image image;
@@ -152,7 +153,7 @@ class Textures {
   HashSpan GuestSpan(uint32_t address, uint32_t bytes) const { return {physical_base_ + address, bytes}; }
   void Reset(PhasedHash& content, std::span<const HashSpan> spans);
   bool Changed(PhasedHash& content, std::span<const HashSpan> spans);
-  uint64_t TakeCards(const rex::graphics::xenos::xe_gpu_texture_fetch_t& fetch);
+  bool TakeCards(const TextureFootprint& footprint, uint64_t since);
   void RecordLoad(const rex::graphics::xenos::xe_gpu_texture_fetch_t& fetch, const LoadedTexture& loaded, uint32_t bytes,
                   UploadReason reason);
   void NoteResolveMiss(uint32_t address, const rex::graphics::xenos::xe_gpu_texture_fetch_t& fetch, VkFormat format,
@@ -171,6 +172,7 @@ class Textures {
   PageSerials card_serials_;
   std::vector<PageRun> card_runs_;
   uint64_t card_serial_ = 0;
+  uint64_t last_marked_serial_ = 0;
   bool cards_enabled_ = false;
   bool cards_verify_ = false;
   uint64_t released_frame_ = 0;

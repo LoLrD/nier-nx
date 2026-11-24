@@ -134,15 +134,20 @@ void Textures::SetCards(uint8_t* table, bool enabled, bool verify) {
   cards_verify_ = enabled && verify;
 }
 
-uint64_t Textures::TakeCards(const xenos::xe_gpu_texture_fetch_t& fetch) {
-  const TextureFootprint footprint = FootprintOf(fetch);
+bool Textures::TakeCards(const TextureFootprint& footprint, uint64_t since) {
   card_runs_.clear();
   cards_->Take(footprint.base_address, footprint.base_size, card_runs_);
   cards_->Take(footprint.mip_address, footprint.mip_size, card_runs_);
-  ++card_serial_;
-  card_serials_.Mark(card_runs_, card_serial_);
+  if (!card_runs_.empty()) {
+    ++card_serial_;
+    card_serials_.Mark(card_runs_, card_serial_);
+    last_marked_serial_ = card_serial_;
+  }
+  if (last_marked_serial_ <= since) {
+    return false;
+  }
   return std::max(card_serials_.Newest(footprint.base_address, footprint.base_size),
-                  card_serials_.Newest(footprint.mip_address, footprint.mip_size));
+                  card_serials_.Newest(footprint.mip_address, footprint.mip_size)) > since;
 }
 
 void Textures::Prepare(VkCommandBuffer upload) {
@@ -247,7 +252,7 @@ Textures::Binding Textures::View(VkCommandBuffer upload, const xenos::xe_gpu_tex
     Texture& texture = it->second;
     if (texture.checked_frame != frame_) {
       texture.checked_frame = frame_;
-      const bool marked = TakeCards(fetch) > texture.cards_serial;
+      const bool marked = TakeCards(texture.footprint, texture.cards_serial);
       texture.cards_serial = card_serial_;
       bool changed = false;
       if (marked || cards_verify_) {
@@ -299,9 +304,10 @@ Textures::Binding Textures::View(VkCommandBuffer upload, const xenos::xe_gpu_tex
     if (cards_enabled_ || reason != UploadReason::kChanged) {
       Reset(content, ContentSpans(fetch));
     }
+    const TextureFootprint footprint = FootprintOf(fetch);
     uint64_t cards_serial = 0;
     if (cards_enabled_) {
-      TakeCards(fetch);
+      TakeCards(footprint, card_serial_);
       cards_serial = card_serial_;
     }
     const Image image = AcquireImage(*shape);
@@ -316,7 +322,7 @@ Textures::Binding Textures::View(VkCommandBuffer upload, const xenos::xe_gpu_tex
     RecordLoad(fetch, *loaded, shape->bytes, reason);
     active_bytes_ += shape->bytes;
     textures_.emplace(key, Texture{image, shape->host, shape->width, shape->height, shape->cube, shape->bytes, content,
-                                   frame_, frame_, now_ms_, submission, ShapeKey(*shape), cards_serial});
+                                   frame_, frame_, now_ms_, submission, ShapeKey(*shape), cards_serial, footprint});
     EnforceBudget();
     it = textures_.find(key);
   }
