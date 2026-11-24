@@ -1248,10 +1248,11 @@ std::string NativeRenderer::Report() {
     const std::array<uint64_t, 3> pages = {mirror_cards_->checked_pages(), mirror_cards_->taken_pages(),
                                            mirror_cards_->rechecked_pages()};
     line += fmt::format("; store cards: mirror checked {} pages, took {} ({} rechecks), copied {} MB, missed {}; "
-                        "textures reloaded {}, missed {}",
+                        "textures reloaded {}, marked but unchanged {}, missed {}",
                         pages[0] - reported_card_pages_[0], pages[1] - reported_card_pages_[1],
                         pages[2] - reported_card_pages_[2], (s.cards_copied_bytes - r.cards_copied_bytes) >> 20,
                         s.cards_missed - r.cards_missed, t.cards_reloads - reported_textures_.cards_reloads,
+                        t.cards_unchanged - reported_textures_.cards_unchanged,
                         t.cards_missed - reported_textures_.cards_missed);
     reported_card_pages_ = pages;
   }

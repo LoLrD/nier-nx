@@ -62,6 +62,7 @@ class Textures {
     uint64_t possibly_late = 0;
     uint64_t cards_reloads = 0;
     uint64_t cards_missed = 0;
+    uint64_t cards_unchanged = 0;
   };
   static constexpr size_t kTopUploads = 5;
 

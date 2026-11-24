@@ -243,9 +243,17 @@ Textures::Binding Textures::View(VkCommandBuffer upload, const xenos::xe_gpu_tex
     Texture& texture = it->second;
     if (texture.checked_frame != frame_) {
       texture.checked_frame = frame_;
-      const bool changed = TakeCards(fetch) > texture.cards_serial;
-      if (cards_verify_ && Changed(texture.content, ContentSpans(fetch)) && !changed) {
-        ++stats_.cards_missed;
+      const bool marked = TakeCards(fetch) > texture.cards_serial;
+      texture.cards_serial = card_serial_;
+      bool changed = false;
+      if (marked || cards_verify_) {
+        const auto spans = ContentSpans(fetch);
+        for (const HashSpan& span : spans) {
+          stats_.hashed_bytes += span.bytes;
+        }
+        changed = !texture.content.Matches(spans);
+        stats_.cards_missed += changed && !marked;
+        stats_.cards_unchanged += marked && !changed;
       }
       if (changed) {
         ++stats_.cards_reloads;
@@ -284,7 +292,7 @@ Textures::Binding Textures::View(VkCommandBuffer upload, const xenos::xe_gpu_tex
       ++stats_.unsupported;
       return result;
     }
-    if (cards_enabled_ ? cards_verify_ : reason != UploadReason::kChanged) {
+    if (cards_enabled_ || reason != UploadReason::kChanged) {
       Reset(content, ContentSpans(fetch));
     }
     uint64_t cards_serial = 0;
