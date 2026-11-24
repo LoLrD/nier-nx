@@ -725,9 +725,18 @@ NativeRenderer::DrawResult NativeRenderer::RecordDraw(const RegisterFile& regs) 
     BeginSubmission();
   }
   auto sync_ranges = [&] {
+    std::array<std::pair<uint32_t, uint32_t>, 8> synced;
+    size_t synced_count = 0;
     for (const auto& binding : prepared->vertex_shader->vertex_bindings()) {
       const auto fetch = regs.GetVertexFetch(binding.fetch_constant);
-      SyncMirror(fetch.address << 2, fetch.size << 2);
+      const std::pair<uint32_t, uint32_t> range{fetch.address << 2, fetch.size << 2};
+      if (std::find(synced.begin(), synced.begin() + synced_count, range) != synced.begin() + synced_count) {
+        continue;
+      }
+      if (synced_count < synced.size()) {
+        synced[synced_count++] = range;
+      }
+      SyncMirror(range.first, range.second);
     }
     if (draw.index_source == IndexSource::kGuestDma) {
       SyncMirror(draw.guest_index_address, draw.guest_index_bytes);
