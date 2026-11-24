@@ -76,6 +76,22 @@ std::optional<MemoryStore> GpuRegisters::Set(uint32_t index, uint32_t value) {
   return MemoryStore{file_.values[XE_GPU_REG_SCRATCH_ADDR] + scratch * 4, value};
 }
 
+bool GpuRegisters::SetRange(uint32_t first, const uint32_t* words_big_endian, uint32_t count) {
+  if (first < kConstantBase || first + count > kCount) {
+    return false;
+  }
+  for (uint32_t i = 0; i < count; ++i) {
+    file_.values[first + i] = __builtin_bswap32(words_big_endian[i]);
+  }
+  if (count) {
+    const uint32_t last_group = (first + count - 1 - kConstantBase) >> kGroupShift;
+    for (uint32_t group = (first - kConstantBase) >> kGroupShift; group <= last_group; ++group) {
+      generations_[group] = ++generation_;
+    }
+  }
+  return true;
+}
+
 void GpuRegisters::Store(uint32_t index, uint32_t value) {
   if (index < kCount) {
     std::atomic_ref<uint32_t>(file_.values[index]).store(value, std::memory_order_relaxed);

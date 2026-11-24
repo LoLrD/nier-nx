@@ -59,6 +59,7 @@ class Pm4Executor {
  private:
   bool Type3(RingReader& data, uint32_t opcode, uint32_t count);
   void SetRegister(uint32_t index, uint32_t value);
+  void SetRegisters(uint32_t first, RingReader& data, uint32_t count);
   uint32_t LoadSwapped(uint32_t address);
   void StoreSwapped(uint32_t address, uint32_t value);
   bool Compare(uint32_t function, uint32_t value, uint32_t mask, uint32_t reference) const;

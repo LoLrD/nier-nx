@@ -122,5 +122,22 @@ int main() {
     regs.Store(0x4908, 7);
     Check(regs.ConstantsGeneration(0x4900, 40) > loops, "mmio_store_to_loop_constants_changes_generation");
   }
+  {
+    GpuRegisters regs;
+    const uint32_t words[3] = {__builtin_bswap32(0x3F800000u), __builtin_bswap32(0x40000000u),
+                               __builtin_bswap32(0x40400000u)};
+    const uint64_t target_before = regs.ConstantsGeneration(0x4000 + 63, 3);
+    const uint64_t other_before = regs.ConstantsGeneration(0x4200, 4);
+    Check(regs.SetRange(0x4000 + 63, words, 3), "constant_range_is_written_in_bulk");
+    Check(regs.Get(0x4000 + 63) == 0x3F800000u && regs.Get(0x4000 + 64) == 0x40000000u &&
+              regs.Get(0x4000 + 65) == 0x40400000u,
+          "bulk_write_swaps_guest_words");
+    Check(regs.ConstantsGeneration(0x4000 + 63, 1) > target_before &&
+              regs.ConstantsGeneration(0x4000 + 64, 2) > target_before,
+          "bulk_write_touches_every_group_it_covers");
+    Check(regs.ConstantsGeneration(0x4200, 4) == other_before, "bulk_write_leaves_other_groups");
+    Check(!regs.SetRange(XE_GPU_REG_SCRATCH_REG0, words, 3), "special_registers_are_not_written_in_bulk");
+    Check(!regs.SetRange(GpuRegisters::kCount - 2, words, 3), "range_past_the_file_is_not_written_in_bulk");
+  }
   return failures ? 1 : 0;
 }

@@ -27,6 +27,7 @@ class GpuRegisters {
   const rex::graphics::RegisterFile& file() const { return file_; }
   const std::array<uint32_t, 256>& gamma_ramp() const { return gamma_ramp_; }
   uint64_t gamma_version() const { return gamma_version_; }
+  bool SetRange(uint32_t first, const uint32_t* words_big_endian, uint32_t count);
   uint64_t FloatGeneration(const uint64_t (&bitmap)[4], bool pixel) const;
   uint64_t ConstantsGeneration(uint32_t first, uint32_t count) const;
 

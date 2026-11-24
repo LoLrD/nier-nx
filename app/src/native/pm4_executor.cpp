@@ -55,8 +55,12 @@ Pm4Executor::Result Pm4Executor::Execute(RingReader& reader, uint32_t publish_st
     ++stats_.packets;
     switch (header.type) {
       case 0:
-        for (uint32_t i = 0; i < header.count; ++i) {
-          SetRegister(header.single_register ? header.base_index : header.base_index + i, data.Read());
+        if (header.single_register) {
+          for (uint32_t i = 0; i < header.count; ++i) {
+            SetRegister(header.base_index, data.Read());
+          }
+        } else {
+          SetRegisters(header.base_index, data, header.count);
         }
         break;
       case 1:
@@ -204,6 +208,16 @@ void Pm4Executor::SetRegister(uint32_t index, uint32_t value) {
   }
 }
 
+void Pm4Executor::SetRegisters(uint32_t first, RingReader& data, uint32_t count) {
+  if (const uint32_t* words = data.Contiguous(count); words && registers_.SetRange(first, words, count)) {
+    data.Skip(count);
+    return;
+  }
+  for (uint32_t i = 0; i < count; ++i) {
+    SetRegister(first + i, data.Read());
+  }
+}
+
 uint32_t Pm4Executor::LoadSwapped(uint32_t address) {
   return xenos::GpuSwap(bus_.LoadWord(address & ~3u), static_cast<xenos::Endian>(address & 3));
 }
@@ -336,10 +350,7 @@ void Pm4Executor::SetConstant(RingReader& data, uint32_t count) {
   if (base == UINT32_MAX) {
     return;
   }
-  const uint32_t index = offset_type & 0x7FF;
-  for (uint32_t i = 1; i < count; ++i) {
-    SetRegister(base + index + i - 1, data.Read());
-  }
+  SetRegisters(base + (offset_type & 0x7FF), data, count - 1);
 }
 
 void Pm4Executor::LoadAluConstant(RingReader& data) {
@@ -351,10 +362,7 @@ void Pm4Executor::LoadAluConstant(RingReader& data) {
     return;
   }
   RingReader source(bus_.Words(address), 0, 0, size);
-  const uint32_t index = offset_type & 0x7FF;
-  for (uint32_t i = 0; i < size; ++i) {
-    SetRegister(base + index + i, source.Read());
-  }
+  SetRegisters(base + (offset_type & 0x7FF), source, size);
 }
 
 void Pm4Executor::Draw(RingReader& data, bool has_viz_query, uint32_t count) {

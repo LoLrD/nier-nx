@@ -316,6 +316,20 @@ int main() {
   {
     GpuRegisters regs;
     FakeBus bus;
+    Pm4Executor exec(regs, bus);
+    std::vector<uint32_t> ring(8);
+    ring[5] = Be(Type3(xenos::PM4_SET_CONSTANT, 3));
+    ring[6] = Be((0u << 16) | 8);
+    ring[7] = Be(0x3F800000);
+    ring[0] = Be(0x40000000);
+    RingReader reader(ring.data(), 8, 5, 1);
+    exec.Execute(reader);
+    Check(regs.Get(0x4008) == 0x3F800000 && regs.Get(0x4009) == 0x40000000 && reader.position() == 1,
+          "set_constant_wrapping_across_ring_end");
+  }
+  {
+    GpuRegisters regs;
+    FakeBus bus;
     std::vector<uint32_t> microcode(24);
     for (uint32_t i = 0; i < 24; ++i) microcode[i] = Be(0x1000 + i);
     bus.buffers[0xA000] = microcode;
