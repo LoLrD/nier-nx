@@ -210,6 +210,7 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem, private 
 
   void StoreWord(uint32_t physical, uint32_t raw) override {
     std::memcpy(memory_->TranslatePhysical(physical), &raw, 4);
+    memory_->MarkStoreCards(0xA0000000u + physical, 4);
     SharedGpuProgress().Advance();
   }
 

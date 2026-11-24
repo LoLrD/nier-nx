@@ -116,6 +116,28 @@ Textures::~Textures() {
 void Textures::BeginFrame(uint64_t now_ms) {
   ++frame_;
   now_ms_ = now_ms;
+  if (cards_) {
+    cards_->NextInterval();
+  }
+}
+
+void Textures::SetCards(uint8_t* table, bool enabled, bool verify) {
+  if (enabled && !cards_) {
+    cards_ = std::make_unique<StoreCards>(table, kTextureCards);
+  }
+  cards_enabled_ = enabled;
+  cards_verify_ = enabled && verify;
+}
+
+uint64_t Textures::TakeCards(const xenos::xe_gpu_texture_fetch_t& fetch) {
+  const TextureFootprint footprint = FootprintOf(fetch);
+  card_runs_.clear();
+  cards_->Take(footprint.base_address, footprint.base_size, card_runs_);
+  cards_->Take(footprint.mip_address, footprint.mip_size, card_runs_);
+  ++card_serial_;
+  card_serials_.Mark(card_runs_, card_serial_);
+  return std::max(card_serials_.Newest(footprint.base_address, footprint.base_size),
+                  card_serials_.Newest(footprint.mip_address, footprint.mip_size));
 }
 
 void Textures::Prepare(VkCommandBuffer upload) {
@@ -216,7 +238,23 @@ Textures::Binding Textures::View(VkCommandBuffer upload, const xenos::xe_gpu_tex
   bool reload = it == textures_.end();
   PhasedHash content;
   UploadReason reason = UploadReason::kNew;
-  if (!reload) {
+  if (!reload && cards_enabled_) {
+    Texture& texture = it->second;
+    if (texture.checked_frame != frame_) {
+      texture.checked_frame = frame_;
+      const bool changed = TakeCards(fetch) > texture.cards_serial;
+      if (cards_verify_ && Changed(texture.content, ContentSpans(fetch)) && !changed) {
+        ++stats_.cards_missed;
+      }
+      if (changed) {
+        ++stats_.cards_reloads;
+        Retire(texture);
+        textures_.erase(it);
+        reload = true;
+        reason = UploadReason::kChanged;
+      }
+    }
+  } else if (!reload) {
     Texture& texture = it->second;
     if (NeedsRehash(texture.bytes, frame_, texture.checked_frame, texture.used_frame == frame_,
                     texture.content.sampling())) {
@@ -245,8 +283,13 @@ Textures::Binding Textures::View(VkCommandBuffer upload, const xenos::xe_gpu_tex
       ++stats_.unsupported;
       return result;
     }
-    if (reason != UploadReason::kChanged) {
+    if (cards_enabled_ ? cards_verify_ : reason != UploadReason::kChanged) {
       Reset(content, ContentSpans(fetch));
+    }
+    uint64_t cards_serial = 0;
+    if (cards_enabled_) {
+      TakeCards(fetch);
+      cards_serial = card_serial_;
     }
     const Image image = AcquireImage(*shape);
     if (image.image == VK_NULL_HANDLE) {
@@ -260,7 +303,7 @@ Textures::Binding Textures::View(VkCommandBuffer upload, const xenos::xe_gpu_tex
     RecordLoad(fetch, *loaded, shape->bytes, reason);
     active_bytes_ += shape->bytes;
     textures_.emplace(key, Texture{image, shape->host, shape->width, shape->height, shape->cube, shape->bytes, content,
-                                   frame_, frame_, now_ms_, submission, ShapeKey(*shape)});
+                                   frame_, frame_, now_ms_, submission, ShapeKey(*shape), cards_serial});
     EnforceBudget();
     it = textures_.find(key);
   }

@@ -15,6 +15,10 @@ namespace rex::ui::vulkan {
 class VulkanDevice;
 }
 
+namespace rex::memory {
+class Memory;
+}
+
 namespace nier::native {
 
 class Resolves {
@@ -30,7 +34,7 @@ class Resolves {
   };
 
   Resolves(const rex::ui::vulkan::VulkanDevice* device, RenderTargets& targets, Textures& textures,
-           uint8_t* physical_base);
+           rex::memory::Memory* memory, uint8_t* physical_base);
   ~Resolves();
   Resolves(const Resolves&) = delete;
   Resolves& operator=(const Resolves&) = delete;
@@ -99,6 +103,7 @@ class Resolves {
   const rex::ui::vulkan::VulkanDevice* device_;
   RenderTargets& targets_;
   Textures& textures_;
+  rex::memory::Memory* memory_;
   uint8_t* physical_base_;
   std::unordered_map<uint64_t, DestImage> images_;
   std::unordered_map<uint32_t, uint64_t> presentable_by_address_;

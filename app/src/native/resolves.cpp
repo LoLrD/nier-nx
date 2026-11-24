@@ -8,6 +8,7 @@
 #include <rex/hash.h>
 #include <rex/logging.h>
 #include <rex/math.h>
+#include <rex/memory.h>
 #include <rex/ui/vulkan/device.h>
 #include <rex/ui/vulkan/util.h>
 
@@ -55,8 +56,9 @@ uint64_t ImageKey(uint32_t address, VkFormat format, uint32_t width, uint32_t he
 
 }  // namespace
 
-Resolves::Resolves(const vk::VulkanDevice* device, RenderTargets& targets, Textures& textures, uint8_t* physical_base)
-    : device_(device), targets_(targets), textures_(textures), physical_base_(physical_base) {
+Resolves::Resolves(const vk::VulkanDevice* device, RenderTargets& targets, Textures& textures,
+                   rex::memory::Memory* memory, uint8_t* physical_base)
+    : device_(device), targets_(targets), textures_(textures), memory_(memory), physical_base_(physical_base) {
   const auto& dfn = device_->functions();
   const VkDevice d = device_->device();
   const VkDescriptorSetLayoutBinding binding{0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1,
@@ -493,6 +495,7 @@ void Resolves::Completed(uint64_t submission) {
     if (ShouldWriteBack(pending.range, XXH3_64bits(guest, pending.range.bytes))) {
       WriteTiled(static_cast<const uint8_t*>(pending.buffer.mapping), plan.dest_x, plan.dest_y, plan.dest_width,
                  plan.dest_height, rex::align(plan.dest_pitch, 32u), plan.dest_endian, plan.dest_swap, guest);
+      memory_->MarkStoreCards(0xA0000000u + pending.range.address, pending.range.bytes);
       const uint64_t written = XXH3_64bits(guest, pending.range.bytes);
       for (size_t later = done + 1; later < pending_.size(); ++later) {
         CarryWrittenHash(pending_[later].range, pending.range, written);

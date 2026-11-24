@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <array>
 #include <map>
+#include <memory>
 #include <span>
 #include <unordered_map>
 #include <unordered_set>
@@ -14,6 +15,7 @@
 
 #include "phased_hash.h"
 #include "resolve_plan.h"
+#include "store_cards.h"
 #include "texture_loader.h"
 
 namespace rex::ui::vulkan {
@@ -58,6 +60,8 @@ class Textures {
     uint64_t sampled_checks = 0;
     uint64_t sampled_changes = 0;
     uint64_t possibly_late = 0;
+    uint64_t cards_reloads = 0;
+    uint64_t cards_missed = 0;
   };
   static constexpr size_t kTopUploads = 5;
 
@@ -68,6 +72,7 @@ class Textures {
   Textures& operator=(const Textures&) = delete;
 
   void BeginFrame(uint64_t now_ms);
+  void SetCards(uint8_t* table, bool enabled, bool verify);
   void Prepare(VkCommandBuffer upload);
   Binding View(VkCommandBuffer upload, const rex::graphics::xenos::xe_gpu_texture_fetch_t& fetch,
                const rex::graphics::SpirvShader::TextureBinding& binding, uint64_t submission);
@@ -108,6 +113,7 @@ class Textures {
     uint64_t used_ms;
     uint64_t last_submission;
     uint64_t shape;
+    uint64_t cards_serial;
   };
   struct Retired {
     Image image;
@@ -145,6 +151,7 @@ class Textures {
   HashSpan GuestSpan(uint32_t address, uint32_t bytes) const { return {physical_base_ + address, bytes}; }
   void Reset(PhasedHash& content, std::span<const HashSpan> spans);
   bool Changed(PhasedHash& content, std::span<const HashSpan> spans);
+  uint64_t TakeCards(const rex::graphics::xenos::xe_gpu_texture_fetch_t& fetch);
   void RecordLoad(const rex::graphics::xenos::xe_gpu_texture_fetch_t& fetch, const LoadedTexture& loaded, uint32_t bytes,
                   UploadReason reason);
   void NoteResolveMiss(uint32_t address, const rex::graphics::xenos::xe_gpu_texture_fetch_t& fetch, VkFormat format,
@@ -159,6 +166,12 @@ class Textures {
   rex::ui::vulkan::VulkanUploadBufferPool& staging_;
   uint64_t frame_ = 1;
   uint64_t now_ms_ = 0;
+  std::unique_ptr<StoreCards> cards_;
+  PageSerials card_serials_;
+  std::vector<PageRun> card_runs_;
+  uint64_t card_serial_ = 0;
+  bool cards_enabled_ = false;
+  bool cards_verify_ = false;
   uint64_t released_frame_ = 0;
   bool prepared_ = false;
   Image null_array_;

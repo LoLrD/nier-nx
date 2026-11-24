@@ -43,6 +43,12 @@ REXCVAR_DEFINE_BOOL(nier_mirror_staging, true, "NieR",
 REXCVAR_DEFINE_BOOL(nier_draw_state_filter, true, "NieR",
                     "Native renderer: skip dynamic state, descriptor bindings and constant uploads that repeat the "
                     "previous draw");
+REXCVAR_DEFINE_BOOL(nier_store_cards, true, "NieR",
+                    "Native renderer: find changed guest memory from store cards instead of hashing it (needs code "
+                    "generated with REX_STORE_CARDS)");
+REXCVAR_DEFINE_BOOL(nier_store_cards_verify, false, "NieR",
+                    "Native renderer: compare the mirror and textures with guest memory where store cards say nothing "
+                    "changed, and count misses (slow, for checking)");
 REXCVAR_DEFINE_BOOL(nier_gpu_shader_marks, false, "NieR",
                     "Native renderer: GPU timestamps at every pixel shader change (per-shader GPU times in the report)");
 REXCVAR_DEFINE_INT32(nier_shadow_map_shift, 0, "NieR",
@@ -129,6 +135,7 @@ NativeRenderer::NativeRenderer(const vk::VulkanDevice* device, rex::memory::Memo
     : device_(device),
       memory_(memory),
       physical_base_(memory->TranslatePhysical<uint8_t*>(0)),
+      card_table_(memory->TranslateVirtual<uint8_t*>(0)),
       shaders_(shaders),
       registers_(registers),
       extents_(registers.file(), *memory) {
@@ -150,7 +157,7 @@ NativeRenderer::NativeRenderer(const vk::VulkanDevice* device, rex::memory::Memo
   staging_ = std::make_unique<vk::VulkanUploadBufferPool>(device_, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, kStagingPageBytes,
                                                          cached_uploads);
   textures_ = std::make_unique<Textures>(device_, physical_base_, *staging_);
-  resolves_ = std::make_unique<Resolves>(device_, *targets_, *textures_, physical_base_);
+  resolves_ = std::make_unique<Resolves>(device_, *targets_, *textures_, memory_, physical_base_);
   pipeline_report_->Report(resolves_->depth_pipeline(), "depth_to_float");
   const auto rectangles = BuildRectangleIndices(kMaxBuiltinRectangles);
   const auto quads = BuildQuadIndices(kMaxBuiltinQuads);
@@ -264,6 +271,9 @@ void NativeRenderer::BeginSubmission() {
     ScopedMicros timer(stats_.us_gpu_wait);
     submissions_->Begin();
   }
+  if (mirror_cards_) {
+    mirror_cards_->NextInterval();
+  }
   textures_->ResetStaged();
   textures_->Prepare(submissions_->upload());
   ProcessCompleted();
@@ -302,11 +312,23 @@ void NativeRenderer::ProcessCompleted() {
   staging_->Reclaim(completed);
 }
 
+bool NativeRenderer::CardsEnabled() const {
+#if defined(REX_STORE_CARDS)
+  return REXCVAR_GET(nier_store_cards);
+#else
+  return false;
+#endif
+}
+
 void NativeRenderer::SyncMirror(uint32_t address, uint32_t size) {
   if (!size || address >= GuestMirror::kSize) {
     return;
   }
   size = std::min(size, GuestMirror::kSize - address);
+  if (cards_mode_) {
+    SyncMirrorCards(address, size);
+    return;
+  }
   ScopedMicros timer(stats_.us_mirror);
   const MirrorDecision decision = mirror_sync_.Use(address, size, physical_base_, submissions_->current());
   switch (RouteMirrorCopy(decision, submissions_->current(), size, uint32_t(kStagingPageBytes),
@@ -336,6 +358,72 @@ void NativeRenderer::SyncMirror(uint32_t address, uint32_t size) {
       mirror_sync_.Use(address, size, physical_base_, submissions_->current());
       CopyMirror(address, size);
       return;
+  }
+}
+
+void NativeRenderer::SyncMirrorCards(uint32_t address, uint32_t size) {
+  ScopedMicros timer(stats_.us_mirror);
+  card_runs_.clear();
+  mirror_cards_->Take(address, size, card_runs_);
+  for (const PageRun& run : card_runs_) {
+    CopyMirrorRun(run);
+  }
+  mirror_readers_.Record(address, size, submissions_->current());
+  if (REXCVAR_GET(nier_store_cards_verify)) {
+    VerifyMirror(address, size);
+  }
+}
+
+void NativeRenderer::CopyMirrorRun(const PageRun& run) {
+  const uint32_t address = run.first << kCardPageShift;
+  const uint32_t size = std::min(run.count << kCardPageShift, GuestMirror::kSize - address);
+  stats_.cards_copied_bytes += size;
+  const uint64_t wait = mirror_readers_.Pending(run.first, run.count, submissions_->completed());
+  const bool can_stage =
+      mirror_->gpu_writable() && REXCVAR_GET(nier_mirror_staging) && !REXCVAR_GET(nier_store_cards_verify);
+  switch (RouteMirrorCopy({MirrorAction::kCopy, wait}, submissions_->current(), size, uint32_t(kStagingPageBytes),
+                          can_stage)) {
+    case MirrorRoute::kNone:
+      return;
+    case MirrorRoute::kInPlace:
+      CopyMirror(address, size);
+      return;
+    case MirrorRoute::kFlushThenStage:
+      ++stats_.mirror_flushes;
+      Flush();
+      BeginSubmission();
+      [[fallthrough]];
+    case MirrorRoute::kStage:
+      if (mirror_->Stage(submissions_->upload(), submissions_->current(), *staging_, address, size)) {
+        ++stats_.mirror_staged;
+        stats_.mirror_staged_bytes += size;
+        return;
+      }
+      [[fallthrough]];
+    case MirrorRoute::kWait:
+      ++stats_.mirror_waits;
+      WaitFor(wait);
+      BeginSubmission();
+      CopyMirror(address, size);
+      return;
+  }
+}
+
+void NativeRenderer::VerifyMirror(uint32_t address, uint32_t size) {
+  const uint8_t* guest = physical_base_ + address;
+  const uint8_t* mirrored = mirror_->data() + address;
+  for (uint32_t offset = 0; offset < size;) {
+    const uint32_t page = (address + offset) >> kCardPageShift;
+    const uint32_t chunk = std::min(size - offset, ((page + 1) << kCardPageShift) - (address + offset));
+    if (std::memcmp(guest + offset, mirrored + offset, chunk) != 0 && mirror_cards_->Clean(page, 1)) {
+      ++stats_.cards_missed;
+      if (reported_cards_misses_ < 32) {
+        ++reported_cards_misses_;
+        REXLOG_WARN("[native] store cards missed a change: range {:08X}+{:X}, page {:08X}", address, size,
+                    page << kCardPageShift);
+      }
+    }
+    offset += chunk;
   }
 }
 
@@ -965,6 +1053,16 @@ void NativeRenderer::Swap(rex::ui::Presenter* presenter, uint32_t frontbuffer, u
   frame_clock_ms_ = AdvanceFrameClock(frame_clock_ms_, last_swap_ms_, now_ms);
   last_swap_ms_ = now_ms;
   mirror_sync_.BeginFrame();
+  if (const bool cards = CardsEnabled(); cards != cards_mode_) {
+    submissions_->WaitIdle();
+    ProcessCompleted();
+    if (cards && !mirror_cards_) {
+      mirror_cards_ = std::make_unique<StoreCards>(card_table_, kMirrorCards);
+    }
+    cards_mode_ = cards;
+    REXLOG_INFO("[native] changed guest memory found by {}", cards ? "store cards" : "hashing");
+  }
+  textures_->SetCards(card_table_, cards_mode_, REXCVAR_GET(nier_store_cards_verify));
   textures_->BeginFrame(frame_clock_ms_);
   resolves_->BeginFrame();
   if (frame_clock_ms_ >= last_eviction_ms_ + kEvictionPeriodMs) {
@@ -1132,6 +1230,17 @@ std::string NativeRenderer::Report() {
                       (p.compile_us - reported_pipelines_.compile_us) / 1000, p.max_compile_us / 1000,
                       p.saved_bytes >> 10);
   reported_pipelines_ = p;
+  if (mirror_cards_) {
+    const std::array<uint64_t, 3> pages = {mirror_cards_->checked_pages(), mirror_cards_->taken_pages(),
+                                           mirror_cards_->rechecked_pages()};
+    line += fmt::format("; store cards: mirror checked {} pages, took {} ({} rechecks), copied {} MB, missed {}; "
+                        "textures reloaded {}, missed {}",
+                        pages[0] - reported_card_pages_[0], pages[1] - reported_card_pages_[1],
+                        pages[2] - reported_card_pages_[2], (s.cards_copied_bytes - r.cards_copied_bytes) >> 20,
+                        s.cards_missed - r.cards_missed, t.cards_reloads - reported_textures_.cards_reloads,
+                        t.cards_missed - reported_textures_.cards_missed);
+    reported_card_pages_ = pages;
+  }
   line += fmt::format("; draw state: dynamic {} set {} skipped, sets bound {} skipped {}, uniforms written {} "
                       "reused {}",
                       s.dynamic_calls - r.dynamic_calls, s.dynamic_skipped - r.dynamic_skipped,

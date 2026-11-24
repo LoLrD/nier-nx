@@ -83,6 +83,9 @@ class NativeSkeletonTest(unittest.TestCase):
     def test_fixed_flush_mode(self) -> None:
         self.check("fixed_flush_mode", [], link_sdk=True)
 
+    def test_store_cards(self) -> None:
+        self.check("store_cards", ["store_cards.cpp"])
+
     def test_draw_state_filter(self) -> None:
         self.check("draw_state_filter", ["draw_state_filter.cpp"], link_sdk=True)
 

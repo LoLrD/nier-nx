@@ -23,6 +23,7 @@ class GuestMirror {
   bool valid() const { return mapping_ != nullptr; }
   bool gpu_writable() const { return gpu_writable_; }
   VkBuffer buffer() const { return buffer_; }
+  const uint8_t* data() const { return mapping_; }
   void Copy(uint32_t address, uint32_t size);
   bool Stage(VkCommandBuffer upload, uint64_t submission, rex::ui::vulkan::VulkanUploadBufferPool& staging,
              uint32_t address, uint32_t size);

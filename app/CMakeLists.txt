@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(REXSDK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../sdk" CACHE PATH "Path to the ReXGlue SDK source tree")
 
-add_compile_definitions(REX_PPC_FIXED_FLUSH_MODE)
+add_compile_definitions(REX_PPC_FIXED_FLUSH_MODE REX_STORE_CARDS)
 
 include(generated/rexglue.cmake)
 
@@ -43,6 +43,7 @@ set(NIER_SOURCES
     src/native/resolve_plan.cpp
     src/native/resolves.cpp
     src/native/shader_dump.cpp
+    src/native/store_cards.cpp
     src/native/spirv_specialize.cpp
     src/native/submissions.cpp
     src/native/target_keys.cpp

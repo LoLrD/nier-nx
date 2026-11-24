@@ -26,6 +26,7 @@
 #include "render_targets.h"
 #include "resolve_plan.h"
 #include "resolves.h"
+#include "store_cards.h"
 #include "submissions.h"
 #include "target_keys.h"
 #include "textures.h"
@@ -77,6 +78,8 @@ class NativeRenderer {
     uint64_t set_binds_skipped = 0;
     uint64_t uniforms_written = 0;
     uint64_t uniforms_reused = 0;
+    uint64_t cards_copied_bytes = 0;
+    uint64_t cards_missed = 0;
     uint64_t us_draws = 0;
     uint64_t us_mirror = 0;
     uint64_t us_textures = 0;
@@ -128,6 +131,10 @@ class NativeRenderer {
   void ProcessCompleted();
   void SyncMirror(uint32_t address, uint32_t size);
   void CopyMirror(uint32_t address, uint32_t size);
+  void SyncMirrorCards(uint32_t address, uint32_t size);
+  void CopyMirrorRun(const PageRun& run);
+  void VerifyMirror(uint32_t address, uint32_t size);
+  bool CardsEnabled() const;
   VkDescriptorSet EmptyTextureSet();
   VkDescriptorSet BindTextures(const rex::graphics::RegisterFile& regs, const rex::graphics::SpirvShader& shader,
                                bool pixel, TextureConstantInfo& info, uint32_t& textures, uint32_t& samplers,
@@ -156,6 +163,13 @@ class NativeRenderer {
   std::unique_ptr<Textures> textures_;
   std::unique_ptr<Resolves> resolves_;
   MirrorSync mirror_sync_{kMirrorRehashBytes};
+  uint8_t* card_table_;
+  std::unique_ptr<StoreCards> mirror_cards_;
+  PageReaders mirror_readers_;
+  std::vector<PageRun> card_runs_;
+  bool cards_mode_ = false;
+  uint32_t reported_cards_misses_ = 0;
+  std::array<uint64_t, 3> reported_card_pages_{};
   VkBuffer builtin_indices_ = VK_NULL_HANDLE;
   VkDeviceMemory builtin_memory_ = VK_NULL_HANDLE;
   VkDeviceSize quad_indices_offset_ = 0;
