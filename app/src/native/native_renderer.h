@@ -60,6 +60,7 @@ class NativeRenderer {
     uint64_t skipped_shader = 0;
     uint64_t skipped_pending = 0;
     uint64_t skipped_empty = 0;
+    uint64_t skipped_silent = 0;
     uint64_t resolves = 0;
     uint64_t swaps = 0;
     uint64_t black_frames = 0;

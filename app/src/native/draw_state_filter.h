@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <vector>
 
+#include <rex/graphics/registers.h>
 #include <rex/ui/vulkan/api.h>
 
 namespace nier::native {
@@ -63,6 +64,9 @@ class DescriptorBindingFilter {
   DescriptorBinding last_{};
   bool valid_ = false;
 };
+
+bool DrawWritesNothing(uint32_t color_mask, rex::graphics::reg::RB_DEPTHCONTROL depth,
+                       rex::graphics::reg::RB_STENCILREFMASK front, rex::graphics::reg::RB_STENCILREFMASK back);
 
 class RepeatedUniforms {
  public:

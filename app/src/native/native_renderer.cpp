@@ -58,6 +58,8 @@ REXCVAR_DEFINE_BOOL(nier_vertex_specialization, true, "NieR",
 REXCVAR_DEFINE_BOOL(nier_constant_generations_verify, false, "NieR",
                     "Native renderer: pack float constants even when their registers did not change and count the "
                     "draws whose reused constants differ (slow, for checking)");
+REXCVAR_DEFINE_BOOL(nier_skip_silent_draws, true, "NieR",
+                    "Native renderer: skip draws that write no color, depth, stencil or memory");
 REXCVAR_DEFINE_BOOL(nier_gpu_shader_marks, false, "NieR",
                     "Native renderer: GPU timestamps at every pixel shader change (per-shader GPU times in the report)");
 REXCVAR_DEFINE_INT32(nier_shadow_map_shift, 0, "NieR",
@@ -722,6 +724,14 @@ NativeRenderer::DrawResult NativeRenderer::RecordDraw(const RegisterFile& regs) 
     ++stats_.skipped_target;
     return DrawResult::kDone;
   }
+  if (REXCVAR_GET(nier_skip_silent_draws) && !prepared->vertex_shader->memexport_eM_written() &&
+      !(prepared->pixel_shader && prepared->pixel_shader->memexport_eM_written()) &&
+      DrawWritesNothing(color_mask, draw_util::GetNormalizedDepthControl(regs),
+                        regs.Get<reg::RB_STENCILREFMASK>(XE_GPU_REG_RB_STENCILREFMASK),
+                        regs.Get<reg::RB_STENCILREFMASK>(XE_GPU_REG_RB_STENCILREFMASK_BF))) {
+    ++stats_.skipped_silent;
+    return DrawResult::kDone;
+  }
   BeginSubmission();
   if (!submissions_->HasUniformSpace(kDrawUniformBytes)) {
     Flush();
@@ -1306,6 +1316,7 @@ std::string NativeRenderer::Report() {
                       (p.compile_us - reported_pipelines_.compile_us) / 1000, p.max_compile_us / 1000,
                       p.saved_bytes >> 10);
   reported_pipelines_ = p;
+  line += fmt::format("; silent draws skipped {}", s.skipped_silent - r.skipped_silent);
   line += fmt::format("; slow frames {} of {} (worst {:.0f} ms): ring busy {}, gpu wait {}, texture uploads {}, other {}",
                       slow_frames_.slow, slow_frames_.frames, slow_frames_.worst_ms, slow_frames_.ring,
                       slow_frames_.gpu, slow_frames_.uploads, slow_frames_.other);

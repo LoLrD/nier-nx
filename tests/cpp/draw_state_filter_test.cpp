@@ -6,6 +6,7 @@
 using nier::native::DescriptorBinding;
 using nier::native::DescriptorBindingFilter;
 using nier::native::DynamicState;
+using nier::native::DrawWritesNothing;
 using nier::native::DynamicStateFilter;
 using nier::native::RepeatedUniforms;
 
@@ -73,6 +74,31 @@ int main() {
     Check(!uniforms.Find(1, a, sizeof(a), offset), "streams_are_separate");
     uniforms.Clear();
     Check(!uniforms.Find(0, a, sizeof(a), offset), "cleared_uniform_not_found");
+  }
+  {
+    using rex::graphics::reg::RB_DEPTHCONTROL;
+    using rex::graphics::reg::RB_STENCILREFMASK;
+    RB_DEPTHCONTROL depth{};
+    depth.z_enable = 1;
+    RB_STENCILREFMASK stencil{};
+    stencil.stencilwritemask = 0xFF;
+    Check(DrawWritesNothing(0, depth, stencil, stencil), "depth_test_only_without_color_writes_nothing");
+    Check(!DrawWritesNothing(0xF, depth, stencil, stencil), "color_write_is_a_write");
+    depth.z_write_enable = 1;
+    Check(!DrawWritesNothing(0, depth, stencil, stencil), "depth_write_is_a_write");
+    depth.z_write_enable = 0;
+    depth.stencil_enable = 1;
+    Check(DrawWritesNothing(0, depth, stencil, stencil), "stencil_with_keep_ops_writes_nothing");
+    depth.stencilzpass = rex::graphics::xenos::StencilOp::kReplace;
+    Check(!DrawWritesNothing(0, depth, stencil, stencil), "stencil_replace_is_a_write");
+    stencil.stencilwritemask = 0;
+    Check(DrawWritesNothing(0, depth, stencil, stencil), "stencil_write_mask_zero_writes_nothing");
+    depth.stencilzpass = rex::graphics::xenos::StencilOp::kKeep;
+    depth.backface_enable = 1;
+    depth.stencilfail_bf = rex::graphics::xenos::StencilOp::kIncrementClamp;
+    RB_STENCILREFMASK back{};
+    back.stencilwritemask = 0xFF;
+    Check(!DrawWritesNothing(0, depth, stencil, back), "back_face_stencil_op_is_a_write");
   }
   return failures ? 1 : 0;
 }

@@ -57,6 +57,24 @@ uint32_t DescriptorBindingFilter::FirstChanged(const DescriptorBinding& next) {
   return first;
 }
 
+bool DrawWritesNothing(uint32_t color_mask, rex::graphics::reg::RB_DEPTHCONTROL depth,
+                       rex::graphics::reg::RB_STENCILREFMASK front, rex::graphics::reg::RB_STENCILREFMASK back) {
+  using rex::graphics::xenos::StencilOp;
+  if (color_mask || (depth.z_enable && depth.z_write_enable)) {
+    return false;
+  }
+  if (!depth.stencil_enable) {
+    return true;
+  }
+  const bool front_writes = front.stencilwritemask && (depth.stencilfail != StencilOp::kKeep ||
+                                                       depth.stencilzpass != StencilOp::kKeep ||
+                                                       depth.stencilzfail != StencilOp::kKeep);
+  const bool back_writes = depth.backface_enable && back.stencilwritemask &&
+                           (depth.stencilfail_bf != StencilOp::kKeep || depth.stencilzpass_bf != StencilOp::kKeep ||
+                            depth.stencilzfail_bf != StencilOp::kKeep);
+  return !front_writes && !back_writes;
+}
+
 bool RepeatedUniforms::Find(uint32_t stream, const void* data, size_t size, uint32_t& offset) const {
   const Entry& entry = entries_[stream];
   if (!entry.valid || entry.bytes.size() != size || std::memcmp(entry.bytes.data(), data, size) != 0) {
