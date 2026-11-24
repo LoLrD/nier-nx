@@ -4,7 +4,7 @@
 
 using nier::native::PlanSceneUpscale;
 using nier::native::SceneUpscalePlan;
-using nier::native::UpscaleGovernor;
+using nier::native::GpuGovernor;
 
 static int failures = 0;
 
@@ -25,36 +25,45 @@ int main() {
   Check(!PlanSceneUpscale(256, 144, 1280).wanted, "tiny_blur_image_is_left_alone");
   Check(!PlanSceneUpscale(640, 360, 640).wanted, "scene_sized_pass_is_left_alone");
   {
-    UpscaleGovernor governor(2, 30.0);
-    Check(governor.level() == 2, "starts_at_the_best_level");
+    GpuGovernor governor(3, 0, 30.0);
+    Check(governor.level() == 3, "starts_at_the_best_level");
     governor.Window(31.0);
-    Check(governor.level() == 1, "overloaded_gpu_drops_sharpening");
+    Check(governor.level() == 2, "overloaded_gpu_drops_sharpening");
     governor.Window(32.0);
-    Check(governor.level() == 0, "still_overloaded_drops_the_upscale");
+    Check(governor.level() == 1, "still_overloaded_drops_the_upscale");
     governor.Window(31.0);
-    Check(governor.level() == 0, "never_below_off");
+    Check(governor.level() == 0, "then_drops_shadow_resolution");
+    governor.Window(31.0);
+    Check(governor.level() == 0, "never_below_the_lowest_level");
     for (int i = 0; i < 3; ++i) {
-      governor.Window(24.0);
+      governor.Window(27.0);
     }
     Check(governor.level() == 0, "recovery_waits_for_calm_windows");
-    governor.Window(24.0);
-    Check(governor.level() == 1, "calm_gpu_brings_the_upscale_back");
-    for (int i = 0; i < 4; ++i) {
-      governor.Window(27.5);
-    }
-    Check(governor.level() == 1, "sharpening_needs_more_headroom");
+    governor.Window(27.0);
+    Check(governor.level() == 1, "calm_gpu_brings_shadows_back");
     for (int i = 0; i < 4; ++i) {
       governor.Window(26.0);
     }
-    Check(governor.level() == 2, "enough_headroom_brings_sharpening_back");
+    Check(governor.level() == 1, "upscale_needs_more_headroom");
+    for (int i = 0; i < 4; ++i) {
+      governor.Window(25.0);
+    }
+    Check(governor.level() == 2, "enough_headroom_brings_the_upscale_back");
+    for (int i = 0; i < 4; ++i) {
+      governor.Window(27.5);
+    }
+    Check(governor.level() == 2, "sharpening_needs_its_headroom");
+    for (int i = 0; i < 4; ++i) {
+      governor.Window(26.0);
+    }
+    Check(governor.level() == 3, "headroom_brings_sharpening_back");
     governor.Window(29.0);
-    governor.Window(26.0);
-    governor.Window(26.0);
-    governor.Window(26.0);
-    Check(governor.level() == 2, "busy_window_inside_budget_keeps_the_level");
+    Check(governor.level() == 3, "busy_window_inside_budget_keeps_the_level");
   }
   {
-    UpscaleGovernor governor(1, 30.0);
+    GpuGovernor governor(1, 1, 30.0);
+    governor.Window(40.0);
+    Check(governor.level() == 1, "never_below_the_allowed_lowest_level");
     for (int i = 0; i < 8; ++i) {
       governor.Window(10.0);
     }

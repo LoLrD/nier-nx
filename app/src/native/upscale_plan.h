@@ -18,26 +18,27 @@ inline SceneUpscalePlan PlanSceneUpscale(uint32_t source_width, uint32_t source_
   return {true, target_width, source_height * target_width / source_width};
 }
 
-class UpscaleGovernor {
+class GpuGovernor {
  public:
-  UpscaleGovernor(int max_level, double budget_ms) : max_level_(max_level), level_(max_level), budget_ms_(budget_ms) {}
+  GpuGovernor(int max_level, int min_level, double budget_ms)
+      : max_level_(max_level), min_level_(min_level), level_(max_level), budget_ms_(budget_ms) {}
 
   int level() const { return level_; }
 
-  void Limit(int max_level, double budget_ms) {
+  void Limit(int max_level, int min_level, double budget_ms) {
     max_level_ = max_level;
-    level_ = std::min(level_, max_level);
+    min_level_ = std::min(min_level, max_level);
+    level_ = std::clamp(level_, min_level_, max_level_);
     budget_ms_ = budget_ms;
   }
 
   void Window(double gpu_ms) {
     if (gpu_ms > budget_ms_) {
-      level_ = std::max(0, level_ - 1);
+      level_ = std::max(min_level_, level_ - 1);
       calm_ = 0;
       return;
     }
-    const double next_cost = level_ == 0 ? kUpscaleMs : kSharpenMs;
-    if (level_ < max_level_ && gpu_ms + next_cost + kMarginMs <= budget_ms_) {
+    if (level_ < max_level_ && gpu_ms + kStepUpMs[level_] + kMarginMs <= budget_ms_) {
       if (++calm_ >= kCalmWindows) {
         ++level_;
         calm_ = 0;
@@ -48,12 +49,12 @@ class UpscaleGovernor {
   }
 
  private:
-  static constexpr double kUpscaleMs = 3.5;
-  static constexpr double kSharpenMs = 2.0;
+  static constexpr double kStepUpMs[3] = {1.5, 3.5, 2.0};
   static constexpr double kMarginMs = 1.0;
   static constexpr int kCalmWindows = 4;
 
   int max_level_;
+  int min_level_;
   int level_;
   double budget_ms_;
   int calm_ = 0;

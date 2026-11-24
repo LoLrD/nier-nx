@@ -219,7 +219,7 @@ class NativeRenderer {
   VkRect2D memo_scissor_{};
   uint32_t upscale_target_width_ = 0;
   uint64_t reported_upscale_runs_ = 0;
-  UpscaleGovernor upscale_governor_{2, 30.0};
+  GpuGovernor gpu_governor_{3, 0, 30.0};
   uint32_t governor_frames_ = 0;
   uint64_t governor_gpu_ns_ = 0;
   MirrorSync mirror_sync_{kMirrorRehashBytes};

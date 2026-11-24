@@ -51,8 +51,10 @@ REXCVAR_DEFINE_DOUBLE(nier_fsr_sharpness, 0.25, "NieR",
                       "Native renderer: FSR 1 RCAS sharpening after the upscale, in stops of reduction (0 = sharpest, "
                       "2 = soft); negative skips RCAS");
 REXCVAR_DEFINE_DOUBLE(nier_fsr_gpu_budget_ms, 30.0, "NieR",
-                      "Native renderer: GPU time per frame above which FSR steps down (sharpening first, then the "
-                      "upscale); it steps back up after two seconds with room for it");
+                      "Native renderer: GPU time per frame above which quality steps down (FSR sharpening, then the "
+                      "upscale, then the shadow map resolution); it steps back up after two seconds with room for it");
+REXCVAR_DEFINE_BOOL(nier_adaptive_shadows, true, "NieR",
+                    "Native renderer: let the GPU governor render the shadow map at half resolution as its last step");
 REXCVAR_DEFINE_BOOL(nier_draw_memo, true, "NieR",
                     "Native renderer: when only constants, vertices and indices changed since the previous draw, reuse "
                     "its shaders, textures, descriptor sets and pipeline instead of preparing them again");
@@ -576,11 +578,11 @@ VkDescriptorSet NativeRenderer::BindTextures(const RegisterFile& regs, const Spi
 }
 
 VkImageView NativeRenderer::UpscaledScene(const Textures::Binding& bound, const SceneUpscalePlan& plan) {
-  const int level = upscale_governor_.level();
-  if (level == 0) {
+  const int level = gpu_governor_.level();
+  if (level <= 1) {
     return bound.view;
   }
-  const float sharpness = level >= 2 ? float(REXCVAR_GET(nier_fsr_sharpness)) : -1.0f;
+  const float sharpness = level >= 3 ? float(REXCVAR_GET(nier_fsr_sharpness)) : -1.0f;
   if (const VkImageView ready =
           upscale_->Ready(bound.view, bound.resolve_format, plan.width, plan.height, bound.resolve_version, sharpness)) {
     return ready;
@@ -615,7 +617,10 @@ uint32_t NativeRenderer::DownscaleFor(const TargetSet& targets, bool writes_dept
   uint32_t shift = 0;
   switch (KindOf(targets)) {
     case PassKind::kShadowMap:
-      shift = writes_depth ? uint32_t(std::clamp(REXCVAR_GET(nier_shadow_map_shift), 0, 3)) : 0;
+      shift = writes_depth ? uint32_t(std::clamp(std::max(REXCVAR_GET(nier_shadow_map_shift),
+                                                          gpu_governor_.level() == 0 ? 1 : 0),
+                                                 0, 3))
+                           : 0;
       break;
     case PassKind::kScreen640:
       shift = after_shadow_map_ ? uint32_t(std::clamp(REXCVAR_GET(nier_shadow_mask_shift), 0, 3)) : 0;
@@ -1334,8 +1339,9 @@ void NativeRenderer::Swap(rex::ui::Presenter* presenter, uint32_t frontbuffer, u
     for (const uint64_t ns : submissions_->gpu_ns()) {
       gpu_ns += ns;
     }
-    upscale_governor_.Limit(REXCVAR_GET(nier_fsr_sharpness) >= 0.0 ? 2 : 1, REXCVAR_GET(nier_fsr_gpu_budget_ms));
-    upscale_governor_.Window(double(gpu_ns - governor_gpu_ns_) / 1e6 / double(governor_frames_));
+    gpu_governor_.Limit(REXCVAR_GET(nier_fsr) ? (REXCVAR_GET(nier_fsr_sharpness) >= 0.0 ? 3 : 2) : 1,
+                        REXCVAR_GET(nier_adaptive_shadows) ? 0 : 1, REXCVAR_GET(nier_fsr_gpu_budget_ms));
+    gpu_governor_.Window(double(gpu_ns - governor_gpu_ns_) / 1e6 / double(governor_frames_));
     governor_gpu_ns_ = gpu_ns;
     governor_frames_ = 0;
   }
@@ -1567,7 +1573,7 @@ std::string NativeRenderer::Report() {
                       (sh.translate_us - reported_shaders_.translate_us) / 1000, sh.max_translate_us / 1000,
                       sh.cache_hits - reported_shaders_.cache_hits);
   reported_shaders_ = sh;
-  line += fmt::format("; fsr {} runs, level {}", upscale_->runs() - reported_upscale_runs_, upscale_governor_.level());
+  line += fmt::format("; fsr {} runs, gpu level {}", upscale_->runs() - reported_upscale_runs_, gpu_governor_.level());
   reported_upscale_runs_ = upscale_->runs();
   line += fmt::format("; silent draws skipped {}", s.skipped_silent - r.skipped_silent);
   line += fmt::format("; draw memo hits {}, mismatches {}", s.memo_hits - r.memo_hits, s.memo_mismatches - r.memo_mismatches);
