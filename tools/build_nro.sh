@@ -14,14 +14,15 @@ source "$ROOT/tools/switch/docker.sh"
 ensure_image
 
 docker run --rm -v "$ROOT:$ROOT" -v "$MESA_SDK:$MESA_SDK:ro" -w "$ROOT" \
-  -e MESA_SDK="$MESA_SDK" -e NRO_OUT="$NRO_OUT" -e JOBS="$JOBS" -e ROOT="$ROOT" "$IMAGE" bash -euo pipefail -c '
+  -e MESA_SDK="$MESA_SDK" -e NRO_OUT="$NRO_OUT" -e JOBS="$JOBS" -e ROOT="$ROOT" -e CMAKE_EXTRA="${CMAKE_EXTRA:-}" \
+  "$IMAGE" bash -euo pipefail -c '
     /opt/devkitpro/devkitA64/bin/aarch64-none-elf-nm --defined-only \
       "$MESA_SDK/opt/devkitpro/portlibs/switch/lib/libvulkan.a" > /tmp/nvk-symbols.txt
     grep -Eq " [BD] nvk_switch_draw$" /tmp/nvk-symbols.txt || { echo "error: the Mesa SDK lacks the NVK patches; rebuild it with mesa/build_mesa_docker.sh" >&2; exit 1; }
     cmake -S app -B "$NRO_OUT" -G Ninja -DCMAKE_BUILD_TYPE=Release \
       -DCMAKE_TOOLCHAIN_FILE="$ROOT/tools/switch/cmake/switch-devkitA64.cmake" \
       -DDEVKITPRO=/opt/devkitpro -DREXSDK_DIR="$ROOT/sdk" \
-      -DREXGLUE_SWITCH_NVK_SDK="$MESA_SDK/opt/devkitpro/portlibs/switch"
+      -DREXGLUE_SWITCH_NVK_SDK="$MESA_SDK/opt/devkitpro/portlibs/switch" $CMAKE_EXTRA
     cmake --build "$NRO_OUT" -j "$JOBS"
     /opt/devkitpro/devkitA64/bin/aarch64-none-elf-nm "$NRO_OUT/nier" | grep "^0000000000000000 T _start$" > /dev/null
     echo "OK: _start at 0"

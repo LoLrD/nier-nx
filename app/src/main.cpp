@@ -31,5 +31,8 @@ REXCVAR_DEFINE_STRING(nier_ab_flag, "", "NieR",
                       "every switch is logged as '[ab] <cvar> = <value>'");
 REXCVAR_DEFINE_STRING(nier_ab_values, "true,false", "NieR", "Comma-separated values nier_ab_flag cycles through");
 REXCVAR_DEFINE_INT32(nier_ab_period_s, 20, "NieR", "Seconds each value of nier_ab_values stays set");
+REXCVAR_DEFINE_INT32(nier_pgo_dump_s, 600, "NieR",
+                     "PGO training builds (NIER_PGO=generate) only: seconds after start when the profile is written "
+                     "to sdmc:/switch/nier/pgo");
 
 REX_DEFINE_APP(nier, NierApp::Create)

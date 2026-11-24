@@ -40,6 +40,11 @@ REXCVAR_DECLARE(std::string, nier_control_file);
 REXCVAR_DECLARE(std::string, nier_ab_flag);
 REXCVAR_DECLARE(std::string, nier_ab_values);
 REXCVAR_DECLARE(int32_t, nier_ab_period_s);
+REXCVAR_DECLARE(int32_t, nier_pgo_dump_s);
+
+#if defined(NIER_PGO_GENERATE)
+extern "C" void __gcov_dump(void);
+#endif
 
 class NierApp : public rex::ReXApp {
  public:
@@ -200,9 +205,28 @@ class NierApp : public rex::ReXApp {
     });
   }
 
+  void SchedulePgoDump() {
+#if defined(NIER_PGO_GENERATE)
+    pgo_thread_ = std::jthread([seconds = REXCVAR_GET(nier_pgo_dump_s)](std::stop_token stop) {
+      const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(seconds);
+      while (!stop.stop_requested() && std::chrono::steady_clock::now() < until) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+      }
+      if (stop.stop_requested()) {
+        return;
+      }
+      std::error_code ec;
+      std::filesystem::create_directories("sdmc:/switch/nier/pgo", ec);
+      __gcov_dump();
+      REXLOG_INFO("[pgo] profile written to sdmc:/switch/nier/pgo");
+    });
+#endif
+  }
+
   void OnPostSetup() override {
     WatchControlFile();
     RunAbSchedule();
+    SchedulePgoDump();
     SetGuestFrameStats([this] {
       const auto sample = fps_meter_.Update(rex::kernel::xboxkrnl::GuestSwapCount(), std::chrono::steady_clock::now());
       return rex::ui::FrameStats{sample.frame_time_ms, sample.fps, sample.frames};
@@ -223,4 +247,5 @@ class NierApp : public rex::ReXApp {
   NierFpsMeter fps_meter_;
   std::jthread control_thread_;
   std::jthread ab_thread_;
+  std::jthread pgo_thread_;
 };
