@@ -168,7 +168,7 @@ class NativeRenderer {
   MirrorSync mirror_sync_{kMirrorRehashBytes};
   uint8_t* card_table_;
   std::unique_ptr<VulkanRecorder> recorder_;
-  std::array<uint64_t, 4> reported_recorder_{};
+  std::array<uint64_t, 5> reported_recorder_{};
   std::unique_ptr<StoreCards> mirror_cards_;
   PageReaders mirror_readers_;
   std::vector<PageRun> card_runs_;

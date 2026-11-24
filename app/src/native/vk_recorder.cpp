@@ -514,13 +514,23 @@ void VulkanRecorder::WaitForSpace(size_t bytes) {
   producer_waiting_.store(false, std::memory_order_seq_cst);
 }
 
+void VulkanRecorder::Wake() {
+  ++wakeups_;
+  unnotified_ = 0;
+  { std::lock_guard lock(mutex_); }
+  consumer_cv_.notify_one();
+}
+
 void VulkanRecorder::Commit(size_t bytes) {
   head_local_ += bytes;
   head_.store(head_local_, std::memory_order_seq_cst);
   commands_.fetch_add(1, std::memory_order_relaxed);
-  if (consumer_sleeping_.load(std::memory_order_seq_cst)) {
-    std::lock_guard lock(mutex_);
-    consumer_cv_.notify_one();
+  if (!consumer_sleeping_.load(std::memory_order_seq_cst)) {
+    unnotified_ = 0;
+    return;
+  }
+  if (++unnotified_ >= kWakeBatch) {
+    Wake();
   }
 }
 

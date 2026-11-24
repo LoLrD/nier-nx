@@ -1252,12 +1252,12 @@ std::string NativeRenderer::Report() {
                       slow_frames_.gpu, slow_frames_.uploads, slow_frames_.other);
   slow_frames_ = {};
   if (recorder_) {
-    const std::array<uint64_t, 4> now = {recorder_->commands(), recorder_->drain_waits(), recorder_->drain_wait_us(),
-                                         recorder_->full_waits()};
-    line += fmt::format("; record thread {}: {} commands, {} drain waits ({} ms), {} full waits",
+    const std::array<uint64_t, 5> now = {recorder_->commands(), recorder_->drain_waits(), recorder_->drain_wait_us(),
+                                         recorder_->full_waits(), recorder_->wakeups()};
+    line += fmt::format("; record thread {}: {} commands, {} wakeups, {} drain waits ({} ms), {} full waits",
                         ActiveRecorder() ? "on" : "off", now[0] - reported_recorder_[0],
-                        now[1] - reported_recorder_[1], (now[2] - reported_recorder_[2]) / 1000,
-                        now[3] - reported_recorder_[3]);
+                        now[4] - reported_recorder_[4], now[1] - reported_recorder_[1],
+                        (now[2] - reported_recorder_[2]) / 1000, now[3] - reported_recorder_[3]);
     reported_recorder_ = now;
   }
   if (mirror_cards_) {

@@ -79,6 +79,18 @@ int main() {
   vk.vkCmdDraw(VK_NULL_HANDLE, 7, 1, 0, 0);
   recorder.Drain();
   Check(draws.back() == 7, "drain_waits_for_late_command");
+  const uint64_t wakeups_before = recorder.wakeups();
+  const uint64_t commands_before = recorder.commands();
+  for (uint32_t i = 0; i < 4000; ++i) {
+    vk.vkCmdDraw(VK_NULL_HANDLE, 1, 1, 0, 0);
+    if (i % 3 == 0) {
+      std::this_thread::sleep_for(std::chrono::microseconds(20));
+    }
+  }
+  recorder.Drain();
+  const uint64_t woken = recorder.wakeups() - wakeups_before;
+  Check(woken <= (recorder.commands() - commands_before) / VulkanRecorder::kWakeBatch + 1,
+        "worker_woken_at_most_once_per_batch");
   recorder.Stop();
   worker.join();
   return failures ? 1 : 0;

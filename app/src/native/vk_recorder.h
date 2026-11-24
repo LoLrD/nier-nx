@@ -17,6 +17,7 @@ class VulkanRecorder {
   using Functions = rex::ui::vulkan::VulkanDevice::Functions;
 
   static constexpr size_t kQueueBytes = 4u << 20;
+  static constexpr uint32_t kWakeBatch = 32;
 
   explicit VulkanRecorder(const Functions& real);
   ~VulkanRecorder();
@@ -36,6 +37,7 @@ class VulkanRecorder {
   uint64_t drain_waits() const { return drain_waits_; }
   uint64_t drain_wait_us() const { return drain_wait_us_; }
   uint64_t full_waits() const { return full_waits_; }
+  uint64_t wakeups() const { return wakeups_; }
 
   template <typename Args, void (*Replay)(const Args&, const Functions&), typename Fill>
   void Emit(size_t extra, Fill&& fill) {
@@ -81,6 +83,7 @@ class VulkanRecorder {
   uint8_t* Reserve(size_t bytes);
   void Commit(size_t bytes);
   void WaitForSpace(size_t bytes);
+  void Wake();
 
   Functions real_;
   Functions proxy_;
@@ -100,6 +103,8 @@ class VulkanRecorder {
   uint64_t drain_waits_ = 0;
   uint64_t drain_wait_us_ = 0;
   uint64_t full_waits_ = 0;
+  uint64_t wakeups_ = 0;
+  uint32_t unnotified_ = 0;
 };
 
 const VulkanRecorder::Functions& Vk(const rex::ui::vulkan::VulkanDevice* device);
