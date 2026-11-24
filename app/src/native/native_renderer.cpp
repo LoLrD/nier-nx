@@ -120,6 +120,7 @@ constexpr VkDeviceSize kDrawUniformBytes = 16384;
 constexpr uint64_t kStagingFlushBytes = 16ull << 20;
 constexpr uint64_t kEvictionPeriodMs = 1000;
 constexpr uint64_t kUnusedSeconds = 10;
+constexpr uint64_t kUnusedTextureSeconds = 60;
 constexpr size_t kReportedPasses = 8;
 constexpr size_t kReportedShaders = 10;
 constexpr size_t kTracedFrames = 12;
@@ -1072,7 +1073,7 @@ void NativeRenderer::Swap(rex::ui::Presenter* presenter, uint32_t frontbuffer, u
   resolves_->BeginFrame();
   if (frame_clock_ms_ >= last_eviction_ms_ + kEvictionPeriodMs) {
     last_eviction_ms_ = frame_clock_ms_;
-    textures_->Evict(kUnusedSeconds * 1000);
+    textures_->Evict(kUnusedTextureSeconds * 1000);
     swap_marks_.push_back(stats_.swaps);
     if (swap_marks_.size() > kUnusedSeconds + 1) {
       swap_marks_.pop_front();
