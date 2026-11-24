@@ -50,6 +50,9 @@ REXCVAR_DEFINE_BOOL(nier_fsr, true, "NieR",
 REXCVAR_DEFINE_DOUBLE(nier_fsr_sharpness, 0.25, "NieR",
                       "Native renderer: FSR 1 RCAS sharpening after the upscale, in stops of reduction (0 = sharpest, "
                       "2 = soft); negative skips RCAS");
+REXCVAR_DEFINE_DOUBLE(nier_fsr_gpu_budget_ms, 30.0, "NieR",
+                      "Native renderer: GPU time per frame above which FSR steps down (sharpening first, then the "
+                      "upscale); it steps back up after two seconds with room for it");
 REXCVAR_DEFINE_BOOL(nier_early_depth_tests, true, "NieR",
                     "Native renderer: run depth/stencil tests before pixel shaders that kill pixels when the draw "
                     "writes neither depth nor stencil (same result, hidden pixels are not shaded)");
@@ -178,6 +181,7 @@ constexpr size_t kReportedPasses = 8;
 constexpr size_t kReportedShaders = 10;
 constexpr size_t kTracedFrames = 12;
 constexpr uint64_t kTracedSwaps = 3000;
+constexpr uint32_t kGovernorFrames = 15;
 
 uint64_t NowMs() {
   return uint64_t(std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -566,7 +570,11 @@ VkDescriptorSet NativeRenderer::BindTextures(const RegisterFile& regs, const Spi
 }
 
 VkImageView NativeRenderer::UpscaledScene(const Textures::Binding& bound, const SceneUpscalePlan& plan) {
-  const float sharpness = float(REXCVAR_GET(nier_fsr_sharpness));
+  const int level = upscale_governor_.level();
+  if (level == 0) {
+    return bound.view;
+  }
+  const float sharpness = level >= 2 ? float(REXCVAR_GET(nier_fsr_sharpness)) : -1.0f;
   if (const VkImageView ready =
           upscale_->Ready(bound.view, bound.resolve_format, plan.width, plan.height, bound.resolve_version, sharpness)) {
     return ready;
@@ -1155,6 +1163,16 @@ void NativeRenderer::Swap(rex::ui::Presenter* presenter, uint32_t frontbuffer, u
   if (!valid_) {
     return;
   }
+  if (++governor_frames_ >= kGovernorFrames) {
+    uint64_t gpu_ns = 0;
+    for (const uint64_t ns : submissions_->gpu_ns()) {
+      gpu_ns += ns;
+    }
+    upscale_governor_.Limit(REXCVAR_GET(nier_fsr_sharpness) >= 0.0 ? 2 : 1, REXCVAR_GET(nier_fsr_gpu_budget_ms));
+    upscale_governor_.Window(double(gpu_ns - governor_gpu_ns_) / 1e6 / double(governor_frames_));
+    governor_gpu_ns_ = gpu_ns;
+    governor_frames_ = 0;
+  }
   TraceSwap(frontbuffer, width, height);
   BeginSubmission();
   ScopedMicros timer(stats_.us_present);
@@ -1377,7 +1395,7 @@ std::string NativeRenderer::Report() {
                       (p.compile_us - reported_pipelines_.compile_us) / 1000, p.max_compile_us / 1000,
                       p.saved_bytes >> 10);
   reported_pipelines_ = p;
-  line += fmt::format("; fsr {} runs", upscale_->runs() - reported_upscale_runs_);
+  line += fmt::format("; fsr {} runs, level {}", upscale_->runs() - reported_upscale_runs_, upscale_governor_.level());
   reported_upscale_runs_ = upscale_->runs();
   line += fmt::format("; silent draws skipped {}", s.skipped_silent - r.skipped_silent);
   line += fmt::format("; slow frames {} of {} (worst {:.0f} ms): ring busy {}, gpu wait {}, texture uploads {}, other {}",
