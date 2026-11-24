@@ -96,6 +96,6 @@ code generator and runtime changes of masseffect-nx. The third-party sources are
   After a successful guest read, `XFile::ReadInternal` passes the file's entry, offset and the bytes read to the filter
   set with `rex::filesystem::SetReadFilter`. NieR uses it to show Switch button icons and texts without changing the
   game files.
-- `include/rex/ppc/context.h`: with `REX_PPC_FIXED_FLUSH_MODE` defined, `enableFlushMode`/`disableFlushMode` do
-  nothing, so recompiled code keeps one denormal mode instead of writing the FP control register at every switch
+- `include/rex/ppc/context.h`: with `REX_PPC_FIXED_FLUSH_MODE` defined, `enableFlushMode`/`disableFlushMode` and their
+  `Unconditional` variants do nothing, so recompiled code keeps one denormal mode instead of writing the FP control register at every switch
   between scalar and vector arithmetic. NieR defines it: the switches were about a third of the guest CPU time.

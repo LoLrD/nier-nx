@@ -187,6 +187,15 @@ struct FPSCRRegister {
     setcsr(csr);
   }
 
+#ifdef REX_PPC_FIXED_FLUSH_MODE
+  inline void enableFlushModeUnconditional() noexcept {}
+
+  inline void disableFlushModeUnconditional() noexcept {}
+
+  inline void enableFlushMode() noexcept {}
+
+  inline void disableFlushMode() noexcept {}
+#else
   inline void enableFlushModeUnconditional() noexcept {
     csr |= FlushMask;
     setcsr(csr);
@@ -197,11 +206,6 @@ struct FPSCRRegister {
     setcsr(csr);
   }
 
-#ifdef REX_PPC_FIXED_FLUSH_MODE
-  inline void enableFlushMode() noexcept {}
-
-  inline void disableFlushMode() noexcept {}
-#else
   inline void enableFlushMode() noexcept {
     if ((csr & FlushMask) != FlushMask) [[unlikely]] {
       csr |= FlushMask;
