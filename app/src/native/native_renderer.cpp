@@ -52,7 +52,8 @@ REXCVAR_DEFINE_DOUBLE(nier_fsr_sharpness, 0.25, "NieR",
                       "2 = soft); negative skips RCAS");
 REXCVAR_DEFINE_DOUBLE(nier_fsr_gpu_budget_ms, 30.0, "NieR",
                       "Native renderer: GPU time per frame above which quality steps down (FSR sharpening, then the "
-                      "upscale, then the shadow map resolution); it steps back up after two seconds with room for it");
+                      "scene resolution, then the shadow map resolution, then the upscale); it steps back up after "
+                      "two seconds with room for it");
 REXCVAR_DEFINE_BOOL(nier_adaptive_shadows, true, "NieR",
                     "Native renderer: let the GPU governor render the shadow map at half resolution as its last step");
 REXCVAR_DEFINE_BOOL(nier_draw_memo, true, "NieR",
@@ -92,6 +93,8 @@ REXCVAR_DEFINE_INT32(nier_shadow_map_shift, 0, "NieR",
                      "Native renderer: the shadow map is drawn at 1/2^N of its size (0 = full size)");
 REXCVAR_DEFINE_INT32(nier_shadow_mask_shift, 1, "NieR",
                      "Native renderer: the screen-space shadow mask is drawn at 1/2^N of its size (0 = full size)");
+
+REXCVAR_DECLARE(bool, nier_dynamic_resolution);
 
 namespace nier::native {
 
@@ -196,6 +199,11 @@ constexpr size_t kReportedShaders = 10;
 constexpr size_t kTracedFrames = 12;
 constexpr uint64_t kTracedSwaps = 3000;
 constexpr uint32_t kGovernorFrames = 15;
+
+QualityOptions CurrentQualityOptions() {
+  return {REXCVAR_GET(nier_fsr), REXCVAR_GET(nier_fsr_sharpness) >= 0.0, REXCVAR_GET(nier_dynamic_resolution),
+          REXCVAR_GET(nier_adaptive_shadows)};
+}
 constexpr uint32_t kReadbackPollDraws = 16;
 
 uint64_t NowMs() {
@@ -282,6 +290,8 @@ NativeRenderer::NativeRenderer(const vk::VulkanDevice* device, rex::memory::Memo
   dfn.vkUpdateDescriptorSets(d, 1, &write, 0, nullptr);
   CreateGammaPipeline();
   last_swap_ms_ = NowMs();
+  gpu_governor_.Configure(CurrentQualityOptions(), REXCVAR_GET(nier_fsr_gpu_budget_ms));
+  g_scene_reduced.store(false, std::memory_order_relaxed);
   valid_ = true;
   REXLOG_INFO("[native] renderer ready: {} shared memory bindings, depth {}", shared_count,
               targets_->depth_format() == VK_FORMAT_D24_UNORM_S8_UINT ? "D24S8" : "D32S8");
@@ -585,11 +595,11 @@ VkDescriptorSet NativeRenderer::BindTextures(const RegisterFile& regs, const Spi
 }
 
 VkImageView NativeRenderer::UpscaledScene(const Textures::Binding& bound, const SceneUpscalePlan& plan) {
-  const int level = gpu_governor_.level();
-  if (level <= 1) {
+  const Quality& quality = gpu_governor_.quality();
+  if (!quality.upscale) {
     return bound.view;
   }
-  const float sharpness = level >= 3 ? float(REXCVAR_GET(nier_fsr_sharpness)) : -1.0f;
+  const float sharpness = quality.sharpen ? float(REXCVAR_GET(nier_fsr_sharpness)) : -1.0f;
   if (const VkImageView ready =
           upscale_->Ready(bound.view, bound.resolve_format, plan.width, plan.height, bound.resolve_version, sharpness)) {
     return ready;
@@ -625,7 +635,7 @@ uint32_t NativeRenderer::DownscaleFor(const TargetSet& targets, bool writes_dept
   switch (KindOf(targets)) {
     case PassKind::kShadowMap:
       shift = writes_depth ? uint32_t(std::clamp(std::max(REXCVAR_GET(nier_shadow_map_shift),
-                                                          gpu_governor_.level() == 0 ? 1 : 0),
+                                                          gpu_governor_.quality().full_shadows ? 0 : 1),
                                                  0, 3))
                            : 0;
       break;
@@ -1354,14 +1364,25 @@ void NativeRenderer::Swap(rex::ui::Presenter* presenter, uint32_t frontbuffer, u
   if (REXCVAR_GET(nier_readback_poll) && resolves_->readbacks_pending()) {
     ProcessCompleted();
   }
+  if (!gpu_governor_.quality().full_scene) {
+    ++stats_.reduced_scene_frames;
+  }
   if (++governor_frames_ >= kGovernorFrames) {
     uint64_t gpu_ns = 0;
     for (const uint64_t ns : submissions_->gpu_ns()) {
       gpu_ns += ns;
     }
-    gpu_governor_.Limit(REXCVAR_GET(nier_fsr) ? (REXCVAR_GET(nier_fsr_sharpness) >= 0.0 ? 3 : 2) : 1,
-                        REXCVAR_GET(nier_adaptive_shadows) ? 0 : 1, REXCVAR_GET(nier_fsr_gpu_budget_ms));
-    gpu_governor_.Window(double(gpu_ns - governor_gpu_ns_) / 1e6 / double(governor_frames_));
+    const double window_ms = double(gpu_ns - governor_gpu_ns_) / 1e6 / double(governor_frames_);
+    const int level = gpu_governor_.level();
+    gpu_governor_.Configure(CurrentQualityOptions(), REXCVAR_GET(nier_fsr_gpu_budget_ms));
+    gpu_governor_.Window(window_ms);
+    const Quality& quality = gpu_governor_.quality();
+    g_scene_reduced.store(!quality.full_scene, std::memory_order_relaxed);
+    if (gpu_governor_.level() != level) {
+      REXLOG_INFO("[native] gpu level {} after {:.1f} ms per frame: upscale {}, sharpen {}, full scene {}, full shadows {}",
+                  gpu_governor_.level(), window_ms, quality.upscale, quality.sharpen, quality.full_scene,
+                  quality.full_shadows);
+    }
     governor_gpu_ns_ = gpu_ns;
     governor_frames_ = 0;
   }
@@ -1593,7 +1614,8 @@ std::string NativeRenderer::Report() {
                       (sh.translate_us - reported_shaders_.translate_us) / 1000, sh.max_translate_us / 1000,
                       sh.cache_hits - reported_shaders_.cache_hits);
   reported_shaders_ = sh;
-  line += fmt::format("; fsr {} runs, gpu level {}", upscale_->runs() - reported_upscale_runs_, gpu_governor_.level());
+  line += fmt::format("; fsr {} runs, gpu level {}, reduced scene frames {}", upscale_->runs() - reported_upscale_runs_,
+                      gpu_governor_.level(), s.reduced_scene_frames - r.reduced_scene_frames);
   reported_upscale_runs_ = upscale_->runs();
   line += fmt::format("; silent draws skipped {}", s.skipped_silent - r.skipped_silent);
   line += fmt::format("; draw memo hits {}, mismatches {}", s.memo_hits - r.memo_hits, s.memo_mismatches - r.memo_mismatches);
