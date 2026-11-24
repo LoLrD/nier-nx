@@ -135,7 +135,7 @@ constexpr u64 kReportSeconds = 10;
  */
 constexpr u64 kStartDelayNs = 8000000000ULL;
 constexpr size_t kMaxSamples = 1 << 15;
-constexpr size_t kFrames = 10;
+constexpr size_t kFrames = 24;
 // 0-32 renderer/audio counters (see RexSwitchPerfAdd); 40-55 host-runtime overhead (include/rex/sys_counters.h);
 // 56-58 XMA stuck-voice diagnostics (xma_context.cpp, audio_xma_diag).
 constexpr unsigned kCounterCount = 64;
@@ -951,7 +951,7 @@ void Report(u64 elapsed_ticks, u64 tick_freq, u64 counters_last[kCounterCount],
     }
     std::sort(stacks.begin(), stacks.end(),
               [](const StackCount& a, const StackCount& b) { return a.n > b.n; });
-    for (size_t k = 0; k < stacks.size() && k < (active ? 30u : 3u); ++k) {
+    for (size_t k = 0; k < stacks.size() && k < (active ? 100u : 3u); ++k) {
       std::fprintf(f, "   %5.1f%%  stack", double(stacks[k].n) * 100.0 / double(n));
       for (size_t j = 0; j < kFrames && stacks[k].s->frames[j]; ++j) {
         std::fputs(j == 0 ? " " : " <- ", f);
