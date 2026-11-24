@@ -229,10 +229,13 @@ Resolves::DestImage* Resolves::Dest(VkCommandBuffer command_buffer, const Resolv
   if (HasRedAndBlue(format)) {
     view.components = {VK_COMPONENT_SWIZZLE_B, VK_COMPONENT_SWIZZLE_G, VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_A};
     dfn.vkCreateImageView(d, &view, nullptr, &dest.swapped_view);
+    view.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    dfn.vkCreateImageView(d, &view, nullptr, &dest.plain_swapped_view);
     view.components = {};
   }
+  view.viewType = VK_IMAGE_VIEW_TYPE_2D;
+  dfn.vkCreateImageView(d, &view, nullptr, &dest.plain_view);
   if (attachment) {
-    view.viewType = VK_IMAGE_VIEW_TYPE_2D;
     dfn.vkCreateImageView(d, &view, nullptr, &dest.attachment_view);
   }
   VkImageMemoryBarrier barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
@@ -319,8 +322,10 @@ void Resolves::Publish(const ResolvePlan& plan, DestImage& dest, uint32_t bytes_
   dest.last_frame = frame_;
   dest.last_submission = submission;
   const uint32_t guest_bytes = ResolveGuestBytes(dest.width, dest.height, bytes_per_pixel, plan.dest_address);
-  const VkImageView view = plan.dest_swap && !plan.depth && dest.swapped_view ? dest.swapped_view : dest.view;
-  textures_.AddResolveImage(plan.dest_address, dest.format, dest.width, dest.height, view, guest_bytes);
+  const bool swapped = plan.dest_swap && !plan.depth && dest.swapped_view;
+  textures_.AddResolveImage(plan.dest_address, dest.format, dest.width, dest.height,
+                            swapped ? dest.swapped_view : dest.view, swapped ? dest.plain_swapped_view : dest.plain_view,
+                            guest_bytes);
 }
 
 void Resolves::CopyDepth(VkCommandBuffer command_buffer, const ResolvePlan& plan, const RenderTargets::Target& source,
@@ -546,7 +551,9 @@ void Resolves::Destroy(DestImage& image) {
   }
   if (image.swapped_view) {
     dfn.vkDestroyImageView(d, image.swapped_view, nullptr);
+    dfn.vkDestroyImageView(d, image.plain_swapped_view, nullptr);
   }
+  dfn.vkDestroyImageView(d, image.plain_view, nullptr);
   dfn.vkDestroyImageView(d, image.view, nullptr);
   dfn.vkDestroyImage(d, image.image, nullptr);
   dfn.vkFreeMemory(d, image.memory, nullptr);

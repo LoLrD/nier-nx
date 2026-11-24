@@ -44,6 +44,12 @@ REXCVAR_DEFINE_BOOL(nier_mirror_staging, true, "NieR",
 REXCVAR_DEFINE_BOOL(nier_draw_state_filter, true, "NieR",
                     "Native renderer: skip dynamic state, descriptor bindings and constant uploads that repeat the "
                     "previous draw");
+REXCVAR_DEFINE_BOOL(nier_fsr, true, "NieR",
+                    "Native renderer: upscale the reduced-resolution scene to the 1280-wide composite with FSR 1 (EASU) "
+                    "instead of the game's bilinear stretch");
+REXCVAR_DEFINE_DOUBLE(nier_fsr_sharpness, 0.25, "NieR",
+                      "Native renderer: FSR 1 RCAS sharpening after the upscale, in stops of reduction (0 = sharpest, "
+                      "2 = soft); negative skips RCAS");
 REXCVAR_DEFINE_BOOL(nier_early_depth_tests, true, "NieR",
                     "Native renderer: run depth/stencil tests before pixel shaders that kill pixels when the draw "
                     "writes neither depth nor stencil (same result, hidden pixels are not shaded)");
@@ -77,6 +83,21 @@ namespace vk = rex::ui::vulkan;
 using Translator = SpirvShaderTranslator;
 
 namespace {
+
+bool UpscalableFormat(VkFormat format) {
+  switch (format) {
+    case VK_FORMAT_R8G8B8A8_UNORM:
+    case VK_FORMAT_B8G8R8A8_UNORM:
+    case VK_FORMAT_A2B10G10R10_UNORM_PACK32:
+    case VK_FORMAT_A2R10G10B10_UNORM_PACK32:
+    case VK_FORMAT_B10G11R11_UFLOAT_PACK32:
+    case VK_FORMAT_R16G16B16A16_SFLOAT:
+    case VK_FORMAT_R16G16B16A16_UNORM:
+      return true;
+    default:
+      return false;
+  }
+}
 
 #if REX_PLATFORM_SWITCH
 uint64_t ReadTicks() {
@@ -195,6 +216,7 @@ NativeRenderer::NativeRenderer(const vk::VulkanDevice* device, rex::memory::Memo
                                                          cached_uploads);
   textures_ = std::make_unique<Textures>(device_, physical_base_, *staging_);
   resolves_ = std::make_unique<Resolves>(device_, *targets_, *textures_, memory_, physical_base_);
+  upscale_ = std::make_unique<SceneUpscale>(device_, *submissions_);
   pipeline_report_->Report(resolves_->depth_pipeline(), "depth_to_float");
   const auto rectangles = BuildRectangleIndices(kMaxBuiltinRectangles);
   const auto quads = BuildQuadIndices(kMaxBuiltinQuads);
@@ -496,6 +518,12 @@ VkDescriptorSet NativeRenderer::BindTextures(const RegisterFile& regs, const Spi
       out_of_memory = true;
       return VK_NULL_HANDLE;
     }
+    if (bound.resolve_address && upscale_target_width_) {
+      const SceneUpscalePlan plan = PlanSceneUpscale(bound.resolve_width, bound.resolve_height, upscale_target_width_);
+      if (plan.wanted && UpscalableFormat(bound.resolve_format)) {
+        bound.view = UpscaledScene(bound, plan);
+      }
+    }
     if (bound.resolve_address && Tracing()) {
       trace_pass_.samples.insert({bound.resolve_address, (fetch.size_2d.width + 1) << 16 | (fetch.size_2d.height + 1)});
     }
@@ -535,6 +563,28 @@ VkDescriptorSet NativeRenderer::BindTextures(const RegisterFile& regs, const Spi
   }
   Vk(device_).vkUpdateDescriptorSets(device_->device(), uint32_t(writes.size()), writes.data(), 0, nullptr);
   return set;
+}
+
+VkImageView NativeRenderer::UpscaledScene(const Textures::Binding& bound, const SceneUpscalePlan& plan) {
+  const float sharpness = float(REXCVAR_GET(nier_fsr_sharpness));
+  if (const VkImageView ready =
+          upscale_->Ready(bound.view, bound.resolve_format, plan.width, plan.height, bound.resolve_version, sharpness)) {
+    return ready;
+  }
+  const VkCommandBuffer cmd = submissions_->main();
+  targets_->End(cmd);
+  submissions_->Mark(GpuCategory::kResolves,
+                     LabelId(NamedPass(fmt::format("fsr {}x{} -> {}x{}", bound.resolve_width, bound.resolve_height,
+                                                   plan.width, plan.height),
+                                       true),
+                             nullptr, nullptr));
+  const VkImageView view =
+      upscale_->Upscale(cmd, bound.view, bound.resolve_plain_view, bound.resolve_format, bound.resolve_width,
+                        bound.resolve_height, plan.width, plan.height, bound.resolve_version, sharpness);
+  bound_pipeline_ = VK_NULL_HANDLE;
+  dynamic_filter_.Reset();
+  binding_filter_.Reset();
+  return view;
 }
 
 VkDescriptorSet NativeRenderer::EmptyTextureSet() {
@@ -766,6 +816,8 @@ NativeRenderer::DrawResult NativeRenderer::RecordDraw(const RegisterFile& regs) 
   TextureConstantInfo texture_info;
   uint32_t vs_textures = 0, vs_samplers = 0, ps_textures = 0, ps_samplers = 0;
   bool out_of_memory = false;
+  upscale_target_width_ =
+      REXCVAR_GET(nier_fsr) && targets.color[0] && !targets.depth ? ExtentFor(*targets.color[0]).width : 0;
   const VkDescriptorSet vs_set =
       BindTextures(regs, *prepared->vertex_shader, false, texture_info, vs_textures, vs_samplers, out_of_memory);
   if (vs_set == VK_NULL_HANDLE) {
@@ -1325,6 +1377,8 @@ std::string NativeRenderer::Report() {
                       (p.compile_us - reported_pipelines_.compile_us) / 1000, p.max_compile_us / 1000,
                       p.saved_bytes >> 10);
   reported_pipelines_ = p;
+  line += fmt::format("; fsr {} runs", upscale_->runs() - reported_upscale_runs_);
+  reported_upscale_runs_ = upscale_->runs();
   line += fmt::format("; silent draws skipped {}", s.skipped_silent - r.skipped_silent);
   line += fmt::format("; slow frames {} of {} (worst {:.0f} ms): ring busy {}, gpu wait {}, texture uploads {}, other {}",
                       slow_frames_.slow, slow_frames_.frames, slow_frames_.worst_ms, slow_frames_.ring,

@@ -104,6 +104,9 @@ class NativeSkeletonTest(unittest.TestCase):
     def test_arena_ranges(self) -> None:
         self.check("arena_ranges", ["arena_ranges.cpp"])
 
+    def test_upscale_plan(self) -> None:
+        self.check("upscale_plan", [])
+
     def test_texture_loader(self) -> None:
         self.check("texture_loader", ["texture_loader.cpp"], link_sdk=True)
 

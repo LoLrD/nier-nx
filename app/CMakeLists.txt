@@ -47,6 +47,7 @@ set(NIER_SOURCES
     src/native/render_targets.cpp
     src/native/resolve_plan.cpp
     src/native/resolves.cpp
+    src/native/scene_upscale.cpp
     src/native/shader_dump.cpp
     src/native/slow_frames.cpp
     src/native/store_cards.cpp
@@ -58,7 +59,8 @@ set(NIER_SOURCES
     src/native/vk_recorder.cpp
 )
 add_executable(nier ${NIER_SOURCES})
-target_include_directories(nier PRIVATE src ${REXSDK_DIR}/thirdparty/glslang ${REXSDK_DIR}/thirdparty/xxHash)
+target_include_directories(nier PRIVATE src ${REXSDK_DIR}/thirdparty/glslang ${REXSDK_DIR}/thirdparty/xxHash
+                           ${REXSDK_DIR}/src/ui/shaders/vulkan_spirv)
 
 rexglue_setup_target(nier GPU_PLUGINS xenos)
 target_compile_options(nier_recomp PRIVATE -fno-strict-aliasing)

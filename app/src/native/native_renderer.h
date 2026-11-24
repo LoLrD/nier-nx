@@ -26,11 +26,13 @@
 #include "render_targets.h"
 #include "resolve_plan.h"
 #include "resolves.h"
+#include "scene_upscale.h"
 #include "slow_frames.h"
 #include "store_cards.h"
 #include "submissions.h"
 #include "target_keys.h"
 #include "textures.h"
+#include "upscale_plan.h"
 #include "vk_recorder.h"
 
 namespace rex::memory {
@@ -123,6 +125,7 @@ class NativeRenderer {
   uint16_t PassId(const TargetSet& set);
   uint16_t ResolveId(const ResolvePlan& plan);
   uint16_t NamedPass(const std::string& name, bool resolve);
+  VkImageView UpscaledScene(const Textures::Binding& bound, const SceneUpscalePlan& plan);
   void AppendHeaviest(std::string& line, std::string_view title,
                       std::vector<std::pair<uint64_t, size_t>>& heaviest) const;
   bool Tracing() const;
@@ -168,6 +171,9 @@ class NativeRenderer {
   std::unique_ptr<rex::ui::vulkan::VulkanUploadBufferPool> staging_;
   std::unique_ptr<Textures> textures_;
   std::unique_ptr<Resolves> resolves_;
+  std::unique_ptr<SceneUpscale> upscale_;
+  uint32_t upscale_target_width_ = 0;
+  uint64_t reported_upscale_runs_ = 0;
   MirrorSync mirror_sync_{kMirrorRehashBytes};
   uint8_t* card_table_;
   std::unique_ptr<VulkanRecorder> recorder_;

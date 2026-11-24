@@ -233,6 +233,11 @@ Textures::Binding Textures::View(VkCommandBuffer upload, const xenos::xe_gpu_tex
           ResolveImageMatches(resolved.format, resolved.width, resolved.height, host->format, width, height)) {
         ++stats_.resolve_hits;
         result.resolve_address = address;
+        result.resolve_width = resolved.width;
+        result.resolve_height = resolved.height;
+        result.resolve_format = resolved.format;
+        result.resolve_plain_view = resolved.plain_view;
+        result.resolve_version = resolved.version;
         if (OlderThanNewest(resolve_records_, address, resolved.published_frame)) {
           NoteStaleRead(StaleRead::kOlderImage, address, fetch, host->format, width, height);
         }
@@ -558,7 +563,7 @@ VkSampler Textures::Sampler(const xenos::xe_gpu_texture_fetch_t& fetch, const Sp
 }
 
 void Textures::AddResolveImage(uint32_t address, VkFormat format, uint32_t width, uint32_t height, VkImageView view,
-                               uint32_t guest_bytes) {
+                               VkImageView plain_view, uint32_t guest_bytes) {
   resolve_records_[address] = {address, guest_bytes, frame_, uint32_t(format), StaleRead::kNone, width, height};
   auto [it, inserted] = resolve_images_.try_emplace(ResolveKey(address, format));
   if (inserted) {
@@ -566,10 +571,11 @@ void Textures::AddResolveImage(uint32_t address, VkFormat format, uint32_t width
   }
   ResolveImage& resolved = it->second;
   resolved.published_frame = frame_;
+  resolved.version = ++resolve_versions_;
   if (!inserted && resolved.view == view && resolved.guest_bytes == guest_bytes) {
     return;
   }
-  resolved = {format, width, height, view, guest_bytes, PhasedHash{}, frame_, frame_};
+  resolved = {format, width, height, view, plain_view, guest_bytes, PhasedHash{}, frame_, frame_, resolve_versions_};
   const HashSpan span = GuestSpan(address, guest_bytes);
   Reset(resolved.guest, {&span, 1});
 }

@@ -34,6 +34,11 @@ class Textures {
     uint8_t swizzled_signs = 0;
     bool out_of_memory = false;
     uint32_t resolve_address = 0;
+    uint32_t resolve_width = 0;
+    uint32_t resolve_height = 0;
+    VkFormat resolve_format = VK_FORMAT_UNDEFINED;
+    VkImageView resolve_plain_view = VK_NULL_HANDLE;
+    uint64_t resolve_version = 0;
   };
   enum class UploadReason : uint8_t { kNew, kChanged, kEvicted };
   struct UploadRecord {
@@ -85,7 +90,7 @@ class Textures {
   VkSampler Sampler(const rex::graphics::xenos::xe_gpu_texture_fetch_t& fetch,
                     const rex::graphics::SpirvShader::SamplerBinding& binding);
   void AddResolveImage(uint32_t address, VkFormat format, uint32_t width, uint32_t height, VkImageView view,
-                       uint32_t guest_bytes);
+                       VkImageView plain_view, uint32_t guest_bytes);
   void RefreshResolveHash(uint32_t address);
   void RemoveResolveImage(uint32_t address, VkFormat format, VkImageView view);
   void Evict(uint64_t unused_ms);
@@ -139,10 +144,12 @@ class Textures {
     uint32_t width;
     uint32_t height;
     VkImageView view;
+    VkImageView plain_view;
     uint32_t guest_bytes;
     PhasedHash guest;
     uint64_t checked_frame;
     uint64_t published_frame;
+    uint64_t version = 0;
   };
 
   Image CreateImage(const TextureShape& shape);
@@ -201,6 +208,7 @@ class Textures {
   uint64_t free_bytes_ = 0;
   std::unordered_map<uint64_t, uint64_t> failed_;
   uint64_t staged_bytes_ = 0;
+  uint64_t resolve_versions_ = 0;
   std::unordered_multimap<uint64_t, FreeImage> free_images_;
   ArenaRanges arena_{kArenaBlockBytes};
   std::vector<VkDeviceMemory> arena_blocks_;

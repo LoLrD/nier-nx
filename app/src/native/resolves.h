@@ -57,6 +57,8 @@ class Resolves {
     VkDeviceMemory memory = VK_NULL_HANDLE;
     VkImageView view = VK_NULL_HANDLE;
     VkImageView swapped_view = VK_NULL_HANDLE;
+    VkImageView plain_view = VK_NULL_HANDLE;
+    VkImageView plain_swapped_view = VK_NULL_HANDLE;
     VkImageView attachment_view = VK_NULL_HANDLE;
     VkFormat format = VK_FORMAT_UNDEFINED;
     uint32_t width = 0;
