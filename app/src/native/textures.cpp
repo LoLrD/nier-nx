@@ -182,7 +182,7 @@ Textures::Binding Textures::View(VkCommandBuffer upload, const xenos::xe_gpu_tex
     const uint32_t address = fetch.base_address << 12;
     if (auto it = resolve_images_.find(ResolveKey(address, host->format)); it != resolve_images_.end()) {
       ResolveImage& resolved = it->second;
-      if (NeedsRehash(resolved.guest_bytes, frame_, resolved.checked_frame, resolved.checked_frame == frame_)) {
+      if (NeedsRehash(resolved.guest_bytes, frame_, resolved.checked_frame, resolved.checked_frame == frame_, false)) {
         resolved.checked_frame = frame_;
         const HashSpan span = GuestSpan(address, resolved.guest_bytes);
         if (Changed(resolved.guest, {&span, 1})) {
@@ -218,7 +218,8 @@ Textures::Binding Textures::View(VkCommandBuffer upload, const xenos::xe_gpu_tex
   UploadReason reason = UploadReason::kNew;
   if (!reload) {
     Texture& texture = it->second;
-    if (NeedsRehash(texture.bytes, frame_, texture.checked_frame, texture.used_frame == frame_)) {
+    if (NeedsRehash(texture.bytes, frame_, texture.checked_frame, texture.used_frame == frame_,
+                    texture.content.sampling())) {
       texture.checked_frame = frame_;
       if (Changed(texture.content, ContentSpans(fetch))) {
         content = texture.content;

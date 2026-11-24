@@ -60,7 +60,7 @@ std::optional<TextureShape> ShapeFor(const rex::graphics::xenos::xe_gpu_texture_
 TextureFootprint FootprintOf(const rex::graphics::xenos::xe_gpu_texture_fetch_t& fetch);
 std::optional<LoadedTexture> LoadTexture(const rex::graphics::xenos::xe_gpu_texture_fetch_t& fetch,
                                          const uint8_t* physical_base);
-bool NeedsRehash(uint32_t bytes, uint64_t frame, uint64_t last_checked_frame, bool used_this_frame);
+bool NeedsRehash(uint32_t bytes, uint64_t frame, uint64_t last_checked_frame, bool used_this_frame, bool stable);
 std::vector<uint64_t> PickEvictions(std::vector<EvictionCandidate> candidates, uint64_t active_bytes, uint64_t budget,
                                     uint64_t now_ms, uint64_t min_age_ms);
 uint64_t AdvanceFrameClock(uint64_t clock_ms, uint64_t last_ms, uint64_t now_ms);

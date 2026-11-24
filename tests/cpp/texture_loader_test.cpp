@@ -175,12 +175,15 @@ int main() {
           "footprint_of_base_level");
   }
   {
-    Check(NeedsRehash(4096, 10, 9, false) && NeedsRehash(65536, 10, 9, false) && !NeedsRehash(4096, 10, 10, true) &&
-              !NeedsRehash(65536, 10, 10, true),
+    Check(NeedsRehash(4096, 10, 9, false, false) && NeedsRehash(65536, 10, 9, false, false) &&
+              !NeedsRehash(4096, 10, 10, true, false) && !NeedsRehash(65536, 10, 10, true, false),
           "small_texture_rehashed_once_per_frame");
-    Check(!NeedsRehash(1 << 20, 10, 10, false) && !NeedsRehash(1 << 20, 13, 10, false) &&
-              NeedsRehash(1 << 20, 14, 10, false) && !NeedsRehash(1 << 20, 14, 10, true),
+    Check(!NeedsRehash(1 << 20, 10, 10, false, false) && !NeedsRehash(1 << 20, 13, 10, false, false) &&
+              NeedsRehash(1 << 20, 14, 10, false, false) && !NeedsRehash(1 << 20, 14, 10, true, false),
           "large_texture_rehashed_every_fourth_frame");
+    Check(!NeedsRehash(4096, 11, 10, false, true) && !NeedsRehash(4096, 13, 10, false, true) &&
+              NeedsRehash(4096, 14, 10, false, true),
+          "stable_small_texture_rehashed_every_fourth_frame");
   }
   {
     Check(ResolveImageMatches(VK_FORMAT_R8G8B8A8_UNORM, 1280, 720, VK_FORMAT_R8G8B8A8_UNORM, 1280, 720) &&
