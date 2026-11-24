@@ -1,5 +1,4 @@
 #include "guest_mirror.h"
-#include "vk_recorder.h"
 
 #include <algorithm>
 #include <cstring>
@@ -8,6 +7,8 @@
 #include <rex/ui/vulkan/device.h>
 #include <rex/ui/vulkan/upload_buffer_pool.h>
 #include <rex/ui/vulkan/util.h>
+
+#include "vk_recorder.h"
 
 namespace nier::native {
 

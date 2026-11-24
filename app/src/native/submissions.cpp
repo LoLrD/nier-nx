@@ -1,5 +1,4 @@
 #include "submissions.h"
-#include "vk_recorder.h"
 
 #include <array>
 #include <cstring>
@@ -12,6 +11,8 @@
 #include <rex/ui/vulkan/device.h>
 #include <rex/ui/vulkan/instance.h>
 #include <rex/ui/vulkan/util.h>
+
+#include "vk_recorder.h"
 
 namespace nier::native {
 

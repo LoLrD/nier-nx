@@ -1,5 +1,4 @@
 #include "pipelines.h"
-#include "vk_recorder.h"
 
 #include <algorithm>
 #include <array>
@@ -12,6 +11,8 @@
 #include <rex/logging.h>
 #include <rex/platform.h>
 #include <rex/ui/vulkan/device.h>
+
+#include "vk_recorder.h"
 
 REXCVAR_DEFINE_BOOL(nier_async_pipelines, true, "NieR",
                     "Native renderer: compile new pipelines on a worker thread and skip their draws until ready");
