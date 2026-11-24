@@ -87,6 +87,7 @@ class NativeShaders {
   uint64_t vertex_hash_ = 0;
   uint64_t pixel_hash_ = 0;
   std::unordered_map<const rex::graphics::vulkan::VulkanShader::VulkanTranslation*, Specialization> specializations_;
+  std::vector<uint32_t> specialization_values_;
   Stats stats_;
 };
 

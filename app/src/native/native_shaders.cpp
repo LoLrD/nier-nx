@@ -69,8 +69,8 @@ VkShaderModule NativeShaders::PixelModule(VulkanShader::VulkanTranslation& trans
     return translation.shader_module();
   }
   const auto* system_words = reinterpret_cast<const uint32_t*>(&system);
-  std::vector<uint32_t> values;
-  values.reserve(specialization.slots.size());
+  std::vector<uint32_t>& values = specialization_values_;
+  values.clear();
   for (const UniformSlot& slot : specialization.slots) {
     values.push_back(slot.fetch ? fetch_constants[slot.offset / 4] : system_words[slot.offset / 4]);
   }

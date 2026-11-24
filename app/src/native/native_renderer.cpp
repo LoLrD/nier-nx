@@ -6,6 +6,7 @@
 #include <chrono>
 #include <cstring>
 #include <fstream>
+#include <functional>
 #include <utility>
 #include <vector>
 
@@ -983,6 +984,27 @@ void NativeRenderer::Swap(rex::ui::Presenter* presenter, uint32_t frontbuffer, u
 }
 
 uint16_t NativeRenderer::PassId(const TargetSet& set) {
+  std::array<uint32_t, 17> key;
+  key.fill(~0u);
+  for (uint32_t i = 0; i < set.color.size(); ++i) {
+    if (const auto& color = set.color[i]) {
+      key[i * 3] = color->base_tiles;
+      key[i * 3 + 1] = ExtentFor(*color).width;
+      key[i * 3 + 2] = uint32_t(color->format);
+    }
+  }
+  if (set.depth) {
+    key[12] = set.depth->base_tiles;
+    key[13] = ExtentFor(*set.depth).width;
+    key[14] = uint32_t(set.depth->format);
+  }
+  key[15] = set.scale.x;
+  key[16] = set.scale.y;
+  const uint64_t hash =
+      std::hash<std::string_view>{}(std::string_view(reinterpret_cast<const char*>(key.data()), sizeof(key)));
+  if (auto it = pass_keys_.find(hash); it != pass_keys_.end()) {
+    return it->second;
+  }
   std::string name;
   for (uint32_t i = 0; i < set.color.size(); ++i) {
     if (const auto& key = set.color[i]) {
@@ -993,7 +1015,9 @@ uint16_t NativeRenderer::PassId(const TargetSet& set) {
     name += fmt::format("d {:X} w{} f{} ", set.depth->base_tiles, ExtentFor(*set.depth).width, set.depth->format);
   }
   name += fmt::format("msaa {}x{}", set.scale.x, set.scale.y);
-  return NamedPass(name, false);
+  const uint16_t id = NamedPass(name, false);
+  pass_keys_.emplace(hash, id);
+  return id;
 }
 
 uint16_t NativeRenderer::ResolveId(const ResolvePlan& plan) {

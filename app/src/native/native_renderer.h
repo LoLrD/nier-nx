@@ -189,6 +189,7 @@ class NativeRenderer {
   std::array<uint64_t, kGpuCategories> reported_gpu_ns_{};
   std::vector<uint64_t> reported_pass_ns_;
   std::unordered_map<std::string, uint16_t> pass_ids_;
+  std::unordered_map<uint64_t, uint16_t> pass_keys_;
   std::vector<std::string> pass_names_{std::string()};
   std::vector<bool> pass_is_resolve_{false};
   std::unordered_map<uint64_t, uint16_t> label_ids_;
