@@ -61,6 +61,12 @@ target_include_directories(nier PRIVATE src ${REXSDK_DIR}/thirdparty/glslang ${R
 
 rexglue_setup_target(nier GPU_PLUGINS xenos)
 target_compile_options(nier_recomp PRIVATE -fno-strict-aliasing)
+set(NIER_INDIRECT_DISPATCH 2 CACHE STRING "Guest indirect calls: 0 legacy table, 1 compact table, 2 inline cache per call site")
+option(NIER_INDIRECT_DISPATCH_VERIFY "Compare guest indirect call targets with the legacy lookup" OFF)
+target_compile_definitions(nier_recomp PRIVATE REX_INDIRECT_DISPATCH=${NIER_INDIRECT_DISPATCH})
+if(NIER_INDIRECT_DISPATCH_VERIFY)
+    target_compile_definitions(nier_recomp PRIVATE REX_INDIRECT_DISPATCH_VERIFY=1)
+endif()
 if(NOT REXGLUE_PLATFORM_SWITCH)
     if(TARGET rexgpu-xenos)
         target_link_libraries(nier PRIVATE rexgpu-xenos)
