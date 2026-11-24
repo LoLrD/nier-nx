@@ -239,7 +239,8 @@ Textures::Binding Textures::View(VkCommandBuffer upload, const xenos::xe_gpu_tex
                                  const SpirvShader::TextureBinding& binding, uint64_t submission) {
   std::array<uint32_t, 6> words;
   std::memcpy(words.data(), &fetch, sizeof(words));
-  CachedView& cached = view_cache_[XXH3_64bits(words.data(), sizeof(words)) % view_cache_.size()];
+  const uint64_t slot = XXH3_64bits(words.data(), sizeof(words)) + uint64_t(binding.dimension) * 2 + binding.is_signed;
+  CachedView& cached = view_cache_[slot % view_cache_.size()];
   if (cached.frame == frame_ && cached.submission == submission && cached.binding_version == binding_version_ &&
       cached.resolve_versions == resolve_versions_ && cached.fetch == words &&
       cached.dimension == binding.dimension && cached.is_signed == binding.is_signed) {
