@@ -76,9 +76,11 @@ class GpuGovernor {
     calm_ = 0;
   }
 
-  void Window(double gpu_ms) {
+  void Window(double gpu_ms, double frame_ms) {
     if (gpu_ms > budget_ms_) {
-      level_ = std::max(0, level_ - 1);
+      if (gpu_ms >= kGpuBoundShare * frame_ms) {
+        level_ = std::max(0, level_ - 1);
+      }
       calm_ = 0;
       return;
     }
@@ -105,6 +107,7 @@ class GpuGovernor {
   static constexpr double kFullSceneMs = 4.0;
   static constexpr double kFullShadowsMs = 1.5;
   static constexpr double kMarginMs = 1.0;
+  static constexpr double kGpuBoundShare = 0.9;
   static constexpr int kCalmWindows = 4;
 
   QualityOptions options_;

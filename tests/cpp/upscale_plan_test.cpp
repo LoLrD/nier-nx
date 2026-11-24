@@ -11,6 +11,7 @@ using nier::native::QualityOptions;
 using nier::native::SceneUpscalePlan;
 
 static int failures = 0;
+static constexpr double kFrameMs = 33.3;
 
 static void Check(bool ok, const char* what) {
   if (!ok) {
@@ -58,55 +59,64 @@ int main() {
   {
     GpuGovernor governor({true, true, true, true}, 30.0);
     Check(governor.quality() == Quality{true, true, true, true}, "starts_at_the_best_step");
-    governor.Window(31.0);
+    governor.Window(31.0, kFrameMs);
     Check(governor.quality() == Quality{false, true, true, true}, "overloaded_gpu_drops_sharpening");
-    governor.Window(32.0);
+    governor.Window(32.0, kFrameMs);
     Check(governor.quality() == Quality{false, true, false, true}, "still_overloaded_lowers_the_scene_resolution");
-    governor.Window(31.0);
+    governor.Window(31.0, kFrameMs);
     Check(governor.quality() == Quality{false, true, false, false}, "then_lowers_the_shadow_resolution");
-    governor.Window(31.0);
+    governor.Window(31.0, kFrameMs);
     Check(governor.quality() == Quality{}, "then_drops_the_upscale");
-    governor.Window(31.0);
+    governor.Window(31.0, kFrameMs);
     Check(governor.level() == 0, "never_below_the_lowest_step");
     for (int i = 0; i < 3; ++i) {
-      governor.Window(25.5);
+      governor.Window(25.5, kFrameMs);
     }
     Check(governor.level() == 0, "recovery_waits_for_calm_windows");
-    governor.Window(25.5);
+    governor.Window(25.5, kFrameMs);
     Check(governor.quality() == Quality{false, true, false, false}, "calm_gpu_brings_the_upscale_back");
     for (int i = 0; i < 4; ++i) {
-      governor.Window(27.5);
+      governor.Window(27.5, kFrameMs);
     }
     Check(governor.quality() == Quality{false, true, false, true}, "then_the_shadow_resolution");
     for (int i = 0; i < 4; ++i) {
-      governor.Window(25.5);
+      governor.Window(25.5, kFrameMs);
     }
     Check(governor.quality() == Quality{false, true, false, true}, "scene_resolution_needs_more_headroom");
     for (int i = 0; i < 4; ++i) {
-      governor.Window(24.5);
+      governor.Window(24.5, kFrameMs);
     }
     Check(governor.quality() == Quality{false, true, true, true}, "enough_headroom_brings_the_scene_resolution_back");
     for (int i = 0; i < 4; ++i) {
-      governor.Window(27.5);
+      governor.Window(27.5, kFrameMs);
     }
     Check(governor.quality() == Quality{false, true, true, true}, "sharpening_needs_its_headroom");
     for (int i = 0; i < 4; ++i) {
-      governor.Window(27.0);
+      governor.Window(27.0, kFrameMs);
     }
     Check(governor.quality() == Quality{true, true, true, true}, "headroom_brings_sharpening_back");
-    governor.Window(29.0);
+    governor.Window(29.0, kFrameMs);
     Check(governor.level() == 4, "busy_window_inside_budget_keeps_the_step");
   }
   {
     GpuGovernor governor({true, true, true, true}, 30.0);
-    governor.Window(31.0);
+    governor.Window(31.0, kFrameMs);
     governor.Configure({true, true, true, true}, 30.0);
     Check(governor.level() == 3, "same_options_keep_the_step");
     governor.Configure({true, false, true, true}, 30.0);
     Check(governor.quality() == Quality{false, true, true, true}, "changed_options_restart_at_the_best_step");
     governor.Configure({false, false, false, false}, 30.0);
-    governor.Window(40.0);
+    governor.Window(40.0, kFrameMs);
     Check(governor.quality() == Quality{false, false, true, true}, "nothing_adaptive_never_steps_down");
+  }
+  {
+    GpuGovernor governor({true, true, true, true}, 30.0);
+    governor.Window(31.0, 41.6);
+    Check(governor.level() == 4, "busy_gpu_in_a_cpu_bound_frame_keeps_the_quality");
+    governor.Window(31.0, 33.3);
+    Check(governor.level() == 3, "gpu_bound_frame_over_budget_steps_down");
+    governor.Window(38.0, 41.6);
+    Check(governor.level() == 2, "slow_gpu_bound_frame_steps_down");
   }
   return failures ? 1 : 0;
 }

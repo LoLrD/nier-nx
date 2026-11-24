@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <deque>
 #include <memory>
@@ -223,6 +224,7 @@ class NativeRenderer {
   uint64_t reported_upscale_runs_ = 0;
   GpuGovernor gpu_governor_{{}, 30.0};
   uint32_t governor_frames_ = 0;
+  std::chrono::steady_clock::time_point governor_started_ = std::chrono::steady_clock::now();
   uint32_t readback_poll_draws_ = 0;
   std::array<uint64_t, 4> reported_readback_frames_{};
   uint64_t governor_gpu_ns_ = 0;

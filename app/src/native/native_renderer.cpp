@@ -52,8 +52,8 @@ REXCVAR_DEFINE_DOUBLE(nier_fsr_sharpness, 0.25, "NieR",
                       "2 = soft); negative skips RCAS");
 REXCVAR_DEFINE_DOUBLE(nier_fsr_gpu_budget_ms, 30.0, "NieR",
                       "Native renderer: GPU time per frame above which quality steps down (FSR sharpening, then the "
-                      "scene resolution, then the shadow map resolution, then the upscale); it steps back up after "
-                      "two seconds with room for it");
+                      "scene resolution, then the shadow map resolution, then the upscale) when the GPU is busy for "
+                      "most of the frame; it steps back up after two seconds with room for it");
 REXCVAR_DEFINE_BOOL(nier_adaptive_shadows, true, "NieR",
                     "Native renderer: let the GPU governor render the shadow map at half resolution as its last step");
 REXCVAR_DEFINE_BOOL(nier_draw_memo, true, "NieR",
@@ -1380,14 +1380,19 @@ void NativeRenderer::Swap(rex::ui::Presenter* presenter, uint32_t frontbuffer, u
       gpu_ns += ns;
     }
     const double window_ms = double(gpu_ns - governor_gpu_ns_) / 1e6 / double(governor_frames_);
+    const auto now = std::chrono::steady_clock::now();
+    const double frame_ms =
+        std::chrono::duration<double, std::milli>(now - governor_started_).count() / double(governor_frames_);
+    governor_started_ = now;
     const int level = gpu_governor_.level();
     gpu_governor_.Configure(CurrentQualityOptions(), REXCVAR_GET(nier_fsr_gpu_budget_ms));
-    gpu_governor_.Window(window_ms);
+    gpu_governor_.Window(window_ms, frame_ms);
     const Quality& quality = gpu_governor_.quality();
     g_scene_reduced.store(!quality.full_scene, std::memory_order_relaxed);
     if (gpu_governor_.level() != level) {
-      REXLOG_INFO("[native] gpu level {} after {:.1f} ms per frame: upscale {}, sharpen {}, full scene {}, full shadows {}",
-                  gpu_governor_.level(), window_ms, quality.upscale, quality.sharpen, quality.full_scene,
+      REXLOG_INFO("[native] gpu level {} after {:.1f} ms of gpu in {:.1f} ms frames: upscale {}, sharpen {}, full "
+                  "scene {}, full shadows {}",
+                  gpu_governor_.level(), window_ms, frame_ms, quality.upscale, quality.sharpen, quality.full_scene,
                   quality.full_shadows);
     }
     governor_gpu_ns_ = gpu_ns;
