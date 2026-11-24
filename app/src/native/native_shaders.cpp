@@ -20,6 +20,13 @@
 REXCVAR_DEFINE_STRING(nier_shader_cache_file, "", "NieR",
                       "Native renderer: file that keeps translated SPIR-V between runs so a shader seen before is not "
                       "translated again (dropped when the translator sources change)");
+REXCVAR_DEFINE_BOOL(nier_async_shaders, true, "NieR",
+                    "Native renderer: translate shaders that are not in the shader cache on a worker thread; draws "
+                    "that need them are skipped until they are ready instead of stalling the GPU ring");
+
+#if REX_PLATFORM_SWITCH
+extern "C" void RexSwitchSetCurrentThreadPriority(int priority);
+#endif
 
 namespace nier::native {
 
@@ -54,7 +61,14 @@ NativeShaders::NativeShaders(const rex::ui::vulkan::VulkanDevice* device)
   for (uint32_t i = 0; i < kScales; ++i) {
     translators_[i] = std::make_unique<SpirvShaderTranslator>(TranslatorFeatures(device), false, false, false,
                                                               scales[i].first, scales[i].second);
+    worker_translators_[i] = std::make_unique<SpirvShaderTranslator>(TranslatorFeatures(device), false, false, false,
+                                                                     scales[i].first, scales[i].second);
   }
+  background_ = std::make_unique<BackgroundJobs<Translated>>([] {
+#if REX_PLATFORM_SWITCH
+    RexSwitchSetCurrentThreadPriority(0x3B);
+#endif
+  });
   OpenCache(REXCVAR_GET(nier_shader_cache_file));
 }
 
@@ -80,6 +94,7 @@ void NativeShaders::OpenCache(const std::string& path) {
 }
 
 NativeShaders::~NativeShaders() {
+  background_.reset();
   if (cache_file_) {
     std::fclose(cache_file_);
   }
@@ -187,7 +202,8 @@ VulkanShader* NativeShaders::ShaderFor(uint64_t hash, uint32_t scale) {
 std::optional<NativeShaders::PreparedDraw> NativeShaders::PrepareDraw(const RegisterFile& regs,
                                                                        Shader::HostVertexShaderType host_type,
                                                                        uint32_t scale_x, uint32_t scale_y,
-                                                                       uint32_t position_shift) {
+                                                                       uint32_t position_shift, bool& pending) {
+  pending = false;
   if (!vertex_hash_) {
     return std::nullopt;
   }
@@ -209,18 +225,20 @@ std::optional<NativeShaders::PreparedDraw> NativeShaders::PrepareDraw(const Regi
                    : 0;
   PreparedDraw prepared{vertex_shader, nullptr, pixel_shader, nullptr,
                         pixel_shader && param_gen_pos < xenos::kMaxInterpolators};
-  prepared.vertex =
-      Translate(*translators_[0], 0, *vertex_shader,
-                VertexModification(*vertex_shader, host_type, interpolator_mask, param_gen_pos != UINT32_MAX, regs));
-  if (!prepared.vertex) {
-    return std::nullopt;
+  prepared.vertex = Translate(
+      *translators_[0], 0, *vertex_shader,
+      VertexModification(*vertex_shader, host_type, interpolator_mask, param_gen_pos != UINT32_MAX, regs), pending);
+  if (pixel_shader && (prepared.vertex || pending)) {
+    bool pixel_pending = false;
+    prepared.pixel =
+        Translate(*translators_[scale], 0x100 | scale, *pixel_shader,
+                  PixelModification(*pixel_shader, interpolator_mask, param_gen_pos, position_shift, regs),
+                  pixel_pending);
+    pending |= pixel_pending;
   }
-  if (pixel_shader) {
-    prepared.pixel = Translate(*translators_[scale], 0x100 | scale, *pixel_shader,
-                               PixelModification(*pixel_shader, interpolator_mask, param_gen_pos, position_shift, regs));
-    if (!prepared.pixel) {
-      return std::nullopt;
-    }
+  if (!prepared.vertex || (pixel_shader && !prepared.pixel)) {
+    stats_.pending_draws += pending;
+    return std::nullopt;
   }
   return prepared;
 }
@@ -294,54 +312,123 @@ void NativeShaders::Analyze(VulkanShader& shader) {
 }
 
 VulkanShader::VulkanTranslation* NativeShaders::Translate(SpirvShaderTranslator& translator, uint32_t variant,
-                                                          VulkanShader& shader,
-                                                          Modification modification) {
+                                                          VulkanShader& shader, Modification modification,
+                                                          bool& pending) {
   bool is_new = false;
   auto* translation =
       static_cast<VulkanShader::VulkanTranslation*>(shader.GetOrCreateTranslation(modification.value, &is_new));
+  const uint64_t key = XXH3_64bits_withSeed(&modification.value, sizeof(modification.value),
+                                            shader.ucode_data_hash() ^ (uint64_t(variant) << 48));
   if (!is_new) {
-    return translation->shader_module() != VK_NULL_HANDLE ? translation : nullptr;
+    if (translation->shader_module() != VK_NULL_HANDLE) {
+      return translation;
+    }
+    std::optional<Translated> done = background_->Take(key);
+    if (!done) {
+      pending = background_->Pending(key);
+      return nullptr;
+    }
+    ++stats_.background;
+    const bool ok = done->ok && Install(shader, *translation, std::move(*done));
+    Count(done->us, ok, shader, modification.value);
+    if (!ok) {
+      return nullptr;
+    }
+    Record(shader, modification.value, variant, *translation);
+    return translation;
   }
   const auto start = std::chrono::steady_clock::now();
-  std::vector<uint32_t> cached_textures, cached_samplers;
-  std::vector<uint8_t> cached_spirv;
-  bool ok;
-  if (cache_.Take(shader.ucode_data_hash(), modification.value, variant, cached_textures, cached_samplers,
-                  cached_spirv)) {
-    std::vector<SpirvShader::TextureBinding> textures(cached_textures.size());
-    std::memcpy(textures.data(), cached_textures.data(), cached_textures.size() * sizeof(uint32_t));
-    std::vector<SpirvShader::SamplerBinding> samplers(cached_samplers.size());
-    std::memcpy(samplers.data(), cached_samplers.data(), cached_samplers.size() * sizeof(uint32_t));
-    shader.SetBindingsFromCache(std::move(textures), std::move(samplers));
-    translation->SetTranslated(std::move(cached_spirv));
-    ok = translation->GetOrCreateShaderModule() != VK_NULL_HANDLE;
+  Translated cached;
+  if (cache_.Take(shader.ucode_data_hash(), modification.value, variant, cached.textures, cached.samplers,
+                  cached.spirv)) {
     ++stats_.cache_hits;
-  } else {
-    ok = translator.TranslateAnalyzedShader(*translation) && translation->GetOrCreateShaderModule() != VK_NULL_HANDLE;
-    if (ok && cache_file_) {
-      const auto& textures = shader.GetTextureBindingsAfterTranslation();
-      const auto& samplers = shader.GetSamplerBindingsAfterTranslation();
-      std::vector<uint32_t> texture_words(textures.size()), sampler_words(samplers.size());
-      std::memcpy(texture_words.data(), textures.data(), textures.size() * sizeof(uint32_t));
-      std::memcpy(sampler_words.data(), samplers.data(), samplers.size() * sizeof(uint32_t));
-      const auto record = cache_.Add(shader.ucode_data_hash(), modification.value, variant, texture_words, sampler_words,
-                                     translation->translated_binary());
-      std::fwrite(record.data(), 1, record.size(), cache_file_);
-      std::fflush(cache_file_);
-    }
+    const bool ok = Install(shader, *translation, std::move(cached));
+    Count(uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start)
+                       .count()),
+          ok, shader, modification.value);
+    return ok ? translation : nullptr;
   }
-  const auto us = uint64_t(
+  if (REXCVAR_GET(nier_async_shaders)) {
+    const auto& [type, words] = microcode_.at(shader.ucode_data_hash());
+    background_->Submit(key, [this, type = type, words = words, hash = shader.ucode_data_hash(),
+                              value = modification.value, variant] {
+      return TranslateCopy(type, words, hash, value, variant);
+    });
+    pending = true;
+    return nullptr;
+  }
+  const bool ok =
+      translator.TranslateAnalyzedShader(*translation) && translation->GetOrCreateShaderModule() != VK_NULL_HANDLE;
+  Count(uint64_t(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start)
+                     .count()),
+        ok, shader, modification.value);
+  if (!ok) {
+    return nullptr;
+  }
+  Record(shader, modification.value, variant, *translation);
+  return translation;
+}
+
+NativeShaders::Translated NativeShaders::TranslateCopy(uint32_t type, const std::vector<uint32_t>& words, uint64_t hash,
+                                                       uint64_t modification, uint32_t variant) {
+  const auto start = std::chrono::steady_clock::now();
+  VulkanShader shader(device_, xenos::ShaderType(type), hash, words.data(), words.size());
+  rex::string::StringBuffer disassembly;
+  shader.AnalyzeUcode(disassembly);
+  bool is_new = false;
+  auto* translation = static_cast<VulkanShader::VulkanTranslation*>(shader.GetOrCreateTranslation(modification, &is_new));
+  Translated result;
+  result.ok = worker_translators_[variant & 0xFF]->TranslateAnalyzedShader(*translation);
+  if (result.ok) {
+    const auto& textures = shader.GetTextureBindingsAfterTranslation();
+    const auto& samplers = shader.GetSamplerBindingsAfterTranslation();
+    result.textures.resize(textures.size());
+    result.samplers.resize(samplers.size());
+    std::memcpy(result.textures.data(), textures.data(), textures.size() * sizeof(uint32_t));
+    std::memcpy(result.samplers.data(), samplers.data(), samplers.size() * sizeof(uint32_t));
+    result.spirv = translation->translated_binary();
+  }
+  result.us = uint64_t(
       std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start).count());
+  return result;
+}
+
+bool NativeShaders::Install(VulkanShader& shader, VulkanShader::VulkanTranslation& translation, Translated translated) {
+  std::vector<SpirvShader::TextureBinding> textures(translated.textures.size());
+  std::memcpy(textures.data(), translated.textures.data(), translated.textures.size() * sizeof(uint32_t));
+  std::vector<SpirvShader::SamplerBinding> samplers(translated.samplers.size());
+  std::memcpy(samplers.data(), translated.samplers.data(), translated.samplers.size() * sizeof(uint32_t));
+  shader.SetBindingsFromCache(std::move(textures), std::move(samplers));
+  translation.SetTranslated(std::move(translated.spirv));
+  return translation.GetOrCreateShaderModule() != VK_NULL_HANDLE;
+}
+
+void NativeShaders::Record(const VulkanShader& shader, uint64_t modification, uint32_t variant,
+                           const VulkanShader::VulkanTranslation& translation) {
+  if (!cache_file_) {
+    return;
+  }
+  const auto& textures = shader.GetTextureBindingsAfterTranslation();
+  const auto& samplers = shader.GetSamplerBindingsAfterTranslation();
+  std::vector<uint32_t> texture_words(textures.size()), sampler_words(samplers.size());
+  std::memcpy(texture_words.data(), textures.data(), textures.size() * sizeof(uint32_t));
+  std::memcpy(sampler_words.data(), samplers.data(), samplers.size() * sizeof(uint32_t));
+  const auto record =
+      cache_.Add(shader.ucode_data_hash(), modification, variant, texture_words, sampler_words,
+                 translation.translated_binary());
+  std::fwrite(record.data(), 1, record.size(), cache_file_);
+  std::fflush(cache_file_);
+}
+
+void NativeShaders::Count(uint64_t us, bool ok, const VulkanShader& shader, uint64_t modification) {
   ++stats_.translations;
   stats_.translate_us += us;
   stats_.max_translate_us = std::max(stats_.max_translate_us, us);
   if (!ok) {
     ++stats_.failures;
     REXLOG_ERROR("[native] shader {:016X} modification {:016X} failed to translate", shader.ucode_data_hash(),
-                 modification.value);
-    return nullptr;
+                 modification);
   }
-  return translation;
 }
 
 }  // namespace nier::native

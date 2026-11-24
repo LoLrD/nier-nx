@@ -17,6 +17,7 @@
 #include <rex/string/buffer.h>
 #include <rex/ui/vulkan/api.h>
 
+#include "background_jobs.h"
 #include "shader_cache.h"
 #include "spirv_specialize.h"
 
@@ -35,6 +36,8 @@ class NativeShaders {
     uint64_t max_translate_us = 0;
     uint64_t specialized = 0;
     uint64_t cache_hits = 0;
+    uint64_t background = 0;
+    uint64_t pending_draws = 0;
   };
 
   struct PreparedDraw {
@@ -53,7 +56,7 @@ class NativeShaders {
   void Load(uint32_t type, const uint32_t* words_big_endian, uint32_t size_words);
   std::optional<PreparedDraw> PrepareDraw(const rex::graphics::RegisterFile& regs,
                                           rex::graphics::Shader::HostVertexShaderType host_type, uint32_t scale_x,
-                                          uint32_t scale_y, uint32_t position_shift);
+                                          uint32_t scale_y, uint32_t position_shift, bool& pending);
   VkShaderModule PixelModule(rex::graphics::vulkan::VulkanShader::VulkanTranslation& translation,
                              const rex::graphics::SpirvShaderTranslator::SystemConstants& system,
                              std::span<const uint32_t> fetch_constants, bool early_tests);
@@ -78,6 +81,14 @@ class NativeShaders {
 
   using Modification = rex::graphics::SpirvShaderTranslator::Modification;
 
+  struct Translated {
+    bool ok = false;
+    std::vector<uint32_t> textures;
+    std::vector<uint32_t> samplers;
+    std::vector<uint8_t> spirv;
+    uint64_t us = 0;
+  };
+
   Modification VertexModification(const rex::graphics::Shader& shader,
                                   rex::graphics::Shader::HostVertexShaderType host_type,
                                   uint32_t interpolator_mask, bool param_gen_used,
@@ -98,7 +109,14 @@ class NativeShaders {
   rex::graphics::vulkan::VulkanShader::VulkanTranslation* Translate(rex::graphics::SpirvShaderTranslator& translator,
                                                                     uint32_t variant,
                                                                     rex::graphics::vulkan::VulkanShader& shader,
-                                                                    Modification modification);
+                                                                    Modification modification, bool& pending);
+  Translated TranslateCopy(uint32_t type, const std::vector<uint32_t>& words, uint64_t hash, uint64_t modification,
+                           uint32_t variant);
+  bool Install(rex::graphics::vulkan::VulkanShader& shader,
+               rex::graphics::vulkan::VulkanShader::VulkanTranslation& translation, Translated translated);
+  void Record(const rex::graphics::vulkan::VulkanShader& shader, uint64_t modification, uint32_t variant,
+              const rex::graphics::vulkan::VulkanShader::VulkanTranslation& translation);
+  void Count(uint64_t us, bool ok, const rex::graphics::vulkan::VulkanShader& shader, uint64_t modification);
 
   const rex::ui::vulkan::VulkanDevice* device_;
   std::array<std::unique_ptr<rex::graphics::SpirvShaderTranslator>, kScales> translators_;
@@ -121,6 +139,8 @@ class NativeShaders {
   Stats stats_;
   ShaderCache cache_;
   std::FILE* cache_file_ = nullptr;
+  std::array<std::unique_ptr<rex::graphics::SpirvShaderTranslator>, kScales> worker_translators_;
+  std::unique_ptr<BackgroundJobs<Translated>> background_;
 };
 
 }  // namespace nier::native

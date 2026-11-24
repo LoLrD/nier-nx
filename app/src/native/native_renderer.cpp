@@ -873,9 +873,10 @@ void NativeRenderer::SyncDrawRanges(const RegisterFile& regs, const HostDraw& dr
 std::optional<NativeRenderer::DrawResult> NativeRenderer::PrepareState(const RegisterFile& regs, const HostDraw& draw,
                                                                        bool polygonal, DrawMemo& out) {
   const SampleScale scale = ScaleFor(regs.Get<reg::RB_SURFACE_INFO>().msaa_samples);
-  auto prepared = shaders_.PrepareDraw(regs, draw.vs_type, scale.x, scale.y, 0);
+  bool shader_pending = false;
+  auto prepared = shaders_.PrepareDraw(regs, draw.vs_type, scale.x, scale.y, 0, shader_pending);
   if (!prepared) {
-    ++stats_.skipped_shader;
+    ++(shader_pending ? stats_.skipped_pending : stats_.skipped_shader);
     return DrawResult::kDone;
   }
   const uint32_t color_mask = draw_util::GetNormalizedColorMask(
@@ -933,9 +934,9 @@ std::optional<NativeRenderer::DrawResult> NativeRenderer::PrepareState(const Reg
   const uint32_t shift =
       DownscaleFor(targets, prepared->pixel_shader && prepared->pixel_shader->writes_depth());
   if (shift && prepared->pixel_position) {
-    prepared = shaders_.PrepareDraw(regs, draw.vs_type, scale.x, scale.y, shift);
+    prepared = shaders_.PrepareDraw(regs, draw.vs_type, scale.x, scale.y, shift, shader_pending);
     if (!prepared) {
-      ++stats_.skipped_shader;
+      ++(shader_pending ? stats_.skipped_pending : stats_.skipped_shader);
       return DrawResult::kDone;
     }
   }
@@ -1621,10 +1622,12 @@ std::string NativeRenderer::Report() {
                       p.saved_bytes >> 10);
   reported_pipelines_ = p;
   const NativeShaders::Stats& sh = shaders_.stats();
-  line += fmt::format("; shaders translated {} in {} ms (max {} ms), {} from the cache",
+  line += fmt::format("; shaders translated {} in {} ms (max {} ms), {} from the cache, {} in the background, {} "
+                      "draws waited",
                       sh.translations - reported_shaders_.translations,
                       (sh.translate_us - reported_shaders_.translate_us) / 1000, sh.max_translate_us / 1000,
-                      sh.cache_hits - reported_shaders_.cache_hits);
+                      sh.cache_hits - reported_shaders_.cache_hits, sh.background - reported_shaders_.background,
+                      sh.pending_draws - reported_shaders_.pending_draws);
   reported_shaders_ = sh;
   line += fmt::format("; fsr {} runs, gpu level {}, reduced scene frames {}", upscale_->runs() - reported_upscale_runs_,
                       gpu_governor_.level(), s.reduced_scene_frames - r.reduced_scene_frames);
