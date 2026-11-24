@@ -1,6 +1,8 @@
 #pragma once
 
+#include <algorithm>
 #include <chrono>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -10,6 +12,7 @@
 #include <string>
 #include <system_error>
 #include <thread>
+#include <vector>
 
 #include <rex/cvar.h>
 #include <rex/filesystem.h>
@@ -17,6 +20,7 @@
 #include <rex/filesystem/entry.h>
 #include <rex/input/input_system.h>
 #include <rex/kernel/xboxkrnl/video.h>
+#include <rex/logging.h>
 #include <rex/memory.h>
 #include <rex/rex_app.h>
 #include <rex/system/interfaces/graphics.h>
@@ -32,6 +36,10 @@
 
 REXCVAR_DECLARE(std::string, nier_input_script);
 REXCVAR_DECLARE(std::string, nier_renderer);
+REXCVAR_DECLARE(std::string, nier_control_file);
+REXCVAR_DECLARE(std::string, nier_ab_flag);
+REXCVAR_DECLARE(std::string, nier_ab_values);
+REXCVAR_DECLARE(int32_t, nier_ab_period_s);
 
 class NierApp : public rex::ReXApp {
  public:
@@ -139,11 +147,12 @@ class NierApp : public rex::ReXApp {
   }
 
   void WatchControlFile() {
-    const char* path = std::getenv("NIER_CONTROL_FILE");
-    if (!path) {
+    const char* env = std::getenv("NIER_CONTROL_FILE");
+    const std::string path = env ? env : REXCVAR_GET(nier_control_file);
+    if (path.empty()) {
       return;
     }
-    control_thread_ = std::jthread([this, file = std::string(path)](std::stop_token stop) {
+    control_thread_ = std::jthread([this, file = path](std::stop_token stop) {
       std::string applied;
       while (!stop.stop_requested()) {
         std::ifstream in(file);
@@ -168,8 +177,32 @@ class NierApp : public rex::ReXApp {
     });
   }
 
+  void RunAbSchedule() {
+    const std::string flag = REXCVAR_GET(nier_ab_flag);
+    std::vector<std::string> values = SplitNierValues(REXCVAR_GET(nier_ab_values));
+    if (flag.empty() || values.empty()) {
+      return;
+    }
+    const uint64_t period_ms = uint64_t(std::max(1, REXCVAR_GET(nier_ab_period_s))) * 1000;
+    ab_thread_ = std::jthread([flag, values = std::move(values), period_ms](std::stop_token stop) {
+      const auto start = std::chrono::steady_clock::now();
+      size_t applied = values.size();
+      while (!stop.stop_requested()) {
+        const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start);
+        const size_t index = NierAbIndex(uint64_t(elapsed.count()), period_ms, values.size());
+        if (index != applied) {
+          rex::cvar::SetFlagByName(flag, values[index]);
+          REXLOG_INFO("[ab] {} = {}", flag, values[index]);
+          applied = index;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      }
+    });
+  }
+
   void OnPostSetup() override {
     WatchControlFile();
+    RunAbSchedule();
     SetGuestFrameStats([this] {
       const auto sample = fps_meter_.Update(rex::kernel::xboxkrnl::GuestSwapCount(), std::chrono::steady_clock::now());
       return rex::ui::FrameStats{sample.frame_time_ms, sample.fps, sample.frames};
@@ -189,4 +222,5 @@ class NierApp : public rex::ReXApp {
  private:
   NierFpsMeter fps_meter_;
   std::jthread control_thread_;
+  std::jthread ab_thread_;
 };

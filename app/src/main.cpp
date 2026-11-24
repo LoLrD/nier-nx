@@ -23,5 +23,13 @@ const bool kArgvByDefault = [] {
 #endif
 
 REXCVAR_DEFINE_STRING(nier_input_script, "", "NieR", "TSV of scripted pad presses: <ms>\\t<BUTTON+BUTTON>\\t<ms held>");
+REXCVAR_DEFINE_STRING(nier_control_file, "", "NieR",
+                      "File read every 0.3 s for 'cvar = value' lines (NIER_CONTROL_FILE wins); on the Switch for "
+                      "example sdmc:/switch/nier/control.txt");
+REXCVAR_DEFINE_STRING(nier_ab_flag, "", "NieR",
+                      "A/B inside one run: this cvar cycles through nier_ab_values, nier_ab_period_s seconds each; "
+                      "every switch is logged as '[ab] <cvar> = <value>'");
+REXCVAR_DEFINE_STRING(nier_ab_values, "true,false", "NieR", "Comma-separated values nier_ab_flag cycles through");
+REXCVAR_DEFINE_INT32(nier_ab_period_s, 20, "NieR", "Seconds each value of nier_ab_values stays set");
 
 REX_DEFINE_APP(nier, NierApp::Create)
