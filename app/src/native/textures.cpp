@@ -21,8 +21,15 @@
 
 #include "vk_recorder.h"
 
+#if REX_PLATFORM_SWITCH
+extern "C" void RexSwitchSetCurrentThreadPriority(int priority);
+#endif
+
 REXCVAR_DEFINE_INT32(nier_texture_budget_mb, 448, "NieR",
                      "Native renderer: texture memory the cache keeps before evicting textures unused for a second");
+REXCVAR_DEFINE_BOOL(nier_background_textures, true, "NieR",
+                    "Native renderer: decode new textures of 64 KB and more on a worker thread; the draw sees an "
+                    "empty texture until it is ready instead of the render thread stalling");
 REXCVAR_DEFINE_BOOL(nier_texture_arena, true, "NieR",
                     "Native renderer: place textures up to 8 MB in shared 32 MB memory blocks instead of one "
                     "allocation each (an allocation costs ~2 ms of CPU on the Switch)");
@@ -70,6 +77,11 @@ VkImageViewType ViewType(xenos::FetchOpDimension dimension) {
 
 Textures::Textures(const vk::VulkanDevice* device, const uint8_t* physical_base, vk::VulkanUploadBufferPool& staging)
     : device_(device), physical_base_(physical_base), staging_(staging) {
+  background_ = std::make_unique<BackgroundJobs<BackgroundLoad>>([] {
+#if REX_PLATFORM_SWITCH
+    RexSwitchSetCurrentThreadPriority(0x3B);
+#endif
+  });
   const auto& dfn = Vk(device_);
   const VkDevice d = device_->device();
   auto make = [&](VkImageType type, uint32_t layers, VkImageCreateFlags flags) {
@@ -106,6 +118,7 @@ Textures::Textures(const vk::VulkanDevice* device, const uint8_t* physical_base,
 }
 
 Textures::~Textures() {
+  background_.reset();
   for (auto& [key, texture] : textures_) {
     Destroy(texture.image);
   }
@@ -313,20 +326,57 @@ Textures::Binding Textures::View(VkCommandBuffer upload, const xenos::xe_gpu_tex
       ++stats_.unsupported;
       return result;
     }
-    if (cards_enabled_ || reason != UploadReason::kChanged) {
-      Reset(content, ContentSpans(fetch));
-    }
-    const TextureFootprint footprint = FootprintOf(fetch);
+    TextureFootprint footprint = FootprintOf(fetch);
     uint64_t cards_serial = 0;
-    if (cards_enabled_) {
-      TakeCards(footprint, card_serial_);
-      cards_serial = card_serial_;
+    std::optional<LoadedTexture> loaded;
+    if (REXCVAR_GET(nier_background_textures) && reason != UploadReason::kChanged &&
+        shape->bytes >= kBackgroundMinBytes) {
+      std::optional<BackgroundLoad> done = background_->Take(key);
+      if (!done) {
+        if (!background_->Pending(key)) {
+          if (cards_enabled_) {
+            TakeCards(footprint, card_serial_);
+          }
+          background_starts_[key] = {card_serial_, footprint, reason};
+          background_->Submit(key, [this, fetch] {
+            BackgroundLoad load;
+            load.loaded = LoadTexture(fetch, physical_base_);
+            const auto spans = ContentSpans(fetch);
+            load.hashed_bytes = load.content.Reset(spans);
+            return load;
+          });
+          ++stats_.background_loads;
+        }
+        ++stats_.background_waits;
+        return result;
+      }
+      const auto start_it = background_starts_.find(key);
+      const BackgroundStart start = start_it->second;
+      background_starts_.erase(start_it);
+      content = std::move(done->content);
+      stats_.hashed_bytes += done->hashed_bytes;
+      loaded = std::move(done->loaded);
+      footprint = start.footprint;
+      cards_serial = cards_enabled_ ? start.cards_serial : 0;
+      reason = start.reason;
+      if (!loaded) {
+        ++stats_.unsupported;
+        return result;
+      }
+    } else {
+      if (cards_enabled_ || reason != UploadReason::kChanged) {
+        Reset(content, ContentSpans(fetch));
+      }
+      if (cards_enabled_) {
+        TakeCards(footprint, card_serial_);
+        cards_serial = card_serial_;
+      }
+      loaded = LoadTexture(fetch, physical_base_);
     }
     const Image image = AcquireImage(*shape);
     if (image.image == VK_NULL_HANDLE) {
       return OutOfMemory(key, result);
     }
-    const auto loaded = LoadTexture(fetch, physical_base_);
     if (!Upload(upload, image, *loaded, submission)) {
       RetireImage(image, submission, shape->bytes, ShapeKey(*shape));
       return OutOfMemory(key, result);

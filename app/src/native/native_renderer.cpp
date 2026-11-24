@@ -885,6 +885,7 @@ std::optional<NativeRenderer::DrawResult> NativeRenderer::PrepareState(const Reg
   bool out_of_memory = false;
   upscale_target_width_ =
       REXCVAR_GET(nier_fsr) && targets.color[0] && !targets.depth ? ExtentFor(*targets.color[0]).width : 0;
+  const uint64_t texture_waits = textures_->stats().background_waits;
   const VkDescriptorSet vs_set =
       BindTextures(regs, *prepared->vertex_shader, false, texture_info, vs_textures, vs_samplers, out_of_memory);
   if (vs_set == VK_NULL_HANDLE) {
@@ -972,7 +973,7 @@ std::optional<NativeRenderer::DrawResult> NativeRenderer::PrepareState(const Reg
   registers_.BeginStateJournal();
   out.submission = submissions_->current();
   out.swaps = stats_.swaps;
-  out.valid = !Tracing();
+  out.valid = !Tracing() && textures_->stats().background_waits == texture_waits;
   return std::nullopt;
 }
 
@@ -1554,6 +1555,8 @@ std::string NativeRenderer::Report() {
   reported_upscale_runs_ = upscale_->runs();
   line += fmt::format("; silent draws skipped {}", s.skipped_silent - r.skipped_silent);
   line += fmt::format("; draw memo hits {}, mismatches {}", s.memo_hits - r.memo_hits, s.memo_mismatches - r.memo_mismatches);
+  line += fmt::format("; background textures {} started, {} draws waited", t.background_loads - reported_textures_.background_loads,
+                      t.background_waits - reported_textures_.background_waits);
   line += fmt::format("; slow frames {} of {} (worst {:.0f} ms): ring busy {}, gpu wait {}, texture uploads {}, other {}",
                       slow_frames_.slow, slow_frames_.frames, slow_frames_.worst_ms, slow_frames_.ring,
                       slow_frames_.gpu, slow_frames_.uploads, slow_frames_.other);

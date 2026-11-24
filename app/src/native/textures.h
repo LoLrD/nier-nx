@@ -14,6 +14,7 @@
 #include <rex/ui/vulkan/api.h>
 
 #include "arena_ranges.h"
+#include "background_jobs.h"
 #include "phased_hash.h"
 #include "resolve_plan.h"
 #include "store_cards.h"
@@ -71,10 +72,13 @@ class Textures {
     uint64_t cards_unchanged = 0;
     uint64_t arena_images = 0;
     uint64_t dedicated_images = 0;
+    uint64_t background_loads = 0;
+    uint64_t background_waits = 0;
   };
   static constexpr size_t kTopUploads = 5;
   static constexpr uint64_t kArenaBlockBytes = 32ull << 20;
   static constexpr uint64_t kArenaLargestImage = 8ull << 20;
+  static constexpr uint32_t kBackgroundMinBytes = 64 << 10;
 
   Textures(const rex::ui::vulkan::VulkanDevice* device, const uint8_t* physical_base,
            rex::ui::vulkan::VulkanUploadBufferPool& staging);
@@ -215,7 +219,20 @@ class Textures {
   ArenaRanges arena_{kArenaBlockBytes};
   std::vector<VkDeviceMemory> arena_blocks_;
   uint32_t arena_memory_type_ = UINT32_MAX;
+  struct BackgroundLoad {
+    std::optional<LoadedTexture> loaded;
+    PhasedHash content;
+    uint64_t hashed_bytes = 0;
+  };
+  struct BackgroundStart {
+    uint64_t cards_serial;
+    TextureFootprint footprint;
+    UploadReason reason;
+  };
+
   Stats stats_;
+  std::unordered_map<uint64_t, BackgroundStart> background_starts_;
+  std::unique_ptr<BackgroundJobs<BackgroundLoad>> background_;
 };
 
 }  // namespace nier::native

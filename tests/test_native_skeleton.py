@@ -110,6 +110,9 @@ class NativeSkeletonTest(unittest.TestCase):
     def test_shader_cache(self) -> None:
         self.check("shader_cache", ["shader_cache.cpp"])
 
+    def test_background_jobs(self) -> None:
+        self.check("background_jobs", [])
+
     def test_texture_loader(self) -> None:
         self.check("texture_loader", ["texture_loader.cpp"], link_sdk=True)
 
