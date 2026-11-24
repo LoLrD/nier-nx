@@ -1,5 +1,4 @@
 #include "textures.h"
-#include "vk_recorder.h"
 
 #include <algorithm>
 #include <array>
@@ -10,6 +9,7 @@
 
 #include <fmt/format.h>
 
+#include <rex/cvar.h>
 #include <rex/graphics/pipeline/texture/cache.h>
 #include <rex/graphics/pipeline/texture/util.h>
 #include <rex/hash.h>
@@ -18,6 +18,11 @@
 #include <rex/ui/vulkan/upload_buffer_pool.h>
 #include <rex/ui/vulkan/util.h>
 
+#include "vk_recorder.h"
+
+REXCVAR_DEFINE_INT32(nier_texture_budget_mb, 448, "NieR",
+                     "Native renderer: texture memory the cache keeps before evicting textures unused for a second");
+
 namespace nier::native {
 
 using namespace rex::graphics;
@@ -25,7 +30,6 @@ namespace vk = rex::ui::vulkan;
 
 namespace {
 
-constexpr uint64_t kTextureBudgetBytes = 256ull << 20;
 constexpr uint64_t kFreeImageBytes = 48ull << 20;
 constexpr uint64_t kMinAgeMs = 1000;
 constexpr uint64_t kFailedRetryMs = 2000;
@@ -618,13 +622,14 @@ Textures::Image Textures::AcquireImage(const TextureShape& shape) {
 }
 
 void Textures::EnforceBudget() {
-  while (active_bytes_ + free_bytes_ > kTextureBudgetBytes && !free_images_.empty()) {
+  const uint64_t budget = uint64_t(std::max(64, REXCVAR_GET(nier_texture_budget_mb))) << 20;
+  while (active_bytes_ + free_bytes_ > budget && !free_images_.empty()) {
     auto it = free_images_.begin();
     Destroy(it->second.image);
     free_bytes_ -= it->second.bytes;
     free_images_.erase(it);
   }
-  EvictOldest(kTextureBudgetBytes);
+  EvictOldest(budget);
 }
 
 void Textures::EvictOldest(uint64_t budget) {
