@@ -26,6 +26,9 @@ REXCVAR_DEFINE_BOOL(vulkan_native_shader_features, false, "UI/Vulkan",
                     "Enable available capabilities for the experimental native shaders")
     .lifecycle(rex::cvar::Lifecycle::kInitOnly);
 
+REXCVAR_DEFINE_BOOL(vulkan_robust_buffer_access, true, "UI/Vulkan",
+                    "Enable robustBufferAccess for GPU emulation (bounds checks on every buffer access in shaders); "
+                    "a renderer that keeps its own addresses in range can turn it off");
 REXCVAR_DEFINE_BOOL(vulkan_pipeline_statistics, false, "UI/Vulkan",
                     "Enable VK_KHR_pipeline_executable_properties to read compiler statistics and "
                     "assembly of pipelines")
@@ -657,8 +660,10 @@ std::unique_ptr<VulkanDevice> VulkanDevice::CreateIfSupported(
   XE_UI_VULKAN_LIMIT(optimalBufferCopyRowPitchAlignment)
   XE_UI_VULKAN_LIMIT(nonCoherentAtomSize)
 
-  if (with_gpu_emulation) {
+  if (with_gpu_emulation && REXCVAR_GET(vulkan_robust_buffer_access)) {
     XE_UI_VULKAN_FEATURE(robustBufferAccess)
+  }
+  if (with_gpu_emulation) {
     XE_UI_VULKAN_FEATURE(fullDrawIndexUint32)
     XE_UI_VULKAN_FEATURE(independentBlend)
     XE_UI_VULKAN_FEATURE(geometryShader)

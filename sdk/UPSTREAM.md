@@ -105,3 +105,5 @@ code generator and runtime changes of masseffect-nx. The third-party sources are
   1 MB table at guest address 0) after every guest store whose base register is not r1, plus after vector stores,
   `dcbz` and store-conditional; stack stores use the `REX_STORE_NC_*` macros. `Memory` reserves the table and
   `Memory::MarkStoreCards` marks host writes (file reads, physical heap callbacks).
+- `src/ui/vulkan/vulkan_device.cpp`: `vulkan_robust_buffer_access` (default on) gates `robustBufferAccess`; the NieR
+  native renderer keeps its shared-memory addresses inside the 512 MB buffer and turns it off on the Switch.
