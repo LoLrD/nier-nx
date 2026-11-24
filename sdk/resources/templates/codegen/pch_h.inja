@@ -149,10 +149,32 @@ extern PPCFuncMapping PPCFuncMappings[];
 #define REX_LOAD_STRING(x, len) \
   std::string_view(reinterpret_cast<const char*>(base + (u32)(x) + REX_PHYS_HOST_OFFSET(x)), (len))
 
-#define REX_STORE_U8(x, y)  (*(volatile u8*)(base + (u32)(x) + REX_PHYS_HOST_OFFSET(x)) = (y))
-#define REX_STORE_U16(x, y) (*(volatile u16*)(base + (u32)(x) + REX_PHYS_HOST_OFFSET(x)) = __builtin_bswap16(y))
-#define REX_STORE_U32(x, y) (*(volatile u32*)(base + (u32)(x) + REX_PHYS_HOST_OFFSET(x)) = __builtin_bswap32(y))
-#define REX_STORE_U64(x, y) (*(volatile u64*)(base + (u32)(x) + REX_PHYS_HOST_OFFSET(x)) = __builtin_bswap64(y))
+#define REX_STORE_NC_U8(x, y)  (*(volatile u8*)(base + (u32)(x) + REX_PHYS_HOST_OFFSET(x)) = (y))
+#define REX_STORE_NC_U16(x, y) (*(volatile u16*)(base + (u32)(x) + REX_PHYS_HOST_OFFSET(x)) = __builtin_bswap16(y))
+#define REX_STORE_NC_U32(x, y) (*(volatile u32*)(base + (u32)(x) + REX_PHYS_HOST_OFFSET(x)) = __builtin_bswap32(y))
+#define REX_STORE_NC_U64(x, y) (*(volatile u64*)(base + (u32)(x) + REX_PHYS_HOST_OFFSET(x)) = __builtin_bswap64(y))
+
+// Store cards (REX_STORE_CARDS): every guest store outside the stack clears the byte of its 4 KB page in a 1 MB
+// table at guest address 0, so a consumer of guest memory learns which pages changed without hashing them.
+#if defined(REX_STORE_CARDS)
+#define REX_CARD(x) (*(u8*)(base + ((u32)(x) >> 12)) = 0)
+#define REX_CARDED_STORE(store, x, y) \
+  do {                                \
+    const u32 _card_ea = (u32)(x);    \
+    store(_card_ea, y);               \
+    REX_CARD(_card_ea);               \
+  } while (0)
+#define REX_STORE_U8(x, y) REX_CARDED_STORE(REX_STORE_NC_U8, x, y)
+#define REX_STORE_U16(x, y) REX_CARDED_STORE(REX_STORE_NC_U16, x, y)
+#define REX_STORE_U32(x, y) REX_CARDED_STORE(REX_STORE_NC_U32, x, y)
+#define REX_STORE_U64(x, y) REX_CARDED_STORE(REX_STORE_NC_U64, x, y)
+#else
+#define REX_CARD(x) ((void)0)
+#define REX_STORE_U8(x, y) REX_STORE_NC_U8(x, y)
+#define REX_STORE_U16(x, y) REX_STORE_NC_U16(x, y)
+#define REX_STORE_U32(x, y) REX_STORE_NC_U32(x, y)
+#define REX_STORE_U64(x, y) REX_STORE_NC_U64(x, y)
+#endif
 
 // Mass Effect diet (codegen option dform_disp_split): D-form accesses pass the register and the signed
 // displacement apart, so the address is base + zext(reg) + disp (one add shared by neighbouring accesses, the
@@ -174,10 +196,10 @@ extern PPCFuncMapping PPCFuncMappings[];
 #define REX_LOAD_D_U16(r, d) __builtin_bswap16(*(volatile u16*)REX_ADDR_D(r, d))
 #define REX_LOAD_D_U32(r, d) __builtin_bswap32(*(volatile u32*)REX_ADDR_D(r, d))
 #define REX_LOAD_D_U64(r, d) __builtin_bswap64(*(volatile u64*)REX_ADDR_D(r, d))
-#define REX_STORE_D_U8(r, d, y) (*(volatile u8*)REX_ADDR_D(r, d) = (y))
-#define REX_STORE_D_U16(r, d, y) (*(volatile u16*)REX_ADDR_D(r, d) = __builtin_bswap16(y))
-#define REX_STORE_D_U32(r, d, y) (*(volatile u32*)REX_ADDR_D(r, d) = __builtin_bswap32(y))
-#define REX_STORE_D_U64(r, d, y) (*(volatile u64*)REX_ADDR_D(r, d) = __builtin_bswap64(y))
+#define REX_STORE_D_U8(r, d, y) ((*(volatile u8*)REX_ADDR_D(r, d) = (y)), REX_CARD((u32)(r) + (d)))
+#define REX_STORE_D_U16(r, d, y) ((*(volatile u16*)REX_ADDR_D(r, d) = __builtin_bswap16(y)), REX_CARD((u32)(r) + (d)))
+#define REX_STORE_D_U32(r, d, y) ((*(volatile u32*)REX_ADDR_D(r, d) = __builtin_bswap32(y)), REX_CARD((u32)(r) + (d)))
+#define REX_STORE_D_U64(r, d, y) ((*(volatile u64*)REX_ADDR_D(r, d) = __builtin_bswap64(y)), REX_CARD((u32)(r) + (d)))
 #endif
 
 #define REX_MEMORY_SIZE 0x100000000ull
@@ -196,6 +218,7 @@ extern PPCFuncMapping PPCFuncMappings[];
                                                               static_cast<u32>(val));      \
     } else {                                                                               \
       *(volatile u8*)(base + _mmio_addr + REX_PHYS_HOST_OFFSET(_mmio_addr)) = (val);       \
+      REX_CARD(_mmio_addr);                                                                \
     }                                                                                      \
   } while (0)
 
@@ -208,6 +231,7 @@ extern PPCFuncMapping PPCFuncMappings[];
     } else {                                                                               \
       *(volatile u16*)(base + _mmio_addr + REX_PHYS_HOST_OFFSET(_mmio_addr)) =             \
           __builtin_bswap16(val);                                                          \
+      REX_CARD(_mmio_addr);                                                                \
     }                                                                                      \
   } while (0)
 
@@ -220,6 +244,7 @@ extern PPCFuncMapping PPCFuncMappings[];
     } else {                                                                               \
       *(volatile u32*)(base + _mmio_addr + REX_PHYS_HOST_OFFSET(_mmio_addr)) =             \
           __builtin_bswap32(val);                                                          \
+      REX_CARD(_mmio_addr);                                                                \
     }                                                                                      \
   } while (0)
 
@@ -235,6 +260,7 @@ extern PPCFuncMapping PPCFuncMappings[];
     } else {                                                                                      \
       *(volatile u64*)(base + _mmio_addr + REX_PHYS_HOST_OFFSET(_mmio_addr)) =                    \
           __builtin_bswap64(val);                                                                 \
+      REX_CARD(_mmio_addr);                                                                       \
     }                                                                                             \
   } while (0)
 

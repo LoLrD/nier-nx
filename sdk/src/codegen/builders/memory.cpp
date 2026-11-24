@@ -388,7 +388,8 @@ bool build_stmw(BuilderContext& ctx) {
   else
     ctx.println("\t{} = {};", ctx.ea(), offset);
   for (uint32_t i = rS; i <= 31; ++i) {
-    ctx.println("\tREX_STORE_U32({} + {}, {}.u32);", ctx.ea(), (i - rS) * 4, ctx.r(i));
+    ctx.println("\t{}({} + {}, {}.u32);", BuilderContext::stack_store("REX_STORE_U32", rA), ctx.ea(), (i - rS) * 4,
+                ctx.r(i));
   }
   return true;
 }
@@ -447,7 +448,7 @@ bool build_stdux(BuilderContext& ctx) {
 bool build_stfd(BuilderContext& ctx) {
   ctx.emit_set_flush_mode(false);
   const bool mmio = ctx.mmio_check_d_form();
-  std::string macro = mmio ? "REX_MM_STORE_U64" : "REX_STORE_U64";
+  std::string macro = mmio ? "REX_MM_STORE_U64" : BuilderContext::stack_store("REX_STORE_U64", ctx.insn.operands[2]);
   const std::string args = ctx.d_form_args(macro, mmio);
   ctx.println("\t{}({}, {}.u64);", macro, args, ctx.f(ctx.insn.operands[0]));
   return true;
@@ -485,7 +486,7 @@ bool build_stfs(BuilderContext& ctx) {
   ctx.emit_set_flush_mode(false);
   ctx.println("\t{}.f32 = float({}.f64);", ctx.temp(), ctx.f(ctx.insn.operands[0]));
   const bool mmio = ctx.mmio_check_d_form();
-  std::string macro = mmio ? "REX_MM_STORE_U32" : "REX_STORE_U32";
+  std::string macro = mmio ? "REX_MM_STORE_U32" : BuilderContext::stack_store("REX_STORE_U32", ctx.insn.operands[2]);
   const std::string args = ctx.d_form_args(macro, mmio);
   ctx.println("\t{}({}, {}.u32);", macro, args, ctx.temp());
   return true;
@@ -506,7 +507,8 @@ bool build_stfdu(BuilderContext& ctx) {
   ctx.emit_set_flush_mode(false);
   ctx.println("\t{} = {} + {}.u32;", ctx.ea(), static_cast<int32_t>(ctx.insn.operands[1]),
               ctx.r(ctx.insn.operands[2]));
-  ctx.println("\tREX_STORE_U64({}, {}.u64);", ctx.ea(), ctx.f(ctx.insn.operands[0]));
+  ctx.println("\t{}({}, {}.u64);", BuilderContext::stack_store("REX_STORE_U64", ctx.insn.operands[2]), ctx.ea(),
+              ctx.f(ctx.insn.operands[0]));
   ctx.println("\t{}.u32 = {};", ctx.r(ctx.insn.operands[2]), ctx.ea());
   return true;
 }
@@ -517,7 +519,8 @@ bool build_stfsu(BuilderContext& ctx) {
   ctx.println("\t{} = {} + {}.u32;", ctx.ea(), static_cast<int32_t>(ctx.insn.operands[1]),
               ctx.r(ctx.insn.operands[2]));
   ctx.println("\t{}.f32 = float({}.f64);", ctx.temp(), ctx.f(ctx.insn.operands[0]));
-  ctx.println("\tREX_STORE_U32({}, {}.u32);", ctx.ea(), ctx.temp());
+  ctx.println("\t{}({}, {}.u32);", BuilderContext::stack_store("REX_STORE_U32", ctx.insn.operands[2]), ctx.ea(),
+              ctx.temp());
   ctx.println("\t{}.u32 = {};", ctx.r(ctx.insn.operands[2]), ctx.ea());
   return true;
 }
@@ -647,6 +650,7 @@ bool build_stvx(BuilderContext& ctx) {
       "simde_mm_shuffle_epi8(simde_mm_load_si128((simde__m128i*){}.u8), "
       "simde_mm_load_si128((simde__m128i*)VectorMaskL)));",
       ctx.ea(), ctx.v(ctx.insn.operands[0]));
+  ctx.println("\tREX_CARD({});", ctx.ea());
   return true;
 }
 

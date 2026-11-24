@@ -173,6 +173,7 @@ X_STATUS XFile::ReadInternal(uint32_t buffer_guest_address, uint32_t buffer_leng
                                             : memory()->TranslateVirtual(buffer_guest_address),
                                         bytes_read));
             }
+            memory()->MarkStoreCards(buffer_guest_address, uint32_t(bytes_read));
             if (buffer_physical_heap) {
               buffer_physical_heap->TriggerCallbacks(
                   rex::thread::global_critical_region::AcquireDirect(), buffer_guest_address,

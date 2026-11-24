@@ -546,6 +546,13 @@ void BuilderContext::emit_vec_var_shift(const char* shift_dir, const char* eleme
 // Memory (Load/Store) Code Generation Helpers
 //=============================================================================
 
+std::string BuilderContext::stack_store(std::string macro, uint32_t base_reg) {
+  if (base_reg == 1 && macro.rfind("REX_STORE_U", 0) == 0) {
+    macro.insert(10, "NC_");
+  }
+  return macro;
+}
+
 std::string BuilderContext::d_form_args(std::string& macro, bool mmio) {
   const uint32_t rA = insn.operands[2];
   const int32_t disp = static_cast<int32_t>(insn.operands[1]);
@@ -606,6 +613,7 @@ void BuilderContext::emit_store_d_form(const char* store_macro, const char* src_
     if (strncmp(store_macro, "REX_STORE_", 10) == 0)
       macro = std::string("REX_MM_STORE_") + (store_macro + 10);
   }
+  macro = stack_store(macro, insn.operands[2]);
   const std::string args = d_form_args(macro, mmio);
   println("\t{}({}, {}.{});", macro, args, r(insn.operands[0]), src_type);
 }
@@ -624,7 +632,7 @@ void BuilderContext::emit_store_x_form(const char* store_macro, const char* src_
     }
   }
 
-  print("\t{}(", macro);
+  print("\t{}(", stack_store(macro, insn.operands[1]));
   if (insn.operands[1] != 0)
     print("{}.u32 + ", r(insn.operands[1]));
   println("{}.u32, {}.{});", r(insn.operands[2]), r(insn.operands[0]), src_type);

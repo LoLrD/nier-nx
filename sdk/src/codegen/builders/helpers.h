@@ -222,7 +222,8 @@ inline void emitStoreWithUpdate(BuilderContext& ctx, const char* store_macro, co
   ctx.println("\t{} = {} + {}.u32;", ctx.ea(), static_cast<int32_t>(ctx.insn.operands[1]),
               ctx.r(ctx.insn.operands[2]));
   // MEM[EA] = rS
-  ctx.println("\t{}({}, {}.{});", store_macro, ctx.ea(), ctx.r(ctx.insn.operands[0]), field);
+  ctx.println("\t{}({}, {}.{});", BuilderContext::stack_store(store_macro, ctx.insn.operands[2]), ctx.ea(),
+              ctx.r(ctx.insn.operands[0]), field);
   // rA = EA (update)
   ctx.println("\t{}.u32 = {};", ctx.r(ctx.insn.operands[2]), ctx.ea());
 }
@@ -242,8 +243,10 @@ inline void emitStoreXFormWithUpdate(BuilderContext& ctx, const char* store_macr
                                      const char* mmio_macro, const char* field) {
   ctx.println("\t{} = {}.u32 + {}.u32;", ctx.ea(), ctx.r(ctx.insn.operands[1]),
               ctx.r(ctx.insn.operands[2]));
-  ctx.println("\t{}({}, {}.{});", ctx.mmio_check_x_form() ? mmio_macro : store_macro, ctx.ea(),
-              ctx.r(ctx.insn.operands[0]), field);
+  ctx.println("\t{}({}, {}.{});",
+              ctx.mmio_check_x_form() ? std::string(mmio_macro)
+                                      : BuilderContext::stack_store(store_macro, ctx.insn.operands[1]),
+              ctx.ea(), ctx.r(ctx.insn.operands[0]), field);
   ctx.println("\t{}.u32 = {};", ctx.r(ctx.insn.operands[1]), ctx.ea());
 }
 
@@ -309,6 +312,7 @@ inline void emitAtomicStoreConditional(BuilderContext& ctx, const char* ptr_type
       "{}.{}, {}({}.{}));",
       ctx.cr(0), ptr_type, ctx.ea(), ctx.reserved(), field, bswap_func, ctx.r(ctx.insn.operands[0]),
       field);
+  ctx.println("\tREX_CARD({});", ctx.ea());
   ctx.println("\t{}.so = {}.so;", ctx.cr(0), ctx.xer());
 }
 

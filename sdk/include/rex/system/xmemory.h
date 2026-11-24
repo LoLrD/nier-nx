@@ -397,6 +397,10 @@ class Memory {
   // This is often something like 0x100000000.
   inline uint8_t* virtual_membase() const { return virtual_membase_; }
 
+  // With REX_STORE_CARDS, clears the store card of every 4 KB guest page in the range (see the generated
+  // REX_CARD): host code that writes guest memory calls it so card readers see the change.
+  void MarkStoreCards(uint32_t guest_address, uint32_t length) const;
+
   // Translates a guest virtual address to a host address that can be accessed
   // as a normal pointer.
   // Note that the contents at the specified host address are big-endian.

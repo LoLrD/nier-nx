@@ -99,3 +99,7 @@ code generator and runtime changes of masseffect-nx. The third-party sources are
 - `include/rex/ppc/context.h`: with `REX_PPC_FIXED_FLUSH_MODE` defined, `enableFlushMode`/`disableFlushMode` and their
   `Unconditional` variants do nothing, so recompiled code keeps one denormal mode instead of writing the FP control register at every switch
   between scalar and vector arithmetic. NieR defines it: the switches were about a third of the guest CPU time.
+- Store cards (`REX_STORE_CARDS`): the code generator emits a card mark (`REX_CARD`, one byte per 4 KB guest page in a
+  1 MB table at guest address 0) after every guest store whose base register is not r1, plus after vector stores,
+  `dcbz` and store-conditional; stack stores use the `REX_STORE_NC_*` macros. `Memory` reserves the table and
+  `Memory::MarkStoreCards` marks host writes (file reads, physical heap callbacks).

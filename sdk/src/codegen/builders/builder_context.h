@@ -354,6 +354,7 @@ struct BuilderContext {
    *        result is "rA.u32 + D" ("D" when rA == 0).
    */
   std::string d_form_args(std::string& macro, bool mmio);
+  static std::string stack_store(std::string macro, uint32_t base_reg);
 
   /**
    * @brief Emit load with X-form addressing: rD = LOAD(rA + rB)
