@@ -103,6 +103,7 @@ class RenderTargets {
   VkSampler convert_sampler_ = VK_NULL_HANDLE;
   std::unordered_map<uint64_t, VkDescriptorSet> convert_sets_;
   EdramOwnership edram_;
+  std::vector<ForeignTile> foreign_;
   std::vector<TargetKey> owner_keys_{TargetKey{}};
   std::set<std::pair<uint32_t, uint32_t>> logged_incompatible_;
   Stats stats_;

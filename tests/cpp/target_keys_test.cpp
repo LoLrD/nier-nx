@@ -107,26 +107,33 @@ int main() {
     const TargetKey scene{0xB8, 8, false, 0};
     const TargetKey post{0x2D0, 16, false, 0};
     edram.Write(scene, 0, 0, 640, 368, 1, 10);
-    Check(edram.ForeignTiles(scene, 0, 0, 640, 368, 1).empty(), "own_tiles_are_not_foreign");
-    Check(edram.ForeignTiles(post, 0, 0, 1280, 720, 2).empty(), "disjoint_tiles_are_not_foreign");
+    std::vector<ForeignTile> listed = {ForeignTile{1, 2, 3}};
+    edram.ForeignTiles(scene, 0, 0, 640, 368, 1, listed);
+    Check(listed.empty(), "listing_into_a_reused_vector_clears_it_first");
+    auto foreign = [&](const TargetKey& key, uint32_t x0, uint32_t y0, uint32_t x1, uint32_t y1, uint32_t owner) {
+      edram.ForeignTiles(key, x0, y0, x1, y1, owner, listed);
+      return listed;
+    };
+    Check(foreign(scene, 0, 0, 640, 368, 1).empty(), "own_tiles_are_not_foreign");
+    Check(foreign(post, 0, 0, 1280, 720, 2).empty(), "disjoint_tiles_are_not_foreign");
     const TargetKey overlap{0xB8, 16, false, 0};
-    const auto first_row = edram.ForeignTiles(overlap, 0, 0, 1280, 16, 3);
+    const auto first_row = foreign(overlap, 0, 0, 1280, 16, 3);
     Check(first_row.size() == 16 && first_row.front() == ForeignTile{0xB8, 1, 10} &&
               first_row.back() == ForeignTile{0xB8 + 15, 1, 10},
           "overlapping_tiles_listed_with_their_owner_and_write_sequence");
     edram.Write(overlap, 0, 0, 1280, 16, 3, 11);
-    const auto rewritten = edram.ForeignTiles(scene, 0, 0, 640, 368, 1);
+    const auto rewritten = foreign(scene, 0, 0, 640, 368, 1);
     Check(rewritten.size() == 16 && rewritten.front().owner == 3 && rewritten.front().sequence == 11,
           "later_write_through_another_target_makes_tiles_foreign");
-    Check(edram.ForeignTiles(scene, 0, 32, 640, 368, 1).empty(), "rows_below_the_overwrite_stay_owned");
+    Check(foreign(scene, 0, 32, 640, 368, 1).empty(), "rows_below_the_overwrite_stay_owned");
     const TargetKey wrapping{2040, 16, false, 0};
     edram.Write(wrapping, 0, 0, 1280, 16, 4, 12);
-    const auto wrapped = edram.ForeignTiles(TargetKey{0, 8, false, 0}, 0, 0, 640, 16, 5);
+    const auto wrapped = foreign(TargetKey{0, 8, false, 0}, 0, 0, 640, 16, 5);
     Check(wrapped.size() == 8 && wrapped.front() == ForeignTile{0, 4, 12}, "tiles_wrap_at_the_end_of_edram");
-    Check(edram.ForeignTiles(scene, 0, 0, 0, 0, 1).empty(), "empty_rect_has_no_tiles");
+    Check(foreign(scene, 0, 0, 0, 0, 1).empty(), "empty_rect_has_no_tiles");
     const TargetKey odd_pitch{0, 30, false, 0};
     edram.Write(odd_pitch, 0, 0, 2400, 8192, 6, 13);
-    const auto everything = edram.ForeignTiles(odd_pitch, 0, 0, 2400, 8192, 7);
+    const auto everything = foreign(odd_pitch, 0, 0, 2400, 8192, 7);
     Check(everything.size() == 2048, "a_rect_taller_than_edram_visits_each_tile_once");
   }
   {

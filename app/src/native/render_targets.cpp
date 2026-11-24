@@ -363,8 +363,9 @@ void RenderTargets::Claim(VkCommandBuffer command_buffer, const TargetKey& key, 
   if (!target || target->shift) {
     return;
   }
+  edram_.ForeignTiles(key, x0, y0, x1, y1, target->owner, foreign_);
   std::unordered_map<uint32_t, std::vector<VkImageCopy>> copies;
-  for (const ForeignTile& foreign : edram_.ForeignTiles(key, x0, y0, x1, y1, target->owner)) {
+  for (const ForeignTile& foreign : foreign_) {
     if (newer_than_rendering && foreign.sequence < target->rendered) {
       continue;
     }

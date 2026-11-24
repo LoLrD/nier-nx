@@ -78,8 +78,8 @@ class EdramOwnership {
  public:
   void Write(const TargetKey& key, uint32_t x0, uint32_t y0, uint32_t x1, uint32_t y1, uint32_t owner,
              uint64_t sequence);
-  std::vector<ForeignTile> ForeignTiles(const TargetKey& key, uint32_t x0, uint32_t y0, uint32_t x1, uint32_t y1,
-                                        uint32_t owner) const;
+  void ForeignTiles(const TargetKey& key, uint32_t x0, uint32_t y0, uint32_t x1, uint32_t y1,
+                                        uint32_t owner, std::vector<ForeignTile>& foreign) const;
 
  private:
   template <typename Visit>

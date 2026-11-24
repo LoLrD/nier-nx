@@ -99,16 +99,15 @@ void EdramOwnership::Write(const TargetKey& key, uint32_t x0, uint32_t y0, uint3
   });
 }
 
-std::vector<ForeignTile> EdramOwnership::ForeignTiles(const TargetKey& key, uint32_t x0, uint32_t y0, uint32_t x1,
-                                                      uint32_t y1, uint32_t owner) const {
-  std::vector<ForeignTile> foreign;
+void EdramOwnership::ForeignTiles(const TargetKey& key, uint32_t x0, uint32_t y0, uint32_t x1, uint32_t y1,
+                                  uint32_t owner, std::vector<ForeignTile>& foreign) const {
+  foreign.clear();
   ForTiles(key, x0, y0, x1, y1, [&](uint32_t tile) {
     if (tiles_[tile].owner && tiles_[tile].owner != owner) {
       foreign.push_back({tile, tiles_[tile].owner, tiles_[tile].sequence});
     }
     return true;
   });
-  return foreign;
 }
 
 TargetPoint TilePosition(const TargetKey& key, uint32_t tile) {
