@@ -55,6 +55,9 @@ REXCVAR_DEFINE_BOOL(nier_record_thread, true, "NieR",
 REXCVAR_DEFINE_BOOL(nier_vertex_specialization, true, "NieR",
                     "Native renderer: vertex shaders get the texture constants and flags of the draw baked in, like "
                     "pixel shaders");
+REXCVAR_DEFINE_BOOL(nier_constant_generations_verify, false, "NieR",
+                    "Native renderer: pack float constants even when their registers did not change and count the "
+                    "draws whose reused constants differ (slow, for checking)");
 REXCVAR_DEFINE_BOOL(nier_gpu_shader_marks, false, "NieR",
                     "Native renderer: GPU timestamps at every pixel shader change (per-shader GPU times in the report)");
 REXCVAR_DEFINE_INT32(nier_shadow_map_shift, 0, "NieR",
@@ -820,12 +823,28 @@ NativeRenderer::DrawResult NativeRenderer::RecordDraw(const RegisterFile& regs) 
     ++(reused ? stats_.uniforms_reused : stats_.uniforms_written);
   };
   upload(Translator::kConstantBufferSystem, &system, sizeof(system), sizeof(system));
-  uint32_t size = PackFloatConstants(regs, prepared->vertex_shader->constant_register_map(), false, floats);
-  upload(Translator::kConstantBufferFloatVertex, floats, size, Submissions::kFloatConstantsBytes);
-  size = prepared->pixel_shader
-             ? PackFloatConstants(regs, prepared->pixel_shader->constant_register_map(), true, floats)
-             : PackFloatConstants(regs, Shader::ConstantRegisterMap{}, true, floats);
-  upload(Translator::kConstantBufferFloatPixel, floats, size, Submissions::kFloatConstantsBytes);
+  const bool verify_floats = REXCVAR_GET(nier_constant_generations_verify);
+  auto upload_floats = [&](uint32_t stream, const Shader::ConstantRegisterMap* map, bool pixel) {
+    FloatUpload& cached = float_uploads_[pixel];
+    const uint64_t generation = map ? registers_.FloatGeneration(map->float_bitmap, pixel) : 0;
+    if (filter && map && cached.map == map && cached.generation == generation &&
+        cached.submission == submissions_->current()) {
+      offsets[stream] = cached.offset;
+      ++stats_.uniforms_reused;
+      ++stats_.uniforms_unpacked;
+      if (verify_floats) {
+        const uint32_t size = PackFloatConstants(regs, *map, pixel, floats);
+        stats_.uniforms_stale += XXH3_64bits(floats, size) != cached.hash;
+      }
+      return;
+    }
+    const uint32_t size = PackFloatConstants(regs, map ? *map : Shader::ConstantRegisterMap{}, pixel, floats);
+    upload(stream, floats, size, Submissions::kFloatConstantsBytes);
+    cached = {map, generation, submissions_->current(), offsets[stream], verify_floats ? XXH3_64bits(floats, size) : 0};
+  };
+  upload_floats(Translator::kConstantBufferFloatVertex, &prepared->vertex_shader->constant_register_map(), false);
+  upload_floats(Translator::kConstantBufferFloatPixel,
+                prepared->pixel_shader ? &prepared->pixel_shader->constant_register_map() : nullptr, true);
   CopyBoolLoopConstants(regs, bools);
   upload(Translator::kConstantBufferBoolLoop, bools, sizeof(bools), sizeof(bools));
   upload(Translator::kConstantBufferFetch, fetches, sizeof(fetches), sizeof(fetches));
@@ -1313,10 +1332,11 @@ std::string NativeRenderer::Report() {
     reported_card_pages_ = pages;
   }
   line += fmt::format("; draw state: dynamic {} set {} skipped, sets bound {} skipped {}, uniforms written {} "
-                      "reused {}",
+                      "reused {} (unpacked {}, stale {})",
                       s.dynamic_calls - r.dynamic_calls, s.dynamic_skipped - r.dynamic_skipped,
                       s.set_binds - r.set_binds, s.set_binds_skipped - r.set_binds_skipped,
-                      s.uniforms_written - r.uniforms_written, s.uniforms_reused - r.uniforms_reused);
+                      s.uniforms_written - r.uniforms_written, s.uniforms_reused - r.uniforms_reused,
+                      s.uniforms_unpacked - r.uniforms_unpacked, s.uniforms_stale - r.uniforms_stale);
   line += fmt::format("; ms draws {} (mirror {}, textures {}), resolves {}, present {}, gpu wait {}",
                       (s.us_draws - r.us_draws) / 1000, (s.us_mirror - r.us_mirror) / 1000,
                       (s.us_textures - r.us_textures) / 1000, (s.us_resolves - r.us_resolves) / 1000,

@@ -80,6 +80,8 @@ class NativeRenderer {
     uint64_t set_binds_skipped = 0;
     uint64_t uniforms_written = 0;
     uint64_t uniforms_reused = 0;
+    uint64_t uniforms_unpacked = 0;
+    uint64_t uniforms_stale = 0;
     uint64_t cards_copied_bytes = 0;
     uint64_t cards_missed = 0;
     uint64_t us_draws = 0;
@@ -237,6 +239,14 @@ class NativeRenderer {
   DynamicStateFilter dynamic_filter_;
   DescriptorBindingFilter binding_filter_;
   uint64_t filter_submission_ = 0;
+  struct FloatUpload {
+    const rex::graphics::Shader::ConstantRegisterMap* map = nullptr;
+    uint64_t generation = 0;
+    uint64_t submission = 0;
+    uint32_t offset = 0;
+    uint64_t hash = 0;
+  };
+  std::array<FloatUpload, 2> float_uploads_{};
   std::optional<TargetKey> scaled_color_;
   std::optional<TargetKey> scaled_depth_;
   uint32_t scaled_shift_ = 0;
