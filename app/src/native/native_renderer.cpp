@@ -1644,8 +1644,10 @@ std::string NativeRenderer::Report() {
                       t.background_waits - reported_textures_.background_waits,
                       t.background_dropped - reported_textures_.background_dropped,
                       t.background_full - reported_textures_.background_full);
-  line += fmt::format("; mip chains {} binds, {} level copies", t.mip_chain_binds - reported_textures_.mip_chain_binds,
-                      t.mip_chain_copies - reported_textures_.mip_chain_copies);
+  line += fmt::format("; mip chains {} binds, {} level copies; texture views cached {}",
+                      t.mip_chain_binds - reported_textures_.mip_chain_binds,
+                      t.mip_chain_copies - reported_textures_.mip_chain_copies,
+                      t.cached_views - reported_textures_.cached_views);
   line += fmt::format("; slow frames {} of {} (worst {:.0f} ms): ring busy {}, gpu wait {}, texture uploads {}, other {}",
                       slow_frames_.slow, slow_frames_.frames, slow_frames_.worst_ms, slow_frames_.ring,
                       slow_frames_.gpu, slow_frames_.uploads, slow_frames_.other);

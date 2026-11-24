@@ -237,6 +237,27 @@ bool Textures::Changed(PhasedHash& content, std::span<const HashSpan> spans) {
 
 Textures::Binding Textures::View(VkCommandBuffer upload, const xenos::xe_gpu_texture_fetch_t& fetch,
                                  const SpirvShader::TextureBinding& binding, uint64_t submission) {
+  std::array<uint32_t, 6> words;
+  std::memcpy(words.data(), &fetch, sizeof(words));
+  CachedView& cached = view_cache_[XXH3_64bits(words.data(), sizeof(words)) % view_cache_.size()];
+  if (cached.frame == frame_ && cached.submission == submission && cached.binding_version == binding_version_ &&
+      cached.resolve_versions == resolve_versions_ && cached.fetch == words &&
+      cached.dimension == binding.dimension && cached.is_signed == binding.is_signed) {
+    ++stats_.cached_views;
+    return cached.binding;
+  }
+  bool cacheable = false;
+  const Binding result = ViewUncached(upload, fetch, binding, submission, cacheable);
+  if (cacheable) {
+    cached = {words, binding.dimension, binding.is_signed, frame_, submission, binding_version_, resolve_versions_,
+              result};
+  }
+  return result;
+}
+
+Textures::Binding Textures::ViewUncached(VkCommandBuffer upload, const xenos::xe_gpu_texture_fetch_t& fetch,
+                                         const SpirvShader::TextureBinding& binding, uint64_t submission,
+                                         bool& cacheable) {
   const auto host = HostFormatFor(fetch.format);
   Binding result{NullView(binding.dimension), 0, texture_util::SwizzleSigns(fetch)};
   if (!host) {
@@ -277,6 +298,7 @@ Textures::Binding Textures::View(VkCommandBuffer upload, const xenos::xe_gpu_tex
         if (fetch.mip_address && fetch.mip_max_level) {
           BindMipChain(fetch, resolved, result);
         }
+        cacheable = !result.mip_chain;
         return result;
       }
     }
@@ -428,6 +450,7 @@ Textures::Binding Textures::View(VkCommandBuffer upload, const xenos::xe_gpu_tex
     return result;
   }
   result.view = texture.image.views[is_signed][cube_view];
+  cacheable = true;
   return result;
 }
 

@@ -80,6 +80,7 @@ class Textures {
     uint64_t background_full = 0;
     uint64_t mip_chain_binds = 0;
     uint64_t mip_chain_copies = 0;
+    uint64_t cached_views = 0;
   };
   static constexpr size_t kTopUploads = 5;
   static constexpr uint64_t kArenaBlockBytes = 32ull << 20;
@@ -166,6 +167,16 @@ class Textures {
     VkImage image = VK_NULL_HANDLE;
     bool swapped = false;
   };
+  struct CachedView {
+    std::array<uint32_t, 6> fetch{};
+    rex::graphics::xenos::FetchOpDimension dimension{};
+    bool is_signed = false;
+    uint64_t frame = 0;
+    uint64_t submission = 0;
+    uint64_t binding_version = 0;
+    uint64_t resolve_versions = 0;
+    Binding binding;
+  };
   struct MipChain {
     Image image;
     VkFormat format;
@@ -198,6 +209,8 @@ class Textures {
   void NoteStaleRead(StaleRead kind, uint32_t address, const rex::graphics::xenos::xe_gpu_texture_fetch_t& fetch,
                      VkFormat format, uint32_t width, uint32_t height);
   void ForgetResolveImage(uint64_t key, StaleRead reason);
+  Binding ViewUncached(VkCommandBuffer upload, const rex::graphics::xenos::xe_gpu_texture_fetch_t& fetch,
+                       const rex::graphics::SpirvShader::TextureBinding& binding, uint64_t submission, bool& cacheable);
   bool BindMipChain(const rex::graphics::xenos::xe_gpu_texture_fetch_t& fetch, const ResolveImage& base,
                     Binding& result);
   void NoteEvicted(uint64_t key);
@@ -222,6 +235,7 @@ class Textures {
   std::vector<Retired> retired_;
   std::unordered_map<uint64_t, ResolveImage> resolve_images_;
   std::unordered_map<uint64_t, MipChain> mip_chains_;
+  std::array<CachedView, 256> view_cache_{};
   std::vector<Image> replaced_chain_images_;
   std::unordered_map<uint32_t, uint32_t> resolve_addresses_;
   std::map<uint32_t, ResolveRecord> resolve_records_;
