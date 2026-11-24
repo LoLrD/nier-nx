@@ -66,6 +66,7 @@ class NativeRenderer {
     uint64_t skipped_empty = 0;
     uint64_t skipped_silent = 0;
     uint64_t memo_hits = 0;
+    uint64_t readback_submits = 0;
     uint64_t memo_mismatches = 0;
     uint64_t resolves = 0;
     uint64_t swaps = 0;
@@ -221,6 +222,8 @@ class NativeRenderer {
   uint64_t reported_upscale_runs_ = 0;
   GpuGovernor gpu_governor_{3, 0, 30.0};
   uint32_t governor_frames_ = 0;
+  uint32_t readback_poll_draws_ = 0;
+  std::array<uint64_t, 4> reported_readback_frames_{};
   uint64_t governor_gpu_ns_ = 0;
   MirrorSync mirror_sync_{kMirrorRehashBytes};
   uint8_t* card_table_;

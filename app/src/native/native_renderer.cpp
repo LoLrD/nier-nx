@@ -61,6 +61,12 @@ REXCVAR_DEFINE_BOOL(nier_draw_memo, true, "NieR",
 REXCVAR_DEFINE_BOOL(nier_draw_memo_verify, false, "NieR",
                     "Native renderer: on every reused draw also prepare it again and log '[native] draw memo "
                     "DIFFERENCE' when the results differ");
+REXCVAR_DEFINE_BOOL(nier_readback_poll, true, "NieR",
+                    "Native renderer: while resolves read back to guest memory are in flight, check every 16 draws "
+                    "whether the GPU finished them, so the game (auto exposure) gets them sooner");
+REXCVAR_DEFINE_BOOL(nier_readback_submit, true, "NieR",
+                    "Native renderer: submit the commands right after the frame's last resolve read back to guest "
+                    "memory (learnt from the previous frame) instead of at the end of the frame");
 REXCVAR_DEFINE_BOOL(nier_early_depth_tests, true, "NieR",
                     "Native renderer: run depth/stencil tests before pixel shaders that kill pixels when the draw "
                     "writes neither depth nor stencil (same result, hidden pixels are not shaded)");
@@ -190,6 +196,7 @@ constexpr size_t kReportedShaders = 10;
 constexpr size_t kTracedFrames = 12;
 constexpr uint64_t kTracedSwaps = 3000;
 constexpr uint32_t kGovernorFrames = 15;
+constexpr uint32_t kReadbackPollDraws = 16;
 
 uint64_t NowMs() {
   return uint64_t(std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -762,6 +769,10 @@ NativeRenderer::DrawResult NativeRenderer::RecordDraw(const RegisterFile& regs) 
     ++stats_.skipped_raster;
     return DrawResult::kDone;
   }
+  if (REXCVAR_GET(nier_readback_poll) && resolves_->readbacks_pending() && ++readback_poll_draws_ >= kReadbackPollDraws) {
+    readback_poll_draws_ = 0;
+    ProcessCompleted();
+  }
   const HostDraw draw = SetupPrimitive(regs);
   if (!draw.supported) {
     ++stats_.skipped_primitive;
@@ -1201,8 +1212,14 @@ void NativeRenderer::Resolve(const RegisterFile& regs) {
         plan.depth ? " depth" : "", plan.clear_color ? " clear-colour" : "", plan.clear_depth ? " clear-depth" : "",
         plan.readback ? " readback" : "", plan.dest_swap ? " swap" : ""));
   }
+  const uint64_t readbacks = resolves_->stats().readbacks;
   resolves_->Resolve(submissions_->main(), plan, submissions_->current());
   memo_.valid = false;
+  if (REXCVAR_GET(nier_readback_submit) && resolves_->stats().readbacks != readbacks &&
+      resolves_->LastReadbackOfFrame(plan.dest_address)) {
+    ++stats_.readback_submits;
+    Flush();
+  }
   bound_pipeline_ = VK_NULL_HANDLE;
   dynamic_filter_.Reset();
   binding_filter_.Reset();
@@ -1333,6 +1350,9 @@ void NativeRenderer::Swap(rex::ui::Presenter* presenter, uint32_t frontbuffer, u
 #endif
   if (!valid_) {
     return;
+  }
+  if (REXCVAR_GET(nier_readback_poll) && resolves_->readbacks_pending()) {
+    ProcessCompleted();
   }
   if (++governor_frames_ >= kGovernorFrames) {
     uint64_t gpu_ns = 0;
@@ -1577,6 +1597,14 @@ std::string NativeRenderer::Report() {
   reported_upscale_runs_ = upscale_->runs();
   line += fmt::format("; silent draws skipped {}", s.skipped_silent - r.skipped_silent);
   line += fmt::format("; draw memo hits {}, mismatches {}", s.memo_hits - r.memo_hits, s.memo_mismatches - r.memo_mismatches);
+  {
+    const Resolves::Stats& rv = resolves_->stats();
+    line += fmt::format("; readbacks written after 0/1/2/3+ frames {}/{}/{}/{}, early submits {}",
+                        rv.readback_frames[0] - reported_readback_frames_[0], rv.readback_frames[1] - reported_readback_frames_[1],
+                        rv.readback_frames[2] - reported_readback_frames_[2], rv.readback_frames[3] - reported_readback_frames_[3],
+                        s.readback_submits - r.readback_submits);
+    reported_readback_frames_ = rv.readback_frames;
+  }
   line += fmt::format("; background textures {} started, {} draws waited, {} dropped, {} loaded in place when full",
                       t.background_loads - reported_textures_.background_loads,
                       t.background_waits - reported_textures_.background_waits,

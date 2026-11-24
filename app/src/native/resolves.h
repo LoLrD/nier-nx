@@ -29,6 +29,7 @@ class Resolves {
     uint64_t clears = 0;
     uint64_t readbacks = 0;
     uint64_t stale_readbacks = 0;
+    std::array<uint64_t, 4> readback_frames{};
     uint64_t skipped = 0;
     uint64_t repeated = 0;
   };
@@ -40,7 +41,13 @@ class Resolves {
   Resolves& operator=(const Resolves&) = delete;
 
   void Resolve(VkCommandBuffer command_buffer, const ResolvePlan& plan, uint64_t submission);
-  void BeginFrame() { ++frame_; }
+  void BeginFrame() {
+    ++frame_;
+    last_readback_previous_frame_ = last_readback_this_frame_;
+    last_readback_this_frame_ = 0;
+  }
+  bool readbacks_pending() const { return !pending_.empty(); }
+  bool LastReadbackOfFrame(uint32_t address) const { return address && address == last_readback_previous_frame_; }
   void Evict(uint64_t unused_frames, uint64_t submission);
   void Completed(uint64_t submission);
   size_t image_count() const { return images_.size(); }
@@ -87,6 +94,7 @@ class Resolves {
     ReadbackBuffer buffer;
     ResolvePlan plan;
     PendingRange range;
+    uint64_t frame;
   };
   DestImage* Dest(VkCommandBuffer command_buffer, const ResolvePlan& plan, VkFormat format);
   void CopyColor(VkCommandBuffer command_buffer, const ResolvePlan& plan, const RenderTargets::Target& source,
@@ -121,6 +129,8 @@ class Resolves {
   std::unordered_map<uint32_t, LastCopy> last_copies_;
   bool shadow_map_resolved_ = false;
   uint64_t frame_ = 0;
+  uint32_t last_readback_this_frame_ = 0;
+  uint32_t last_readback_previous_frame_ = 0;
   uint64_t bytes_ = 0;
   Stats stats_;
 };

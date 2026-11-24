@@ -468,7 +468,8 @@ void Resolves::Readback(VkCommandBuffer command_buffer, const ResolvePlan& plan,
   PendingRange range{plan.dest_address,
                      ResolveGuestBytes(plan.dest_pitch, plan.dest_y + plan.dest_height, 4, plan.dest_address), 0};
   range.guest_hash = XXH3_64bits(physical_base_ + range.address, range.bytes);
-  pending_.push_back({submission, buffer, plan, range});
+  pending_.push_back({submission, buffer, plan, range, frame_});
+  last_readback_this_frame_ = plan.dest_address;
   ++stats_.readbacks;
 }
 
@@ -507,6 +508,7 @@ void Resolves::Completed(uint64_t submission) {
         CarryWrittenHash(pending_[later].range, pending.range, written);
       }
       textures_.RefreshResolveHash(pending.range.address);
+      ++stats_.readback_frames[std::min<uint64_t>(frame_ - pending.frame, 3)];
     } else {
       ++stats_.stale_readbacks;
     }
