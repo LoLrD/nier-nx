@@ -70,6 +70,12 @@ class Pipelines {
     Slot* slot;
   };
 
+  struct Last {
+    PipelineState state;
+    VkPipelineLayout layout = VK_NULL_HANDLE;
+    VkPipeline pipeline = VK_NULL_HANDLE;
+  };
+
   VkPipeline Create(const PipelineState& state, VkPipelineLayout layout) const;
   void Queue(const Job& job);
   void Compile(const Job& job);
@@ -77,6 +83,7 @@ class Pipelines {
   void LoadCache();
   void SaveCache();
 
+  Last last_;
   const rex::ui::vulkan::VulkanDevice* device_;
   PipelineReport& report_;
   uint32_t shared_memory_binding_count_;

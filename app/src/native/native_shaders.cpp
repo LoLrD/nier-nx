@@ -92,6 +92,10 @@ VkShaderModule NativeShaders::SpecializedModule(VulkanShader::VulkanTranslation&
   for (const UniformSlot& slot : specialization.slots) {
     values.push_back(slot.fetch ? fetch_constants[slot.offset / 4] : system_words[slot.offset / 4]);
   }
+  LastModule& last = last_modules_[vertex_shader ? 1 : 0];
+  if (last.translation == &translation && last.contract == contract && last.values == values) {
+    return last.module;
+  }
   auto [module, created] = specialization.modules.try_emplace(
       XXH3_64bits_withSeed(values.data(), values.size() * sizeof(uint32_t), contract), VK_NULL_HANDLE);
   if (created) {
@@ -103,7 +107,12 @@ VkShaderModule NativeShaders::SpecializedModule(VulkanShader::VulkanTranslation&
         rex::ui::vulkan::util::CreateShaderModule(device_, specialized.data(), specialized.size() * sizeof(uint32_t));
     ++stats_.specialized;
   }
-  return module->second != VK_NULL_HANDLE ? module->second : translation.shader_module();
+  const VkShaderModule result = module->second != VK_NULL_HANDLE ? module->second : translation.shader_module();
+  last.translation = &translation;
+  last.values = values;
+  last.contract = contract;
+  last.module = result;
+  return result;
 }
 
 uint32_t NativeShaders::ScaleIndex(uint32_t scale_x, uint32_t scale_y) {

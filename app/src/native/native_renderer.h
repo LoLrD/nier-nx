@@ -212,6 +212,8 @@ class NativeRenderer {
   std::vector<uint64_t> reported_pass_ns_;
   std::unordered_map<std::string, uint16_t> pass_ids_;
   std::unordered_map<uint64_t, uint16_t> pass_keys_;
+  uint64_t last_label_key_ = 0;
+  uint16_t last_label_id_ = 0;
   std::vector<std::string> pass_names_{std::string()};
   std::vector<bool> pass_is_resolve_{false};
   std::unordered_map<uint64_t, uint16_t> label_ids_;

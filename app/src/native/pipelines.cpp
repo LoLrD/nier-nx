@@ -151,6 +151,10 @@ Pipelines::Stats Pipelines::TakeStats() {
 
 VkPipeline Pipelines::Get(const PipelineState& state, VkPipelineLayout layout, uint64_t vs_hash, uint64_t ps_hash,
                           Status& status) {
+  if (last_.pipeline != VK_NULL_HANDLE && last_.layout == layout && last_.state == state) {
+    status = Status::kReady;
+    return last_.pipeline;
+  }
   auto& entries = pipelines_[state.Hash() ^ uint64_t(layout)];
   Slot* slot = nullptr;
   for (const Entry& entry : entries) {
@@ -176,6 +180,9 @@ VkPipeline Pipelines::Get(const PipelineState& state, VkPipelineLayout layout, u
   }
   const VkPipeline pipeline = slot->pipeline.load(std::memory_order_acquire);
   status = pipeline != VK_NULL_HANDLE ? Status::kReady : Status::kFailed;
+  if (pipeline != VK_NULL_HANDLE) {
+    last_ = {state, layout, pipeline};
+  }
   return pipeline;
 }
 

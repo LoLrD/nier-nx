@@ -1182,6 +1182,9 @@ uint16_t NativeRenderer::LabelId(uint16_t pass, const vulkan::VulkanShader* pixe
                                  const vulkan::VulkanShader::VulkanTranslation* pixel) {
   const uint64_t hash = pixel_shader ? pixel_shader->ucode_data_hash() | 1 : 0;
   const uint64_t key = (uint64_t(pass) << 48) ^ (hash & 0xFFFFFFFFFFFFull);
+  if (key == last_label_key_ && last_label_id_) {
+    return last_label_id_;
+  }
   auto [it, inserted] = label_ids_.try_emplace(key, uint16_t(label_pass_.size()));
   if (inserted) {
     label_pass_.push_back(pass);
@@ -1190,6 +1193,8 @@ uint16_t NativeRenderer::LabelId(uint16_t pass, const vulkan::VulkanShader* pixe
                                                        pixel ? pixel->translated_binary().size() / 4 : 0)
                                          : std::string());
   }
+  last_label_key_ = key;
+  last_label_id_ = it->second;
   return it->second;
 }
 

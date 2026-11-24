@@ -95,7 +95,15 @@ class NativeShaders {
   uint64_t vertex_hash_ = 0;
   uint64_t pixel_hash_ = 0;
   std::unordered_map<const rex::graphics::vulkan::VulkanShader::VulkanTranslation*, Specialization> specializations_;
+  struct LastModule {
+    const rex::graphics::vulkan::VulkanShader::VulkanTranslation* translation = nullptr;
+    std::vector<uint32_t> values;
+    bool contract = false;
+    VkShaderModule module = VK_NULL_HANDLE;
+  };
+
   std::vector<uint32_t> specialization_values_;
+  std::array<LastModule, 2> last_modules_;
   Stats stats_;
 };
 
