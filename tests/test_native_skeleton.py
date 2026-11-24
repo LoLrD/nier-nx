@@ -95,6 +95,9 @@ class NativeSkeletonTest(unittest.TestCase):
     def test_draw_state_filter(self) -> None:
         self.check("draw_state_filter", ["draw_state_filter.cpp"], link_sdk=True)
 
+    def test_vector_estimates(self) -> None:
+        self.check("vector_estimates", [], link_sdk=True)
+
     def test_texture_loader(self) -> None:
         self.check("texture_loader", ["texture_loader.cpp"], link_sdk=True)
 

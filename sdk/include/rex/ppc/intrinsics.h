@@ -175,6 +175,29 @@ inline simde__m128i simde_mm_cmpgt_epu16(simde__m128i a, simde__m128i b) {
   return simde_mm_cmpgt_epi16(simde_mm_xor_si128(a, c), simde_mm_xor_si128(b, c));
 }
 
+// Vector Reciprocal Estimate: on ARM the hardware estimate plus one Newton-Raphson step, finer than the
+// 1/4096 the PPC estimate promises; elsewhere a division.
+inline simde__m128 simde_mm_vrefp(simde__m128 a) {
+#if defined(__aarch64__) || defined(_M_ARM64)
+  const float32x4_t x = simde__m128_to_neon_f32(a);
+  const float32x4_t e = vrecpeq_f32(x);
+  return simde__m128_from_neon_f32(vmulq_f32(vrecpsq_f32(x, e), e));
+#else
+  return simde_mm_div_ps(simde_mm_set1_ps(1), a);
+#endif
+}
+
+// Vector Reciprocal Square Root Estimate, the same way.
+inline simde__m128 simde_mm_vrsqrtefp(simde__m128 a) {
+#if defined(__aarch64__) || defined(_M_ARM64)
+  const float32x4_t x = simde__m128_to_neon_f32(a);
+  const float32x4_t e = vrsqrteq_f32(x);
+  return simde__m128_from_neon_f32(vmulq_f32(vrsqrtsq_f32(vmulq_f32(e, e), x), e));
+#else
+  return simde_mm_div_ps(simde_mm_set1_ps(1), simde_mm_sqrt_ps(a));
+#endif
+}
+
 // Vector Convert To Signed Fixed-Point Word Saturate
 inline simde__m128i simde_mm_vctsxs(simde__m128 src1) {
   simde__m128 xmm2 = simde_mm_cmpunord_ps(src1, src1);
