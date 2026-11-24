@@ -55,9 +55,18 @@ struct TextureFootprint {
   uint32_t mip_size;
 };
 
+struct MipLevelPlace {
+  uint32_t address;
+  uint32_t width;
+  uint32_t height;
+
+  bool operator==(const MipLevelPlace&) const = default;
+};
+
 std::optional<HostTextureFormat> HostFormatFor(rex::graphics::xenos::TextureFormat format);
 std::optional<TextureShape> ShapeFor(const rex::graphics::xenos::xe_gpu_texture_fetch_t& fetch);
 TextureFootprint FootprintOf(const rex::graphics::xenos::xe_gpu_texture_fetch_t& fetch);
+std::vector<MipLevelPlace> MipLevelPlaces(const rex::graphics::xenos::xe_gpu_texture_fetch_t& fetch);
 std::optional<LoadedTexture> LoadTexture(const rex::graphics::xenos::xe_gpu_texture_fetch_t& fetch,
                                          const uint8_t* physical_base);
 bool NeedsRehash(uint32_t bytes, uint64_t frame, uint64_t last_checked_frame, bool used_this_frame, bool stable);

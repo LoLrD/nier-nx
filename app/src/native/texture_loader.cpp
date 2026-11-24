@@ -214,6 +214,19 @@ TextureFootprint FootprintOf(const xenos::xe_gpu_texture_fetch_t& fetch) {
           source->mips > 1 ? source->layout.mips_total_extent_bytes : 0};
 }
 
+std::vector<MipLevelPlace> MipLevelPlaces(const xenos::xe_gpu_texture_fetch_t& fetch) {
+  const auto source = Describe(fetch);
+  if (!source || source->mips < 2 || source->layers != 1 || source->layout.packed_level < source->mips) {
+    return {};
+  }
+  std::vector<MipLevelPlace> places{{source->base_address, source->width, source->height}};
+  for (uint32_t level = 1; level < source->mips; ++level) {
+    places.push_back({source->mip_address + source->layout.mip_offsets_bytes[level],
+                      std::max(1u, source->width >> level), std::max(1u, source->height >> level)});
+  }
+  return places;
+}
+
 std::optional<LoadedTexture> LoadTexture(const xenos::xe_gpu_texture_fetch_t& fetch, const uint8_t* physical_base) {
   const auto host = HostFormatFor(fetch.format);
   const auto source = Describe(fetch);

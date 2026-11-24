@@ -40,6 +40,8 @@ class Textures {
     VkFormat resolve_format = VK_FORMAT_UNDEFINED;
     VkImageView resolve_plain_view = VK_NULL_HANDLE;
     uint64_t resolve_version = 0;
+    uint64_t mip_chain = 0;
+    bool mip_chain_stale = false;
   };
   enum class UploadReason : uint8_t { kNew, kChanged, kEvicted };
   struct UploadRecord {
@@ -76,6 +78,8 @@ class Textures {
     uint64_t background_waits = 0;
     uint64_t background_dropped = 0;
     uint64_t background_full = 0;
+    uint64_t mip_chain_binds = 0;
+    uint64_t mip_chain_copies = 0;
   };
   static constexpr size_t kTopUploads = 5;
   static constexpr uint64_t kArenaBlockBytes = 32ull << 20;
@@ -96,8 +100,9 @@ class Textures {
                const rex::graphics::SpirvShader::TextureBinding& binding, uint64_t submission);
   VkSampler Sampler(const rex::graphics::xenos::xe_gpu_texture_fetch_t& fetch,
                     const rex::graphics::SpirvShader::SamplerBinding& binding);
-  void AddResolveImage(uint32_t address, VkFormat format, uint32_t width, uint32_t height, VkImageView view,
-                       VkImageView plain_view, uint32_t guest_bytes);
+  void AddResolveImage(uint32_t address, VkFormat format, uint32_t width, uint32_t height, VkImage image,
+                       VkImageView view, VkImageView plain_view, bool swapped, uint32_t guest_bytes);
+  void UpdateMipChain(VkCommandBuffer command_buffer, uint64_t key);
   void RefreshResolveHash(uint32_t address);
   void RemoveResolveImage(uint32_t address, VkFormat format, VkImageView view);
   void Evict(uint64_t unused_ms);
@@ -158,6 +163,15 @@ class Textures {
     uint64_t checked_frame;
     uint64_t published_frame;
     uint64_t version = 0;
+    VkImage image = VK_NULL_HANDLE;
+    bool swapped = false;
+  };
+  struct MipChain {
+    Image image;
+    VkFormat format;
+    std::vector<MipLevelPlace> places;
+    std::vector<uint64_t> versions;
+    bool initialized = false;
   };
 
   Image CreateImage(const TextureShape& shape);
@@ -184,6 +198,8 @@ class Textures {
   void NoteStaleRead(StaleRead kind, uint32_t address, const rex::graphics::xenos::xe_gpu_texture_fetch_t& fetch,
                      VkFormat format, uint32_t width, uint32_t height);
   void ForgetResolveImage(uint64_t key, StaleRead reason);
+  bool BindMipChain(const rex::graphics::xenos::xe_gpu_texture_fetch_t& fetch, const ResolveImage& base,
+                    Binding& result);
   void NoteEvicted(uint64_t key);
 
   const rex::ui::vulkan::VulkanDevice* device_;
@@ -205,6 +221,8 @@ class Textures {
   std::unordered_map<uint64_t, Texture> textures_;
   std::vector<Retired> retired_;
   std::unordered_map<uint64_t, ResolveImage> resolve_images_;
+  std::unordered_map<uint64_t, MipChain> mip_chains_;
+  std::vector<Image> replaced_chain_images_;
   std::unordered_map<uint32_t, uint32_t> resolve_addresses_;
   std::map<uint32_t, ResolveRecord> resolve_records_;
   uint64_t logged_stale_reads_ = 0;

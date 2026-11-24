@@ -547,6 +547,11 @@ VkDescriptorSet NativeRenderer::BindTextures(const RegisterFile& regs, const Spi
       out_of_memory = true;
       return VK_NULL_HANDLE;
     }
+    if (bound.mip_chain_stale) {
+      const VkCommandBuffer cmd = submissions_->main();
+      targets_->End(cmd);
+      textures_->UpdateMipChain(cmd, bound.mip_chain);
+    }
     if (bound.resolve_address && upscale_target_width_) {
       const SceneUpscalePlan plan = PlanSceneUpscale(bound.resolve_width, bound.resolve_height, upscale_target_width_);
       if (plan.wanted && UpscalableFormat(bound.resolve_format)) {
@@ -912,6 +917,7 @@ std::optional<NativeRenderer::DrawResult> NativeRenderer::PrepareState(const Reg
   upscale_target_width_ =
       REXCVAR_GET(nier_fsr) && targets.color[0] && !targets.depth ? ExtentFor(*targets.color[0]).width : 0;
   const uint64_t texture_waits = textures_->stats().background_waits;
+  const uint64_t mip_chain_binds = textures_->stats().mip_chain_binds;
   const VkDescriptorSet vs_set =
       BindTextures(regs, *prepared->vertex_shader, false, texture_info, vs_textures, vs_samplers, out_of_memory);
   if (vs_set == VK_NULL_HANDLE) {
@@ -999,7 +1005,8 @@ std::optional<NativeRenderer::DrawResult> NativeRenderer::PrepareState(const Reg
   registers_.BeginStateJournal();
   out.submission = submissions_->current();
   out.swaps = stats_.swaps;
-  out.valid = !Tracing() && textures_->stats().background_waits == texture_waits;
+  out.valid = !Tracing() && textures_->stats().background_waits == texture_waits &&
+              textures_->stats().mip_chain_binds == mip_chain_binds;
   return std::nullopt;
 }
 
@@ -1632,6 +1639,8 @@ std::string NativeRenderer::Report() {
                       t.background_waits - reported_textures_.background_waits,
                       t.background_dropped - reported_textures_.background_dropped,
                       t.background_full - reported_textures_.background_full);
+  line += fmt::format("; mip chains {} binds, {} level copies", t.mip_chain_binds - reported_textures_.mip_chain_binds,
+                      t.mip_chain_copies - reported_textures_.mip_chain_copies);
   line += fmt::format("; slow frames {} of {} (worst {:.0f} ms): ring busy {}, gpu wait {}, texture uploads {}, other {}",
                       slow_frames_.slow, slow_frames_.frames, slow_frames_.worst_ms, slow_frames_.ring,
                       slow_frames_.gpu, slow_frames_.uploads, slow_frames_.other);

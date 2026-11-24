@@ -229,5 +229,26 @@ int main() {
               AdvanceFrameClock(1000, 5000, 5000) == 1000,
           "frame_clock_skips_suspensions");
   }
+  {
+    xenos::xe_gpu_texture_fetch_t luminance =
+        Fetch(xenos::TextureFormat::k_8_8_8_8, 512, 512, true, 0x1EACA000, xenos::DataDimension::k2DOrStacked);
+    luminance.mip_address = 0x1EBCA000 >> 12;
+    luminance.mip_max_level = 8;
+    const std::vector<MipLevelPlace> places = MipLevelPlaces(luminance);
+    const uint32_t addresses[] = {0x1EACA000, 0x1EBCA000, 0x1EC0A000, 0x1EC1A000, 0x1EC1E000,
+                                  0x1EC1F000, 0x1EC20000, 0x1EC21000, 0x1EC22000};
+    bool all = places.size() == 9;
+    for (uint32_t level = 0; all && level < 9; ++level) {
+      all = places[level].address == addresses[level] && places[level].width == 512u >> level &&
+            places[level].height == 512u >> level;
+    }
+    Check(all, "luminance_pyramid_levels_sit_where_the_game_resolves_them");
+    xenos::xe_gpu_texture_fetch_t single =
+        Fetch(xenos::TextureFormat::k_8_8_8_8, 256, 256, true, 0x1EBCA000, xenos::DataDimension::k2DOrStacked);
+    Check(MipLevelPlaces(single).empty(), "texture_without_mips_has_no_level_places");
+    xenos::xe_gpu_texture_fetch_t packed = luminance;
+    packed.packed_mips = 1;
+    Check(MipLevelPlaces(packed).empty(), "packed_mip_tail_is_not_described");
+  }
   return failures ? 1 : 0;
 }

@@ -19,6 +19,7 @@
 #include <rex/ui/vulkan/upload_buffer_pool.h>
 #include <rex/ui/vulkan/util.h>
 
+#include "render_targets.h"
 #include "vk_recorder.h"
 
 #if REX_PLATFORM_SWITCH
@@ -133,6 +134,12 @@ Textures::~Textures() {
   }
   for (auto& [key, sampler] : samplers_) {
     Vk(device_).vkDestroySampler(device_->device(), sampler, nullptr);
+  }
+  for (auto& [key, chain] : mip_chains_) {
+    Destroy(chain.image);
+  }
+  for (Image& image : replaced_chain_images_) {
+    Destroy(image);
   }
   Destroy(null_array_);
   Destroy(null_3d_);
@@ -267,6 +274,9 @@ Textures::Binding Textures::View(VkCommandBuffer upload, const xenos::xe_gpu_tex
           NoteStaleRead(StaleRead::kOlderImage, address, fetch, host->format, width, height);
         }
         result.view = resolved.view;
+        if (fetch.mip_address && fetch.mip_max_level) {
+          BindMipChain(fetch, resolved, result);
+        }
         return result;
       }
     }
@@ -632,8 +642,8 @@ VkSampler Textures::Sampler(const xenos::xe_gpu_texture_fetch_t& fetch, const Sp
   return it->second;
 }
 
-void Textures::AddResolveImage(uint32_t address, VkFormat format, uint32_t width, uint32_t height, VkImageView view,
-                               VkImageView plain_view, uint32_t guest_bytes) {
+void Textures::AddResolveImage(uint32_t address, VkFormat format, uint32_t width, uint32_t height, VkImage image,
+                               VkImageView view, VkImageView plain_view, bool swapped, uint32_t guest_bytes) {
   resolve_records_[address] = {address, guest_bytes, frame_, uint32_t(format), StaleRead::kNone, width, height};
   auto [it, inserted] = resolve_images_.try_emplace(ResolveKey(address, format));
   if (inserted) {
@@ -645,9 +655,103 @@ void Textures::AddResolveImage(uint32_t address, VkFormat format, uint32_t width
   if (!inserted && resolved.view == view && resolved.guest_bytes == guest_bytes) {
     return;
   }
-  resolved = {format, width, height, view, plain_view, guest_bytes, PhasedHash{}, frame_, frame_, resolve_versions_};
+  resolved = {format, width, height, view, plain_view, guest_bytes, PhasedHash{}, frame_, frame_, resolve_versions_,
+              image, swapped};
   const HashSpan span = GuestSpan(address, guest_bytes);
   Reset(resolved.guest, {&span, 1});
+}
+
+bool Textures::BindMipChain(const xenos::xe_gpu_texture_fetch_t& fetch, const ResolveImage& base, Binding& result) {
+  const std::vector<MipLevelPlace> places = MipLevelPlaces(fetch);
+  if (places.empty() || places[0].width != base.width || places[0].height != base.height) {
+    return false;
+  }
+  for (size_t level = 1; level < places.size(); ++level) {
+    const auto it = resolve_images_.find(ResolveKey(places[level].address, base.format));
+    if (it == resolve_images_.end() || it->second.width < places[level].width ||
+        it->second.height < places[level].height || it->second.swapped != base.swapped) {
+      return false;
+    }
+  }
+  const uint64_t key = ResolveKey(places[0].address, base.format);
+  auto chain = mip_chains_.find(key);
+  if (chain != mip_chains_.end() && chain->second.places != places) {
+    replaced_chain_images_.push_back(chain->second.image);
+    mip_chains_.erase(chain);
+    chain = mip_chains_.end();
+  }
+  if (chain == mip_chains_.end()) {
+    const auto shape = ShapeFor(fetch);
+    if (!shape || shape->host.format != base.format) {
+      return false;
+    }
+    Image image = CreateImage(*shape);
+    if (image.image == VK_NULL_HANDLE) {
+      return false;
+    }
+    if (base.swapped) {
+      const auto& dfn = Vk(device_);
+      VkImageViewCreateInfo info{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+      info.image = image.image;
+      info.viewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+      info.format = base.format;
+      info.components = {VK_COMPONENT_SWIZZLE_B, VK_COMPONENT_SWIZZLE_G, VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_A};
+      info.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, uint32_t(places.size()), 0, 1};
+      VkImageView swapped = VK_NULL_HANDLE;
+      dfn.vkCreateImageView(device_->device(), &info, nullptr, &swapped);
+      const VkImageView plain = image.views[0][0];
+      if (image.views[1][0] == plain) {
+        image.views[1][0] = swapped;
+      }
+      image.views[0][0] = swapped;
+      dfn.vkDestroyImageView(device_->device(), plain, nullptr);
+    }
+    chain = mip_chains_.emplace(key, MipChain{image, base.format, places, std::vector<uint64_t>(places.size()), false})
+                .first;
+  }
+  const MipChain& bound = chain->second;
+  result.view = bound.image.views[0][0];
+  result.mip_chain = key;
+  result.mip_chain_stale = !bound.initialized;
+  for (size_t level = 0; level < places.size() && !result.mip_chain_stale; ++level) {
+    result.mip_chain_stale = resolve_images_[ResolveKey(places[level].address, base.format)].version != bound.versions[level];
+  }
+  ++stats_.mip_chain_binds;
+  return true;
+}
+
+void Textures::UpdateMipChain(VkCommandBuffer command_buffer, uint64_t key) {
+  const auto& dfn = Vk(device_);
+  MipChain& chain = mip_chains_[key];
+  FullBarrier(device_, command_buffer);
+  if (!chain.initialized) {
+    VkImageMemoryBarrier barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+    barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.image = chain.image.image;
+    barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, uint32_t(chain.places.size()), 0, 1};
+    dfn.vkCmdPipelineBarrier(command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0,
+                             nullptr, 0, nullptr, 1, &barrier);
+    chain.initialized = true;
+  }
+  for (uint32_t level = 0; level < chain.places.size(); ++level) {
+    const ResolveImage& resolved = resolve_images_[ResolveKey(chain.places[level].address, chain.format)];
+    if (resolved.version == chain.versions[level]) {
+      continue;
+    }
+    VkImageCopy region{};
+    region.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    region.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, level, 0, 1};
+    region.extent = {chain.places[level].width, chain.places[level].height, 1};
+    dfn.vkCmdCopyImage(command_buffer, resolved.image, VK_IMAGE_LAYOUT_GENERAL, chain.image.image,
+                       VK_IMAGE_LAYOUT_GENERAL, 1, &region);
+    chain.versions[level] = resolved.version;
+    ++stats_.mip_chain_copies;
+  }
+  FullBarrier(device_, command_buffer);
 }
 
 void Textures::RefreshResolveHash(uint32_t address) {

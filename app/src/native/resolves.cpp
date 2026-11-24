@@ -323,9 +323,9 @@ void Resolves::Publish(const ResolvePlan& plan, DestImage& dest, uint32_t bytes_
   dest.last_submission = submission;
   const uint32_t guest_bytes = ResolveGuestBytes(dest.width, dest.height, bytes_per_pixel, plan.dest_address);
   const bool swapped = plan.dest_swap && !plan.depth && dest.swapped_view;
-  textures_.AddResolveImage(plan.dest_address, dest.format, dest.width, dest.height,
+  textures_.AddResolveImage(plan.dest_address, dest.format, dest.width, dest.height, dest.image,
                             swapped ? dest.swapped_view : dest.view, swapped ? dest.plain_swapped_view : dest.plain_view,
-                            guest_bytes);
+                            swapped, guest_bytes);
 }
 
 void Resolves::CopyDepth(VkCommandBuffer command_buffer, const ResolvePlan& plan, const RenderTargets::Target& source,
