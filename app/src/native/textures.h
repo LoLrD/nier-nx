@@ -103,6 +103,7 @@ class Textures {
   uint64_t retired_bytes() const { return retired_bytes_; }
   uint64_t free_bytes() const { return free_bytes_; }
   uint64_t staged_bytes() const { return staged_bytes_; }
+  uint64_t binding_version() const { return binding_version_; }
   uint64_t arena_bytes() const { return uint64_t(arena_.block_count()) * arena_.block_bytes(); }
   void ResetStaged() { staged_bytes_ = 0; }
 
@@ -209,6 +210,7 @@ class Textures {
   std::unordered_map<uint64_t, uint64_t> failed_;
   uint64_t staged_bytes_ = 0;
   uint64_t resolve_versions_ = 0;
+  uint64_t binding_version_ = 0;
   std::unordered_multimap<uint64_t, FreeImage> free_images_;
   ArenaRanges arena_{kArenaBlockBytes};
   std::vector<VkDeviceMemory> arena_blocks_;

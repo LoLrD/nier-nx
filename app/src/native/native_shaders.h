@@ -58,6 +58,13 @@ class NativeShaders {
                               const rex::graphics::SpirvShaderTranslator::SystemConstants& system,
                               std::span<const uint32_t> fetch_constants);
   const Stats& stats() const { return stats_; }
+  bool Current(uint64_t vertex_hash, uint64_t pixel_hash) const {
+    return vertex_hash_ == vertex_hash && pixel_hash_ == pixel_hash;
+  }
+  void CurrentHashes(uint64_t& vertex_hash, uint64_t& pixel_hash) const {
+    vertex_hash = vertex_hash_;
+    pixel_hash = pixel_hash_;
+  }
 
  private:
   struct Specialization {

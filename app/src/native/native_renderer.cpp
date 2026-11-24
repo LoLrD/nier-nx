@@ -53,6 +53,12 @@ REXCVAR_DEFINE_DOUBLE(nier_fsr_sharpness, 0.25, "NieR",
 REXCVAR_DEFINE_DOUBLE(nier_fsr_gpu_budget_ms, 30.0, "NieR",
                       "Native renderer: GPU time per frame above which FSR steps down (sharpening first, then the "
                       "upscale); it steps back up after two seconds with room for it");
+REXCVAR_DEFINE_BOOL(nier_draw_memo, true, "NieR",
+                    "Native renderer: when only constants, vertices and indices changed since the previous draw, reuse "
+                    "its shaders, textures, descriptor sets and pipeline instead of preparing them again");
+REXCVAR_DEFINE_BOOL(nier_draw_memo_verify, false, "NieR",
+                    "Native renderer: on every reused draw also prepare it again and log '[native] draw memo "
+                    "DIFFERENCE' when the results differ");
 REXCVAR_DEFINE_BOOL(nier_early_depth_tests, true, "NieR",
                     "Native renderer: run depth/stencil tests before pixel shaders that kill pixels when the draw "
                     "writes neither depth nor stencil (same result, hidden pixels are not shaded)");
@@ -760,6 +766,81 @@ NativeRenderer::DrawResult NativeRenderer::RecordDraw(const RegisterFile& regs) 
     ++stats_.skipped_empty;
     return DrawResult::kDone;
   }
+  if (REXCVAR_GET(nier_draw_memo) && MemoMatches(regs, draw)) {
+    BeginSubmission();
+    const uint64_t submission = submissions_->current();
+    if (submissions_->HasUniformSpace(kDrawUniformBytes)) {
+      SyncDrawRanges(regs, draw, *memo_.prepared.vertex_shader);
+      if (submissions_->current() == submission) {
+        ++stats_.memo_hits;
+        if (!REXCVAR_GET(nier_draw_memo_verify)) {
+          return RecordPrepared(regs, draw, memo_, false);
+        }
+        VerifyMemo(regs, draw, polygonal);
+        if (submissions_->current() == submission) {
+          return RecordPrepared(regs, draw, memo_, true);
+        }
+      }
+    }
+  }
+  memo_.valid = false;
+  DrawMemo next;
+  if (const auto result = PrepareState(regs, draw, polygonal, next)) {
+    return *result;
+  }
+  memo_ = next;
+  return RecordPrepared(regs, draw, memo_, true);
+}
+
+bool NativeRenderer::MemoMatches(const RegisterFile& regs, const HostDraw& draw) const {
+  const DrawMemo& m = memo_;
+  if (!m.valid || !registers_.StateUnchanged() || m.foreign_state_writes != registers_.foreign_state_writes() ||
+      m.texture_bindings != textures_->binding_version() || m.submission != submissions_->current() ||
+      m.swaps != stats_.swaps || !shaders_.Current(m.vertex_hash, m.pixel_hash) || m.topology != draw.topology ||
+      m.primitive_restart != draw.primitive_restart || m.vs_type != draw.vs_type ||
+      m.index_source != draw.index_source || m.index_32bit != draw.index_32bit ||
+      m.index_endian != draw.index_endian || Tracing()) {
+    return false;
+  }
+  for (uint32_t mask = m.fetch_mask; mask; mask &= mask - 1) {
+    const uint32_t slot = uint32_t(std::countr_zero(mask));
+    if (std::memcmp(&regs[XE_GPU_REG_SHADER_CONSTANT_FETCH_00_0 + slot * 6], &m.fetch_words[slot * 6],
+                    6 * sizeof(uint32_t)) != 0) {
+      return false;
+    }
+  }
+  return true;
+}
+
+void NativeRenderer::SyncDrawRanges(const RegisterFile& regs, const HostDraw& draw,
+                                    const vulkan::VulkanShader& vertex_shader) {
+  auto sync_ranges = [&] {
+    std::array<std::pair<uint32_t, uint32_t>, 8> synced;
+    size_t synced_count = 0;
+    for (const auto& binding : vertex_shader.vertex_bindings()) {
+      const auto fetch = regs.GetVertexFetch(binding.fetch_constant);
+      const std::pair<uint32_t, uint32_t> range{fetch.address << 2, fetch.size << 2};
+      if (std::find(synced.begin(), synced.begin() + synced_count, range) != synced.begin() + synced_count) {
+        continue;
+      }
+      if (synced_count < synced.size()) {
+        synced[synced_count++] = range;
+      }
+      SyncMirror(range.first, range.second);
+    }
+    if (draw.index_source == IndexSource::kGuestDma) {
+      SyncMirror(draw.guest_index_address, draw.guest_index_bytes);
+    }
+  };
+  const uint64_t submission = submissions_->current();
+  sync_ranges();
+  if (submissions_->current() != submission) {
+    sync_ranges();
+  }
+}
+
+std::optional<NativeRenderer::DrawResult> NativeRenderer::PrepareState(const RegisterFile& regs, const HostDraw& draw,
+                                                                       bool polygonal, DrawMemo& out) {
   const SampleScale scale = ScaleFor(regs.Get<reg::RB_SURFACE_INFO>().msaa_samples);
   auto prepared = shaders_.PrepareDraw(regs, draw.vs_type, scale.x, scale.y, 0);
   if (!prepared) {
@@ -798,29 +879,7 @@ NativeRenderer::DrawResult NativeRenderer::RecordDraw(const RegisterFile& regs) 
     Flush();
     BeginSubmission();
   }
-  auto sync_ranges = [&] {
-    std::array<std::pair<uint32_t, uint32_t>, 8> synced;
-    size_t synced_count = 0;
-    for (const auto& binding : prepared->vertex_shader->vertex_bindings()) {
-      const auto fetch = regs.GetVertexFetch(binding.fetch_constant);
-      const std::pair<uint32_t, uint32_t> range{fetch.address << 2, fetch.size << 2};
-      if (std::find(synced.begin(), synced.begin() + synced_count, range) != synced.begin() + synced_count) {
-        continue;
-      }
-      if (synced_count < synced.size()) {
-        synced[synced_count++] = range;
-      }
-      SyncMirror(range.first, range.second);
-    }
-    if (draw.index_source == IndexSource::kGuestDma) {
-      SyncMirror(draw.guest_index_address, draw.guest_index_bytes);
-    }
-  };
-  const uint64_t submission = submissions_->current();
-  sync_ranges();
-  if (submissions_->current() != submission) {
-    sync_ranges();
-  }
+  SyncDrawRanges(regs, draw, *prepared->vertex_shader);
   TextureConstantInfo texture_info;
   uint32_t vs_textures = 0, vs_samplers = 0, ps_textures = 0, ps_samplers = 0;
   bool out_of_memory = false;
@@ -887,6 +946,90 @@ NativeRenderer::DrawResult NativeRenderer::RecordDraw(const RegisterFile& regs) 
     ++stats_.skipped_shader;
     return DrawResult::kDone;
   }
+  out.prepared = *prepared;
+  out.color_mask = color_mask;
+  out.targets = targets;
+  out.vs_set = vs_set;
+  out.ps_set = ps_set;
+  out.texture_info = texture_info;
+  out.shift = shift;
+  out.viewport = viewport;
+  out.state = state;
+  out.layout = layout;
+  out.pipeline = pipeline;
+  out.polygonal = polygonal;
+  out.topology = draw.topology;
+  out.primitive_restart = draw.primitive_restart;
+  out.vs_type = draw.vs_type;
+  out.index_source = draw.index_source;
+  out.index_32bit = draw.index_32bit;
+  out.index_endian = draw.index_endian;
+  out.fetch_mask = UsedFetchConstants(*prepared);
+  std::memcpy(out.fetch_words.data(), &regs[XE_GPU_REG_SHADER_CONSTANT_FETCH_00_0], sizeof(out.fetch_words));
+  shaders_.CurrentHashes(out.vertex_hash, out.pixel_hash);
+  out.foreign_state_writes = registers_.foreign_state_writes();
+  out.texture_bindings = textures_->binding_version();
+  registers_.BeginStateJournal();
+  out.submission = submissions_->current();
+  out.swaps = stats_.swaps;
+  out.valid = !Tracing();
+  return std::nullopt;
+}
+
+uint32_t NativeRenderer::UsedFetchConstants(const NativeShaders::PreparedDraw& prepared) {
+  uint32_t mask = 0;
+  for (const vulkan::VulkanShader* shader : {prepared.vertex_shader, prepared.pixel_shader}) {
+    if (!shader) {
+      continue;
+    }
+    for (const auto& binding : shader->GetTextureBindingsAfterTranslation()) {
+      mask |= 1u << binding.fetch_constant;
+    }
+    for (const auto& binding : shader->GetSamplerBindingsAfterTranslation()) {
+      mask |= 1u << binding.fetch_constant;
+    }
+  }
+  return mask;
+}
+
+void NativeRenderer::VerifyMemo(const RegisterFile& regs, const HostDraw& draw, bool polygonal) {
+  DrawMemo fresh;
+  const uint64_t submission = submissions_->current();
+  if (PrepareState(regs, draw, polygonal, fresh) || submissions_->current() != submission) {
+    return;
+  }
+  const DrawMemo& m = memo_;
+  std::string differences;
+  auto check = [&](bool same, const char* what) {
+    if (!same) {
+      differences += differences.empty() ? what : fmt::format(", {}", what);
+    }
+  };
+  check(fresh.prepared.vertex == m.prepared.vertex && fresh.prepared.pixel == m.prepared.pixel &&
+            fresh.prepared.vertex_shader == m.prepared.vertex_shader &&
+            fresh.prepared.pixel_shader == m.prepared.pixel_shader,
+        "shaders");
+  check(fresh.color_mask == m.color_mask && fresh.targets == m.targets, "targets");
+  check(fresh.vs_set == m.vs_set && fresh.ps_set == m.ps_set, "texture sets");
+  check(std::memcmp(&fresh.texture_info, &m.texture_info, sizeof(m.texture_info)) == 0, "texture constants");
+  check(fresh.shift == m.shift, "shift");
+  check(std::memcmp(&fresh.viewport, &m.viewport, sizeof(m.viewport)) == 0, "viewport");
+  check(fresh.state == m.state, "pipeline state");
+  check(fresh.layout == m.layout && fresh.pipeline == m.pipeline, "pipeline");
+  if (differences.empty()) {
+    return;
+  }
+  if (++stats_.memo_mismatches <= 16) {
+    REXLOG_WARN("[native] draw memo DIFFERENCE: {}", differences);
+  }
+}
+
+NativeRenderer::DrawResult NativeRenderer::RecordPrepared(const RegisterFile& regs, const HostDraw& draw,
+                                                          const DrawMemo& m, bool set_dynamic_state) {
+  Translator::SystemConstants system;
+  FillSystemConstants(regs, draw, m.viewport, m.texture_info, system);
+  uint32_t fetches[192];
+  CopyFetchConstants(regs, fetches);
   alignas(16) uint8_t floats[Submissions::kFloatConstantsBytes];
   uint32_t bools[40];
   std::array<uint32_t, Translator::kConstantBufferCount> offsets{};
@@ -921,28 +1064,30 @@ NativeRenderer::DrawResult NativeRenderer::RecordDraw(const RegisterFile& regs) 
     upload(stream, floats, size, Submissions::kFloatConstantsBytes);
     cached = {map, generation, submissions_->current(), offsets[stream], verify_floats ? XXH3_64bits(floats, size) : 0};
   };
-  upload_floats(Translator::kConstantBufferFloatVertex, &prepared->vertex_shader->constant_register_map(), false);
+  upload_floats(Translator::kConstantBufferFloatVertex, &m.prepared.vertex_shader->constant_register_map(), false);
   upload_floats(Translator::kConstantBufferFloatPixel,
-                prepared->pixel_shader ? &prepared->pixel_shader->constant_register_map() : nullptr, true);
+                m.prepared.pixel_shader ? &m.prepared.pixel_shader->constant_register_map() : nullptr, true);
   CopyBoolLoopConstants(regs, bools);
   upload(Translator::kConstantBufferBoolLoop, bools, sizeof(bools), sizeof(bools));
   upload(Translator::kConstantBufferFetch, fetches, sizeof(fetches), sizeof(fetches));
   const VkCommandBuffer cmd = submissions_->main();
-  if (targets_->Begins(targets)) {
+  if (targets_->Begins(m.targets)) {
     targets_->End(cmd);
-    current_pass_ = PassId(targets);
+    current_pass_ = PassId(m.targets);
     submissions_->Mark(GpuCategory::kDraws, LabelId(current_pass_, nullptr, nullptr));
     FlushTracePass();
     trace_pass_.pass = current_pass_;
     if (Tracing()) {
       frame_passes_.push_back(current_pass_);
     }
+    set_dynamic_state = true;
   }
-  targets_->Begin(cmd, targets,
-                  UsedRows(targets, extents_.EstimateMaxY(true, *prepared->vertex_shader) * targets.scale.y), shift,
-                  KindOf(targets) == PassKind::kShadowMap);
+  targets_->Begin(cmd, m.targets,
+                  UsedRows(m.targets, extents_.EstimateMaxY(true, *m.prepared.vertex_shader) * m.targets.scale.y),
+                  m.shift, KindOf(m.targets) == PassKind::kShadowMap);
   if (!targets_->rendering()) {
     ++stats_.skipped_target;
+    memo_.valid = false;
     return DrawResult::kDone;
   }
   const auto& dfn = Vk(device_);
@@ -950,29 +1095,32 @@ NativeRenderer::DrawResult NativeRenderer::RecordDraw(const RegisterFile& regs) 
     dynamic_filter_.Reset();
     binding_filter_.Reset();
     filter_submission_ = submissions_->current();
+    set_dynamic_state = true;
   }
-  if (pipeline != bound_pipeline_ || submissions_->current() != bound_submission_ || PerfSkip(kRebindPipelines)) {
-    dfn.vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-    bound_pipeline_ = pipeline;
+  if (m.pipeline != bound_pipeline_ || submissions_->current() != bound_submission_ || PerfSkip(kRebindPipelines)) {
+    dfn.vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m.pipeline);
+    bound_pipeline_ = m.pipeline;
     bound_submission_ = submissions_->current();
   }
   submissions_->Mark(GpuCategory::kDraws,
                      REXCVAR_GET(nier_gpu_shader_marks)
-                         ? LabelId(current_pass_, prepared->pixel_shader, prepared->pixel)
+                         ? LabelId(current_pass_, m.prepared.pixel_shader, m.prepared.pixel)
                          : LabelId(current_pass_, nullptr, nullptr));
-  const DescriptorBinding binding{layout, {shared_set_, submissions_->constants_set(), vs_set, ps_set}, offsets};
+  const DescriptorBinding binding{m.layout, {shared_set_, submissions_->constants_set(), m.vs_set, m.ps_set}, offsets};
   const uint32_t first_set = filter ? binding_filter_.FirstChanged(binding) : 0;
   if (first_set < kBoundSets) {
     ++stats_.set_binds;
-    dfn.vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, first_set, kBoundSets - first_set,
+    dfn.vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, m.layout, first_set, kBoundSets - first_set,
                                 binding.sets.data() + first_set, first_set <= kConstantsSet ? kDynamicOffsets : 0,
                                 binding.offsets.data());
   } else {
     ++stats_.set_binds_skipped;
   }
-  const VkRect2D scissor = SetDynamicState(regs, viewport, targets.scale, polygonal, shift);
+  if (set_dynamic_state) {
+    memo_scissor_ = SetDynamicState(regs, m.viewport, m.targets.scale, m.polygonal, m.shift);
+  }
   if (!trace_pass_.draws++) {
-    trace_pass_.first_scissor = scissor;
+    trace_pass_.first_scissor = memo_scissor_;
   }
   switch (draw.index_source) {
     case IndexSource::kGuestDma:
@@ -1032,6 +1180,7 @@ void NativeRenderer::Resolve(const RegisterFile& regs) {
         plan.readback ? " readback" : "", plan.dest_swap ? " swap" : ""));
   }
   resolves_->Resolve(submissions_->main(), plan, submissions_->current());
+  memo_.valid = false;
   bound_pipeline_ = VK_NULL_HANDLE;
   dynamic_filter_.Reset();
   binding_filter_.Reset();
@@ -1398,6 +1547,7 @@ std::string NativeRenderer::Report() {
   line += fmt::format("; fsr {} runs, level {}", upscale_->runs() - reported_upscale_runs_, upscale_governor_.level());
   reported_upscale_runs_ = upscale_->runs();
   line += fmt::format("; silent draws skipped {}", s.skipped_silent - r.skipped_silent);
+  line += fmt::format("; draw memo hits {}, mismatches {}", s.memo_hits - r.memo_hits, s.memo_mismatches - r.memo_mismatches);
   line += fmt::format("; slow frames {} of {} (worst {:.0f} ms): ring busy {}, gpu wait {}, texture uploads {}, other {}",
                       slow_frames_.slow, slow_frames_.frames, slow_frames_.worst_ms, slow_frames_.ring,
                       slow_frames_.gpu, slow_frames_.uploads, slow_frames_.other);

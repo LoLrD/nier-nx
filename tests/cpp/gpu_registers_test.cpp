@@ -139,5 +139,41 @@ int main() {
     Check(!regs.SetRange(XE_GPU_REG_SCRATCH_REG0, words, 3), "special_registers_are_not_written_in_bulk");
     Check(!regs.SetRange(GpuRegisters::kCount - 2, words, 3), "range_past_the_file_is_not_written_in_bulk");
   }
+  {
+    GpuRegisters regs;
+    regs.BeginStateJournal();
+    Check(regs.StateUnchanged(), "fresh_journal_is_unchanged");
+    regs.Set(XE_GPU_REG_RB_COLORCONTROL, 5);
+    Check(!regs.StateUnchanged(), "render_state_write_changes_state");
+    regs.Set(XE_GPU_REG_RB_COLORCONTROL, 0);
+    Check(regs.StateUnchanged(), "state_written_back_is_unchanged");
+    regs.Set(XE_GPU_REG_VGT_DRAW_INITIATOR, 0x1234);
+    regs.Set(XE_GPU_REG_VGT_DMA_BASE, 0x1000);
+    regs.Set(XE_GPU_REG_VGT_DMA_SIZE, 64);
+    regs.Set(XE_GPU_REG_VGT_INDX_OFFSET, 7);
+    regs.Set(XE_GPU_REG_VGT_MIN_VTX_INDX, 1);
+    regs.Set(XE_GPU_REG_VGT_MAX_VTX_INDX, 99);
+    regs.Set(XE_GPU_REG_VGT_EVENT_INITIATOR, 3);
+    regs.Set(XE_GPU_REG_SCRATCH_REG0, 9);
+    regs.Set(XE_GPU_REG_SHADER_CONSTANT_000_X, 0x3F800000);
+    regs.Set(XE_GPU_REG_SHADER_CONSTANT_FETCH_00_0, 0x10);
+    regs.Set(XE_GPU_REG_SHADER_CONSTANT_BOOL_000_031, 1);
+    regs.Set(XE_GPU_REG_SHADER_CONSTANT_LOOP_00, 2);
+    Check(regs.StateUnchanged(), "per_draw_registers_and_constants_keep_state");
+    regs.Set(XE_GPU_REG_RB_COLORCONTROL, 7);
+    regs.BeginStateJournal();
+    Check(regs.StateUnchanged(), "new_journal_starts_from_current_values");
+    regs.Set(XE_GPU_REG_RB_COLORCONTROL, 0);
+    regs.Set(XE_GPU_REG_RB_COLORCONTROL, 7);
+    Check(regs.StateUnchanged(), "round_trip_since_the_journal_is_unchanged");
+    const uint64_t foreign = regs.foreign_state_writes();
+    regs.Store(XE_GPU_REG_PA_SC_WINDOW_OFFSET, 0x00100010);
+    Check(regs.foreign_state_writes() > foreign, "mmio_store_to_render_state_is_counted");
+    const uint32_t words[2] = {__builtin_bswap32(1u), __builtin_bswap32(2u)};
+    regs.SetRange(XE_GPU_REG_SHADER_CONSTANT_000_X, words, 2);
+    Check(regs.StateUnchanged(), "bulk_float_constants_keep_state");
+    regs.SetRange(XE_GPU_REG_SHADER_CONSTANT_LOOP_31 + 1, words, 2);
+    Check(!regs.StateUnchanged(), "bulk_write_past_loop_constants_changes_state");
+  }
   return failures ? 1 : 0;
 }

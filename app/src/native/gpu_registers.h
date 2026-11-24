@@ -1,8 +1,11 @@
 #pragma once
 
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <optional>
+#include <utility>
+#include <vector>
 
 #include <rex/graphics/register_file.h>
 
@@ -30,10 +33,15 @@ class GpuRegisters {
   bool SetRange(uint32_t first, const uint32_t* words_big_endian, uint32_t count);
   uint64_t FloatGeneration(const uint64_t (&bitmap)[4], bool pixel) const;
   uint64_t ConstantsGeneration(uint32_t first, uint32_t count) const;
+  void BeginStateJournal() const;
+  bool StateUnchanged() const;
+  uint64_t foreign_state_writes() const { return foreign_state_writes_.load(std::memory_order_relaxed); }
 
   GpuRegisters();
 
  private:
+  static bool AffectsState(uint32_t index);
+  void JournalState(uint32_t index);
   void WriteGammaComponent(uint32_t value);
   void WriteGammaEntry(uint32_t value);
   void AdvanceGammaIndex(uint32_t index);
@@ -49,6 +57,9 @@ class GpuRegisters {
   uint64_t gamma_version_ = 0;
   std::array<uint64_t, kGroups> generations_{};
   uint64_t generation_ = 0;
+  std::atomic<uint64_t> foreign_state_writes_{0};
+  mutable std::vector<std::pair<uint32_t, uint32_t>> state_journal_;
+  mutable std::array<uint64_t, (kCount + 63) / 64> journaled_{};
 };
 
 }  // namespace nier::native

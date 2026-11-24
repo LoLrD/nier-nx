@@ -57,6 +57,9 @@ std::optional<MemoryStore> GpuRegisters::Set(uint32_t index, uint32_t value) {
   if (index >= kCount) {
     return std::nullopt;
   }
+  if (file_.values[index] != value && AffectsState(index)) {
+    JournalState(index);
+  }
   file_.values[index] = value;
   Touch(index);
   if (index == XE_GPU_REG_DC_LUT_RW_INDEX) {
@@ -76,12 +79,60 @@ std::optional<MemoryStore> GpuRegisters::Set(uint32_t index, uint32_t value) {
   return MemoryStore{file_.values[XE_GPU_REG_SCRATCH_ADDR] + scratch * 4, value};
 }
 
+bool GpuRegisters::AffectsState(uint32_t index) {
+  if (index >= 0x2000 && index < kConstantBase) {
+    switch (index) {
+      case XE_GPU_REG_VGT_DRAW_INITIATOR:
+      case XE_GPU_REG_VGT_DMA_BASE:
+      case XE_GPU_REG_VGT_DMA_SIZE:
+      case XE_GPU_REG_VGT_EVENT_INITIATOR:
+      case XE_GPU_REG_VGT_IMMED_DATA:
+      case XE_GPU_REG_VGT_INDX_OFFSET:
+      case XE_GPU_REG_VGT_MIN_VTX_INDX:
+      case XE_GPU_REG_VGT_MAX_VTX_INDX:
+        return false;
+      default:
+        return index < XE_GPU_REG_COHER_DEST_BASE_0 || index > XE_GPU_REG_COHER_DEST_BASE_7;
+    }
+  }
+  return index > XE_GPU_REG_SHADER_CONSTANT_LOOP_31;
+}
+
+void GpuRegisters::JournalState(uint32_t index) {
+  uint64_t& word = journaled_[index >> 6];
+  const uint64_t bit = uint64_t(1) << (index & 63);
+  if (!(word & bit)) {
+    word |= bit;
+    state_journal_.emplace_back(index, file_.values[index]);
+  }
+}
+
+void GpuRegisters::BeginStateJournal() const {
+  for (const auto& [index, value] : state_journal_) {
+    journaled_[index >> 6] &= ~(uint64_t(1) << (index & 63));
+  }
+  state_journal_.clear();
+}
+
+bool GpuRegisters::StateUnchanged() const {
+  for (const auto& [index, value] : state_journal_) {
+    if (file_.values[index] != value) {
+      return false;
+    }
+  }
+  return true;
+}
+
 bool GpuRegisters::SetRange(uint32_t first, const uint32_t* words_big_endian, uint32_t count) {
   if (first < kConstantBase || first + count > kCount) {
     return false;
   }
   for (uint32_t i = 0; i < count; ++i) {
-    file_.values[first + i] = __builtin_bswap32(words_big_endian[i]);
+    const uint32_t value = __builtin_bswap32(words_big_endian[i]);
+    if (first + i > XE_GPU_REG_SHADER_CONSTANT_LOOP_31 && file_.values[first + i] != value) {
+      JournalState(first + i);
+    }
+    file_.values[first + i] = value;
   }
   if (count) {
     const uint32_t last_group = (first + count - 1 - kConstantBase) >> kGroupShift;
@@ -94,7 +145,10 @@ bool GpuRegisters::SetRange(uint32_t first, const uint32_t* words_big_endian, ui
 
 void GpuRegisters::Store(uint32_t index, uint32_t value) {
   if (index < kCount) {
-    std::atomic_ref<uint32_t>(file_.values[index]).store(value, std::memory_order_relaxed);
+    if (std::atomic_ref<uint32_t>(file_.values[index]).exchange(value, std::memory_order_relaxed) != value &&
+        AffectsState(index)) {
+      foreign_state_writes_.fetch_add(1, std::memory_order_relaxed);
+    }
     Touch(index);
   }
 }

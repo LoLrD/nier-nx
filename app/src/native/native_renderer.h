@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <deque>
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
 #include <string_view>
@@ -12,6 +13,7 @@
 #include <vector>
 
 #include <rex/graphics/register_file.h>
+#include <rex/graphics/util/draw.h>
 #include <rex/graphics/util/draw_extent_estimator.h>
 #include <rex/ui/vulkan/api.h>
 
@@ -63,6 +65,8 @@ class NativeRenderer {
     uint64_t skipped_pending = 0;
     uint64_t skipped_empty = 0;
     uint64_t skipped_silent = 0;
+    uint64_t memo_hits = 0;
+    uint64_t memo_mismatches = 0;
     uint64_t resolves = 0;
     uint64_t swaps = 0;
     uint64_t black_frames = 0;
@@ -121,7 +125,46 @@ class NativeRenderer {
     bool operator==(const Presented&) const = default;
   };
 
+  struct DrawMemo {
+    bool valid = false;
+    uint64_t foreign_state_writes = 0;
+    uint64_t texture_bindings = 0;
+    uint64_t submission = 0;
+    uint64_t swaps = 0;
+    uint64_t vertex_hash = 0;
+    uint64_t pixel_hash = 0;
+    HostTopology topology{};
+    bool primitive_restart = false;
+    rex::graphics::Shader::HostVertexShaderType vs_type{};
+    IndexSource index_source{};
+    bool index_32bit = false;
+    rex::graphics::xenos::Endian index_endian{};
+    uint32_t fetch_mask = 0;
+    std::array<uint32_t, 192> fetch_words{};
+    NativeShaders::PreparedDraw prepared{};
+    uint32_t color_mask = 0;
+    TargetSet targets{};
+    VkDescriptorSet vs_set = VK_NULL_HANDLE;
+    VkDescriptorSet ps_set = VK_NULL_HANDLE;
+    TextureConstantInfo texture_info{};
+    uint32_t shift = 0;
+    rex::graphics::draw_util::ViewportInfo viewport{};
+    PipelineState state{};
+    VkPipelineLayout layout = VK_NULL_HANDLE;
+    VkPipeline pipeline = VK_NULL_HANDLE;
+    bool polygonal = false;
+  };
+
   DrawResult RecordDraw(const rex::graphics::RegisterFile& regs);
+  bool MemoMatches(const rex::graphics::RegisterFile& regs, const HostDraw& draw) const;
+  void SyncDrawRanges(const rex::graphics::RegisterFile& regs, const HostDraw& draw,
+                      const rex::graphics::vulkan::VulkanShader& vertex_shader);
+  std::optional<DrawResult> PrepareState(const rex::graphics::RegisterFile& regs, const HostDraw& draw, bool polygonal,
+                                         DrawMemo& out);
+  static uint32_t UsedFetchConstants(const NativeShaders::PreparedDraw& prepared);
+  void VerifyMemo(const rex::graphics::RegisterFile& regs, const HostDraw& draw, bool polygonal);
+  DrawResult RecordPrepared(const rex::graphics::RegisterFile& regs, const HostDraw& draw, const DrawMemo& m,
+                            bool set_dynamic_state);
   uint16_t PassId(const TargetSet& set);
   uint16_t ResolveId(const ResolvePlan& plan);
   uint16_t NamedPass(const std::string& name, bool resolve);
@@ -172,6 +215,8 @@ class NativeRenderer {
   std::unique_ptr<Textures> textures_;
   std::unique_ptr<Resolves> resolves_;
   std::unique_ptr<SceneUpscale> upscale_;
+  DrawMemo memo_;
+  VkRect2D memo_scissor_{};
   uint32_t upscale_target_width_ = 0;
   uint64_t reported_upscale_runs_ = 0;
   UpscaleGovernor upscale_governor_{2, 30.0};

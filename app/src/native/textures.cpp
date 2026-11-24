@@ -333,6 +333,7 @@ Textures::Binding Textures::View(VkCommandBuffer upload, const xenos::xe_gpu_tex
     }
     RecordLoad(fetch, *loaded, shape->bytes, reason);
     active_bytes_ += shape->bytes;
+    ++binding_version_;
     textures_.emplace(key, Texture{image, shape->host, shape->width, shape->height, shape->cube, shape->bytes, content,
                                    frame_, frame_, now_ms_, submission, ShapeKey(*shape), cards_serial, footprint});
     EnforceBudget();
@@ -598,6 +599,7 @@ void Textures::RemoveResolveImage(uint32_t address, VkFormat format, VkImageView
 }
 
 void Textures::ForgetResolveImage(uint64_t key, StaleRead reason) {
+  ++binding_version_;
   const uint32_t address = uint32_t(key >> 32);
   if (auto count = resolve_addresses_.find(address); count != resolve_addresses_.end() && !--count->second) {
     resolve_addresses_.erase(count);
@@ -664,6 +666,7 @@ void Textures::NoteEvicted(uint64_t key) {
 }
 
 void Textures::Retire(Texture& texture) {
+  ++binding_version_;
   active_bytes_ -= texture.bytes;
   RetireImage(texture.image, texture.last_submission, texture.bytes, texture.shape);
 }
