@@ -1443,9 +1443,10 @@ std::string NativeRenderer::Report() {
                       t.evictions - rt.evictions, t.memory_failures - rt.memory_failures, t.releases - rt.releases,
                       s.draw_retries - r.draw_retries, s.skipped_retry - r.skipped_retry,
                       s.staging_flushes - r.staging_flushes);
-  line += fmt::format("; memory MB: mirror {}, textures {} (retired {}, free {}), resolve images {}, targets {}, staging {}, uniforms {}",
+  line += fmt::format("; memory MB: mirror {}, textures {} (retired {}, free {}, arena {}: {} images, {} own), resolve images {}, targets {}, staging {}, uniforms {}",
                       GuestMirror::kSize >> 20, textures_->active_bytes() >> 20, textures_->retired_bytes() >> 20,
-                      textures_->free_bytes() >> 20,
+                      textures_->free_bytes() >> 20, textures_->arena_bytes() >> 20, t.arena_images - rt.arena_images,
+                      t.dedicated_images - rt.dedicated_images,
                       resolves_->bytes() >> 20, targets_->bytes() >> 20,
                       (staging_->page_count() * staging_->page_size()) >> 20,
                       (Submissions::kSlots * Submissions::kUniformBytes) >> 20);

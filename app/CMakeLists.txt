@@ -26,6 +26,7 @@ set(NIER_SOURCES
     src/language_patches.cpp
     src/cpk_toc.cpp
     src/read_patches.cpp
+    src/native/arena_ranges.cpp
     src/native/draw_constants.cpp
     src/native/draw_state_filter.cpp
     src/native/gpu_progress.cpp

@@ -13,6 +13,7 @@
 #include <rex/graphics/xenos.h>
 #include <rex/ui/vulkan/api.h>
 
+#include "arena_ranges.h"
 #include "phased_hash.h"
 #include "resolve_plan.h"
 #include "store_cards.h"
@@ -63,8 +64,12 @@ class Textures {
     uint64_t cards_reloads = 0;
     uint64_t cards_missed = 0;
     uint64_t cards_unchanged = 0;
+    uint64_t arena_images = 0;
+    uint64_t dedicated_images = 0;
   };
   static constexpr size_t kTopUploads = 5;
+  static constexpr uint64_t kArenaBlockBytes = 32ull << 20;
+  static constexpr uint64_t kArenaLargestImage = 8ull << 20;
 
   Textures(const rex::ui::vulkan::VulkanDevice* device, const uint8_t* physical_base,
            rex::ui::vulkan::VulkanUploadBufferPool& staging);
@@ -93,12 +98,14 @@ class Textures {
   uint64_t retired_bytes() const { return retired_bytes_; }
   uint64_t free_bytes() const { return free_bytes_; }
   uint64_t staged_bytes() const { return staged_bytes_; }
+  uint64_t arena_bytes() const { return uint64_t(arena_.block_count()) * arena_.block_bytes(); }
   void ResetStaged() { staged_bytes_ = 0; }
 
  private:
   struct Image {
     VkImage image = VK_NULL_HANDLE;
     VkDeviceMemory memory = VK_NULL_HANDLE;
+    ArenaRange arena{UINT32_MAX, 0, 0};
     VkImageView views[2][2] = {};
   };
   struct Texture {
@@ -139,6 +146,7 @@ class Textures {
   };
 
   Image CreateImage(const TextureShape& shape);
+  bool BindMemory(Image& image);
   Image AcquireImage(const TextureShape& shape);
   static uint64_t ShapeKey(const TextureShape& shape);
   bool Upload(VkCommandBuffer upload, const Image& image, const LoadedTexture& loaded, uint64_t submission);
@@ -194,6 +202,9 @@ class Textures {
   std::unordered_map<uint64_t, uint64_t> failed_;
   uint64_t staged_bytes_ = 0;
   std::unordered_multimap<uint64_t, FreeImage> free_images_;
+  ArenaRanges arena_{kArenaBlockBytes};
+  std::vector<VkDeviceMemory> arena_blocks_;
+  uint32_t arena_memory_type_ = UINT32_MAX;
   Stats stats_;
 };
 

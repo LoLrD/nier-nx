@@ -4,6 +4,7 @@
 #include <array>
 #include <cstring>
 #include <iterator>
+#include <optional>
 #include <string>
 #include <utility>
 
@@ -22,6 +23,9 @@
 
 REXCVAR_DEFINE_INT32(nier_texture_budget_mb, 448, "NieR",
                      "Native renderer: texture memory the cache keeps before evicting textures unused for a second");
+REXCVAR_DEFINE_BOOL(nier_texture_arena, true, "NieR",
+                    "Native renderer: place textures up to 8 MB in shared 32 MB memory blocks instead of one "
+                    "allocation each (an allocation costs ~2 ms of CPU on the Switch)");
 
 namespace nier::native {
 
@@ -116,6 +120,9 @@ Textures::~Textures() {
   }
   Destroy(null_array_);
   Destroy(null_3d_);
+  for (VkDeviceMemory block : arena_blocks_) {
+    Vk(device_).vkFreeMemory(device_->device(), block, nullptr);
+  }
 }
 
 void Textures::BeginFrame(uint64_t now_ms) {
@@ -364,9 +371,13 @@ Textures::Image Textures::CreateImage(const TextureShape& loaded) {
   info.samples = VK_SAMPLE_COUNT_1_BIT;
   info.tiling = VK_IMAGE_TILING_OPTIMAL;
   info.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-  if (!vk::util::CreateDedicatedAllocationImage(device_, info, vk::util::MemoryPurpose::kDeviceLocal, image.image,
-                                                image.memory)) {
+  if (dfn.vkCreateImage(device_->device(), &info, nullptr, &image.image) != VK_SUCCESS) {
     REXLOG_ERROR("[native] could not create a {}x{} texture", loaded.width, loaded.height);
+    return {};
+  }
+  if (!BindMemory(image)) {
+    REXLOG_ERROR("[native] no memory for a {}x{} texture", loaded.width, loaded.height);
+    dfn.vkDestroyImage(device_->device(), image.image, nullptr);
     return {};
   }
   for (uint32_t is_signed = 0; is_signed < (mutable_format ? 2u : 1u); ++is_signed) {
@@ -434,8 +445,56 @@ void Textures::Destroy(Image& image) {
     }
   }
   dfn.vkDestroyImage(d, image.image, nullptr);
-  dfn.vkFreeMemory(d, image.memory, nullptr);
+  if (image.arena.block != UINT32_MAX) {
+    arena_.Free(image.arena);
+  } else {
+    dfn.vkFreeMemory(d, image.memory, nullptr);
+  }
   image = {};
+}
+
+bool Textures::BindMemory(Image& image) {
+  const auto& dfn = Vk(device_);
+  const VkDevice d = device_->device();
+  VkMemoryRequirements requirements;
+  dfn.vkGetImageMemoryRequirements(d, image.image, &requirements);
+  const uint32_t type = vk::util::ChooseMemoryType(device_->memory_types(), requirements.memoryTypeBits,
+                                                   vk::util::MemoryPurpose::kDeviceLocal);
+  if (type == UINT32_MAX) {
+    return false;
+  }
+  const bool arena = REXCVAR_GET(nier_texture_arena) && requirements.size <= kArenaLargestImage &&
+                     (arena_memory_type_ == UINT32_MAX || arena_memory_type_ == type);
+  if (arena) {
+    std::optional<ArenaRange> range = arena_.Allocate(requirements.size, requirements.alignment);
+    if (!range) {
+      VkMemoryAllocateInfo allocate{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+      allocate.allocationSize = kArenaBlockBytes;
+      allocate.memoryTypeIndex = type;
+      VkDeviceMemory block = VK_NULL_HANDLE;
+      if (dfn.vkAllocateMemory(d, &allocate, nullptr, &block) == VK_SUCCESS) {
+        arena_blocks_.push_back(block);
+        arena_.AddBlock();
+        arena_memory_type_ = type;
+        range = arena_.Allocate(requirements.size, requirements.alignment);
+      }
+    }
+    if (range) {
+      dfn.vkBindImageMemory(d, image.image, arena_blocks_[range->block], range->offset);
+      image.arena = *range;
+      ++stats_.arena_images;
+      return true;
+    }
+  }
+  VkMemoryAllocateInfo allocate{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+  allocate.allocationSize = requirements.size;
+  allocate.memoryTypeIndex = type;
+  if (dfn.vkAllocateMemory(d, &allocate, nullptr, &image.memory) != VK_SUCCESS) {
+    return false;
+  }
+  dfn.vkBindImageMemory(d, image.image, image.memory, 0);
+  ++stats_.dedicated_images;
+  return true;
 }
 
 VkImageView Textures::NullView(xenos::FetchOpDimension dimension) const {
