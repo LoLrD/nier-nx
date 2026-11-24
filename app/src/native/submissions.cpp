@@ -1,4 +1,5 @@
 #include "submissions.h"
+#include "vk_recorder.h"
 
 #include <array>
 #include <cstring>
@@ -35,7 +36,7 @@ std::array<VkDeviceSize, SpirvShaderTranslator::kConstantBufferCount> ConstantRa
 
 Submissions::Submissions(const vk::VulkanDevice* device, VkDescriptorSetLayout constants_layout, bool host_cached)
     : device_(device) {
-  const auto& dfn = device_->functions();
+  const auto& dfn = Vk(device_);
   const VkDevice d = device_->device();
   const VkDescriptorPoolSize constants_size{VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,
                                             kSlots * SpirvShaderTranslator::kConstantBufferCount};
@@ -119,7 +120,7 @@ void Submissions::SetupTimestamps() {
   info.queryType = VK_QUERY_TYPE_TIMESTAMP;
   info.queryCount = kTimestamps;
   for (Slot& slot : slots_) {
-    device_->functions().vkCreateQueryPool(device_->device(), &info, nullptr, &slot.queries);
+    Vk(device_).vkCreateQueryPool(device_->device(), &info, nullptr, &slot.queries);
     slot.marks.reserve(kTimestamps);
     slot.passes.reserve(kTimestamps);
   }
@@ -127,7 +128,7 @@ void Submissions::SetupTimestamps() {
 
 Submissions::~Submissions() {
   WaitIdle();
-  const auto& dfn = device_->functions();
+  const auto& dfn = Vk(device_);
   const VkDevice d = device_->device();
   for (Slot& slot : slots_) {
     if (slot.queries) {
@@ -146,7 +147,7 @@ void Submissions::Begin() {
   if (open_) {
     return;
   }
-  const auto& dfn = device_->functions();
+  const auto& dfn = Vk(device_);
   const VkDevice d = device_->device();
   Slot& slot = slots_[current_ % kSlots];
   if (slot.submission > completed_) {
@@ -176,7 +177,7 @@ void Submissions::WriteTimestamp(Slot& slot, VkCommandBuffer command_buffer, uin
                                  uint16_t pass) {
   slot.marks[index] = category;
   slot.passes[index] = pass;
-  device_->functions().vkCmdWriteTimestamp(command_buffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, slot.queries, index);
+  Vk(device_).vkCmdWriteTimestamp(command_buffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, slot.queries, index);
 }
 
 void Submissions::Mark(GpuCategory category, uint16_t pass) {
@@ -208,7 +209,7 @@ void Submissions::CollectTimes(Slot& slot) {
   }
   std::array<uint64_t, kTimestamps> ticks;
   const uint32_t count = uint32_t(slot.marks.size());
-  if (device_->functions().vkGetQueryPoolResults(device_->device(), slot.queries, 0, count,
+  if (Vk(device_).vkGetQueryPoolResults(device_->device(), slot.queries, 0, count,
                                                  count * sizeof(uint64_t), ticks.data(), sizeof(uint64_t),
                                                  VK_QUERY_RESULT_64_BIT) == VK_SUCCESS) {
     AddGpuTimes(ticks.data(), slot.marks.data(), count, timestamp_period_ns_, timestamp_mask_, gpu_ns_);
@@ -254,7 +255,7 @@ VkDescriptorSet Submissions::Allocate(VkDescriptorSetLayout layout) {
   allocate.descriptorSetCount = 1;
   allocate.pSetLayouts = &layout;
   VkDescriptorSet set = VK_NULL_HANDLE;
-  if (device_->functions().vkAllocateDescriptorSets(device_->device(), &allocate, &set) != VK_SUCCESS) {
+  if (Vk(device_).vkAllocateDescriptorSets(device_->device(), &allocate, &set) != VK_SUCCESS) {
     return VK_NULL_HANDLE;
   }
   return set;
@@ -277,7 +278,7 @@ void Submissions::Submit() {
   if (!open_) {
     return;
   }
-  const auto& dfn = device_->functions();
+  const auto& dfn = Vk(device_);
   Slot& slot = slots_[current_ % kSlots];
   vk::util::FlushMappedMemoryRange(device_, slot.uniform_memory, slot.uniform_memory_type, 0, kUniformBytes,
                                    slot.uniform_used);
@@ -294,6 +295,9 @@ void Submissions::Submit() {
   }
   dfn.vkCmdPipelineBarrier(slot.upload, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 1,
                            &barrier, 0, nullptr, 0, nullptr);
+  if (VulkanRecorder* recorder = ActiveRecorder()) {
+    recorder->Drain();
+  }
   dfn.vkEndCommandBuffer(slot.upload);
   dfn.vkEndCommandBuffer(slot.main);
   const VkCommandBuffer buffers[2] = {slot.upload, slot.main};
@@ -320,7 +324,7 @@ void Submissions::Wait(uint64_t submission) {
   }
   for (Slot& slot : slots_) {
     if (slot.submission == submission) {
-      device_->functions().vkWaitForFences(device_->device(), 1, &slot.fence, VK_TRUE, UINT64_MAX);
+      Vk(device_).vkWaitForFences(device_->device(), 1, &slot.fence, VK_TRUE, UINT64_MAX);
       completed_ = submission;
       return;
     }
@@ -331,7 +335,7 @@ bool Submissions::Poll() {
   uint64_t done = completed_;
   for (Slot& slot : slots_) {
     if (slot.submission > done &&
-        device_->functions().vkGetFenceStatus(device_->device(), slot.fence) == VK_SUCCESS) {
+        Vk(device_).vkGetFenceStatus(device_->device(), slot.fence) == VK_SUCCESS) {
       done = slot.submission;
     }
   }

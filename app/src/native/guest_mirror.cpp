@@ -1,4 +1,5 @@
 #include "guest_mirror.h"
+#include "vk_recorder.h"
 
 #include <algorithm>
 #include <cstring>
@@ -24,7 +25,7 @@ GuestMirror::GuestMirror(const vk::VulkanDevice* device, const uint8_t* physical
     return;
   }
   void* mapping = nullptr;
-  device_->functions().vkMapMemory(device_->device(), memory_, 0, VK_WHOLE_SIZE, 0, &mapping);
+  Vk(device_).vkMapMemory(device_->device(), memory_, 0, VK_WHOLE_SIZE, 0, &mapping);
   mapping_ = static_cast<uint8_t*>(mapping);
   const auto& types = device_->memory_types();
   gpu_writable_ = (types.host_coherent >> memory_type_) & 1;
@@ -34,7 +35,7 @@ GuestMirror::GuestMirror(const vk::VulkanDevice* device, const uint8_t* physical
 }
 
 GuestMirror::~GuestMirror() {
-  const auto& dfn = device_->functions();
+  const auto& dfn = Vk(device_);
   dfn.vkDestroyBuffer(device_->device(), buffer_, nullptr);
   dfn.vkFreeMemory(device_->device(), memory_, nullptr);
 }
@@ -57,7 +58,7 @@ bool GuestMirror::Stage(VkCommandBuffer upload, uint64_t submission, vk::VulkanU
     return false;
   }
   std::memcpy(mapping, physical_base_ + address, size);
-  const auto& dfn = device_->functions();
+  const auto& dfn = Vk(device_);
   if (barrier_submission_ != submission) {
     barrier_submission_ = submission;
     VkMemoryBarrier barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER};

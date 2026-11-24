@@ -30,6 +30,7 @@
 #include "shaders/apply_gamma_cs.h"
 #include "resolve_plan.h"
 #include "target_keys.h"
+#include "vk_recorder.h"
 
 #if REX_PLATFORM_SWITCH
 extern "C" void RexSwitchPerfCount(unsigned id);
@@ -49,6 +50,8 @@ REXCVAR_DEFINE_BOOL(nier_store_cards, true, "NieR",
 REXCVAR_DEFINE_BOOL(nier_store_cards_verify, false, "NieR",
                     "Native renderer: compare the mirror and textures with guest memory where store cards say nothing "
                     "changed, and count misses (slow, for checking)");
+REXCVAR_DEFINE_BOOL(nier_record_thread, true, "NieR",
+                    "Native renderer: Vulkan commands are recorded on a worker thread from a queue the ring fills");
 REXCVAR_DEFINE_BOOL(nier_gpu_shader_marks, false, "NieR",
                     "Native renderer: GPU timestamps at every pixel shader change (per-shader GPU times in the report)");
 REXCVAR_DEFINE_INT32(nier_shadow_map_shift, 0, "NieR",
@@ -143,7 +146,8 @@ NativeRenderer::NativeRenderer(const vk::VulkanDevice* device, rex::memory::Memo
     REXLOG_ERROR("[native] the device has no dynamic rendering, nothing will be drawn");
     return;
   }
-  const auto& dfn = device_->functions();
+  recorder_ = std::make_unique<VulkanRecorder>(device_->functions());
+  const auto& dfn = Vk(device_);
   const VkDevice d = device_->device();
   pipeline_report_ = std::make_unique<PipelineReport>(device_);
   pipelines_ = std::make_unique<Pipelines>(device_, *pipeline_report_);
@@ -210,7 +214,7 @@ NativeRenderer::NativeRenderer(const vk::VulkanDevice* device, rex::memory::Memo
 }
 
 void NativeRenderer::CreateGammaPipeline() {
-  const auto& dfn = device_->functions();
+  const auto& dfn = Vk(device_);
   const VkDevice d = device_->device();
   const std::array<VkDescriptorSetLayoutBinding, 3> bindings = {{
       {0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr},
@@ -252,7 +256,7 @@ NativeRenderer::~NativeRenderer() {
     targets_->End(submissions_->main());
   }
   submissions_->WaitIdle();
-  const auto& dfn = device_->functions();
+  const auto& dfn = Vk(device_);
   const VkDevice d = device_->device();
   dfn.vkDestroySampler(d, gamma_sampler_, nullptr);
   dfn.vkDestroyPipeline(d, gamma_pipeline_, nullptr);
@@ -267,6 +271,7 @@ void NativeRenderer::BeginSubmission() {
   if (submissions_->open()) {
     return;
   }
+  SetActiveRecorder(recorder_ && recorder_->running() && REXCVAR_GET(nier_record_thread) ? recorder_.get() : nullptr);
   {
     ScopedMicros timer(stats_.us_gpu_wait);
     submissions_->Begin();
@@ -495,7 +500,7 @@ VkDescriptorSet NativeRenderer::BindTextures(const RegisterFile& regs, const Spi
                  nullptr,
                  nullptr};
   }
-  device_->functions().vkUpdateDescriptorSets(device_->device(), uint32_t(writes.size()), writes.data(), 0, nullptr);
+  Vk(device_).vkUpdateDescriptorSets(device_->device(), uint32_t(writes.size()), writes.data(), 0, nullptr);
   return set;
 }
 
@@ -532,7 +537,7 @@ uint32_t NativeRenderer::DownscaleFor(const TargetSet& targets, bool writes_dept
 
 VkRect2D NativeRenderer::SetDynamicState(const RegisterFile& regs, const draw_util::ViewportInfo& viewport_info,
                                      const SampleScale& scale, bool polygonal, uint32_t shift) {
-  const auto& dfn = device_->functions();
+  const auto& dfn = Vk(device_);
   const VkCommandBuffer cmd = submissions_->main();
   VkViewport viewport{-1.0f, -1.0f, 1.0f, 1.0f, viewport_info.z_min, viewport_info.z_max};
   if (viewport_info.xy_extent[0] && viewport_info.xy_extent[1]) {
@@ -806,7 +811,7 @@ NativeRenderer::DrawResult NativeRenderer::RecordDraw(const RegisterFile& regs) 
     ++stats_.skipped_target;
     return DrawResult::kDone;
   }
-  const auto& dfn = device_->functions();
+  const auto& dfn = Vk(device_);
   if (submissions_->current() != filter_submission_) {
     dynamic_filter_.Reset();
     binding_filter_.Reset();
@@ -901,7 +906,7 @@ void NativeRenderer::Resolve(const RegisterFile& regs) {
 
 void NativeRenderer::PresentInto(VkCommandBuffer cmd, VkImage output, VkImageView output_view, bool written_before,
                                  uint32_t frontbuffer, uint32_t width, uint32_t height) {
-  const auto& dfn = device_->functions();
+  const auto& dfn = Vk(device_);
   VkImageMemoryBarrier barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
   barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_SHADER_WRITE_BIT;
   barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -979,7 +984,7 @@ void NativeRenderer::DumpFrame(uint32_t frontbuffer, uint32_t width, uint32_t he
   if (source == VK_NULL_HANDLE || !width || !height) {
     return;
   }
-  const auto& dfn = device_->functions();
+  const auto& dfn = Vk(device_);
   const VkDevice d = device_->device();
   VkBuffer buffer = VK_NULL_HANDLE;
   VkDeviceMemory memory = VK_NULL_HANDLE;
@@ -1230,6 +1235,15 @@ std::string NativeRenderer::Report() {
                       (p.compile_us - reported_pipelines_.compile_us) / 1000, p.max_compile_us / 1000,
                       p.saved_bytes >> 10);
   reported_pipelines_ = p;
+  if (recorder_) {
+    const std::array<uint64_t, 4> now = {recorder_->commands(), recorder_->drain_waits(), recorder_->drain_wait_us(),
+                                         recorder_->full_waits()};
+    line += fmt::format("; record thread {}: {} commands, {} drain waits ({} ms), {} full waits",
+                        ActiveRecorder() ? "on" : "off", now[0] - reported_recorder_[0],
+                        now[1] - reported_recorder_[1], (now[2] - reported_recorder_[2]) / 1000,
+                        now[3] - reported_recorder_[3]);
+    reported_recorder_ = now;
+  }
   if (mirror_cards_) {
     const std::array<uint64_t, 3> pages = {mirror_cards_->checked_pages(), mirror_cards_->taken_pages(),
                                            mirror_cards_->rechecked_pages()};

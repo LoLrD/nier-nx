@@ -49,6 +49,7 @@ set(NIER_SOURCES
     src/native/target_keys.cpp
     src/native/texture_loader.cpp
     src/native/textures.cpp
+    src/native/vk_recorder.cpp
 )
 add_executable(nier ${NIER_SOURCES})
 target_include_directories(nier PRIVATE src ${REXSDK_DIR}/thirdparty/glslang ${REXSDK_DIR}/thirdparty/xxHash)

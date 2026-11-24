@@ -1,4 +1,5 @@
 #include "pipelines.h"
+#include "vk_recorder.h"
 
 #include <algorithm>
 #include <array>
@@ -88,7 +89,7 @@ Pipelines::~Pipelines() {
     worker_.join();
   }
   SaveCache();
-  const auto& dfn = device_->functions();
+  const auto& dfn = Vk(device_);
   const VkDevice device = device_->device();
   for (auto& [hash, entries] : pipelines_) {
     for (Entry& entry : entries) {
@@ -135,7 +136,7 @@ VkPipelineLayout Pipelines::Layout(uint32_t vs_textures, uint32_t vs_samplers, u
     VkPipelineLayoutCreateInfo info{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
     info.setLayoutCount = uint32_t(sets.size());
     info.pSetLayouts = sets.data();
-    device_->functions().vkCreatePipelineLayout(device_->device(), &info, nullptr, &it->second);
+    Vk(device_).vkCreatePipelineLayout(device_->device(), &info, nullptr, &it->second);
   }
   return it->second;
 }
@@ -256,10 +257,10 @@ void Pipelines::LoadCache() {
   VkPipelineCacheCreateInfo info{VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};
   info.initialDataSize = data.size();
   info.pInitialData = data.empty() ? nullptr : data.data();
-  if (device_->functions().vkCreatePipelineCache(device_->device(), &info, nullptr, &cache_) != VK_SUCCESS) {
+  if (Vk(device_).vkCreatePipelineCache(device_->device(), &info, nullptr, &cache_) != VK_SUCCESS) {
     info.initialDataSize = 0;
     info.pInitialData = nullptr;
-    device_->functions().vkCreatePipelineCache(device_->device(), &info, nullptr, &cache_);
+    Vk(device_).vkCreatePipelineCache(device_->device(), &info, nullptr, &cache_);
   }
   REXLOG_INFO("[native] pipeline cache: {} KB loaded from '{}'", data.size() >> 10, cache_path_);
 }
@@ -268,7 +269,7 @@ void Pipelines::SaveCache() {
   if (cache_path_.empty() || cache_ == VK_NULL_HANDLE) {
     return;
   }
-  const auto& dfn = device_->functions();
+  const auto& dfn = Vk(device_);
   size_t size = 0;
   dfn.vkGetPipelineCacheData(device_->device(), cache_, &size, nullptr);
   std::vector<char> data(size);
@@ -384,7 +385,7 @@ VkPipeline Pipelines::Create(const PipelineState& state, VkPipelineLayout layout
   info.pDynamicState = &dynamic;
   info.layout = layout;
   VkPipeline pipeline = VK_NULL_HANDLE;
-  if (device_->functions().vkCreateGraphicsPipelines(device_->device(), cache_, 1, &info, nullptr, &pipeline) !=
+  if (Vk(device_).vkCreateGraphicsPipelines(device_->device(), cache_, 1, &info, nullptr, &pipeline) !=
       VK_SUCCESS) {
     REXLOG_ERROR("[native] could not create a graphics pipeline");
     return VK_NULL_HANDLE;

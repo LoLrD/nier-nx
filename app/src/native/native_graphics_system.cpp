@@ -124,6 +124,16 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem, private 
         new rex::system::XHostThread(kernel_state_, 128 * 1024, 0, [this]() { return RingLoop(); }));
     ring_thread_->set_name("GPU ring native");
     ring_thread_->Create();
+    if (renderer_ && renderer_->recorder()) {
+      VulkanRecorder* recorder = renderer_->recorder();
+      record_thread_ = rex::system::object_ref<rex::system::XHostThread>(
+          new rex::system::XHostThread(kernel_state_, 128 * 1024, 0, [recorder]() {
+            recorder->Run();
+            return 0;
+          }));
+      record_thread_->set_name("GPU record native");
+      record_thread_->Create();
+    }
     return X_STATUS_SUCCESS;
   }
 
@@ -157,6 +167,12 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem, private 
       if (ring_thread_) {
         ring_thread_->Wait(0, 0, 0, nullptr);
         ring_thread_.reset();
+      }
+      if (record_thread_) {
+        SetActiveRecorder(nullptr);
+        renderer_->recorder()->Stop();
+        record_thread_->Wait(0, 0, 0, nullptr);
+        record_thread_.reset();
       }
       if (vblank_thread_) {
         vblank_thread_->Wait(0, 0, 0, nullptr);
@@ -401,6 +417,7 @@ class NativeGraphicsSystem final : public rex::system::IGraphicsSystem, private 
   std::condition_variable ring_cv_;
   rex::system::object_ref<rex::system::XHostThread> vblank_thread_;
   rex::system::object_ref<rex::system::XHostThread> ring_thread_;
+  rex::system::object_ref<rex::system::XHostThread> record_thread_;
   Clock::time_point report_start_;
   Pm4Stats last_;
 };

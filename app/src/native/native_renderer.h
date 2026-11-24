@@ -30,6 +30,7 @@
 #include "submissions.h"
 #include "target_keys.h"
 #include "textures.h"
+#include "vk_recorder.h"
 
 namespace rex::memory {
 class Memory;
@@ -101,6 +102,7 @@ class NativeRenderer {
   void Resolve(const rex::graphics::RegisterFile& regs);
   void Swap(rex::ui::Presenter* presenter, uint32_t frontbuffer, uint32_t width, uint32_t height);
   std::string Report();
+  VulkanRecorder* recorder() const { return recorder_.get(); }
 
  private:
   enum class DrawResult { kDone, kRetry, kOutOfMemory };
@@ -164,6 +166,8 @@ class NativeRenderer {
   std::unique_ptr<Resolves> resolves_;
   MirrorSync mirror_sync_{kMirrorRehashBytes};
   uint8_t* card_table_;
+  std::unique_ptr<VulkanRecorder> recorder_;
+  std::array<uint64_t, 4> reported_recorder_{};
   std::unique_ptr<StoreCards> mirror_cards_;
   PageReaders mirror_readers_;
   std::vector<PageRun> card_runs_;

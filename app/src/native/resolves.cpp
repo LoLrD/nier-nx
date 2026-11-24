@@ -16,6 +16,7 @@
 #include "shaders/depth_to_float_ps.h"
 #include "shaders/depth_to_float_vs.h"
 #include "texture_loader.h"
+#include "vk_recorder.h"
 
 namespace nier::native {
 
@@ -59,7 +60,7 @@ uint64_t ImageKey(uint32_t address, VkFormat format, uint32_t width, uint32_t he
 Resolves::Resolves(const vk::VulkanDevice* device, RenderTargets& targets, Textures& textures,
                    rex::memory::Memory* memory, uint8_t* physical_base)
     : device_(device), targets_(targets), textures_(textures), memory_(memory), physical_base_(physical_base) {
-  const auto& dfn = device_->functions();
+  const auto& dfn = Vk(device_);
   const VkDevice d = device_->device();
   const VkDescriptorSetLayoutBinding binding{0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1,
                                              VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
@@ -91,7 +92,7 @@ Resolves::Resolves(const vk::VulkanDevice* device, RenderTargets& targets, Textu
 }
 
 Resolves::~Resolves() {
-  const auto& dfn = device_->functions();
+  const auto& dfn = Vk(device_);
   const VkDevice d = device_->device();
   for (auto& [key, image] : images_) {
     Destroy(image);
@@ -195,7 +196,7 @@ Resolves::DestImage* Resolves::Dest(VkCommandBuffer command_buffer, const Resolv
     return &dest;
   }
   dest.key = key;
-  const auto& dfn = device_->functions();
+  const auto& dfn = Vk(device_);
   const VkDevice d = device_->device();
   dest.format = format;
   dest.width = width;
@@ -273,7 +274,7 @@ void Resolves::CopyColor(VkCommandBuffer command_buffer, const ResolvePlan& plan
     ExtendEdges(command_buffer, source, uint32_t(blit.srcOffsets[0].x), uint32_t(blit.srcOffsets[0].y),
                 uint32_t(blit.srcOffsets[1].x), uint32_t(blit.srcOffsets[1].y));
   }
-  device_->functions().vkCmdBlitImage(command_buffer, source.image, VK_IMAGE_LAYOUT_GENERAL, dest.image,
+  Vk(device_).vkCmdBlitImage(command_buffer, source.image, VK_IMAGE_LAYOUT_GENERAL, dest.image,
                                       VK_IMAGE_LAYOUT_GENERAL, 1, &blit,
                                       scaled ? VK_FILTER_LINEAR : VK_FILTER_NEAREST);
 }
@@ -304,7 +305,7 @@ void Resolves::ExtendEdges(VkCommandBuffer command_buffer, const RenderTargets::
   if (!count) {
     return;
   }
-  const auto& dfn = device_->functions();
+  const auto& dfn = Vk(device_);
   dfn.vkCmdCopyImage(command_buffer, source.image, VK_IMAGE_LAYOUT_GENERAL, source.image, VK_IMAGE_LAYOUT_GENERAL, count,
                      regions.data());
   VkMemoryBarrier barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
@@ -324,7 +325,7 @@ void Resolves::Publish(const ResolvePlan& plan, DestImage& dest, uint32_t bytes_
 
 void Resolves::CopyDepth(VkCommandBuffer command_buffer, const ResolvePlan& plan, const RenderTargets::Target& source,
                          const DestImage& dest, const DestImage& raw) {
-  const auto& dfn = device_->functions();
+  const auto& dfn = Vk(device_);
   const VkDescriptorSet set = DepthDescriptorSet(source.sampled_view);
   if (set == VK_NULL_HANDLE) {
     return;
@@ -366,7 +367,7 @@ VkDescriptorSet Resolves::DepthDescriptorSet(VkImageView source) {
   if (!inserted) {
     return it->second;
   }
-  const auto& dfn = device_->functions();
+  const auto& dfn = Vk(device_);
   VkDescriptorSetAllocateInfo allocate{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
   allocate.descriptorPool = depth_pool_;
   allocate.descriptorSetCount = 1;
@@ -384,7 +385,7 @@ VkDescriptorSet Resolves::DepthDescriptorSet(VkImageView source) {
 }
 
 void Resolves::CreateDepthPipeline() {
-  const auto& dfn = device_->functions();
+  const auto& dfn = Vk(device_);
   const VkDevice d = device_->device();
   const VkShaderModule vertex = vk::util::CreateShaderModule(device_, depth_to_float_vs, sizeof(depth_to_float_vs));
   const VkShaderModule fragment = vk::util::CreateShaderModule(device_, depth_to_float_ps, sizeof(depth_to_float_ps));
@@ -456,7 +457,7 @@ void Resolves::Readback(VkCommandBuffer command_buffer, const ResolvePlan& plan,
   region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
   region.imageOffset = {int32_t(plan.dest_x), int32_t(plan.dest_y), 0};
   region.imageExtent = {plan.dest_width, plan.dest_height, 1};
-  device_->functions().vkCmdCopyImageToBuffer(command_buffer, dest.image, VK_IMAGE_LAYOUT_GENERAL, buffer.buffer, 1,
+  Vk(device_).vkCmdCopyImageToBuffer(command_buffer, dest.image, VK_IMAGE_LAYOUT_GENERAL, buffer.buffer, 1,
                                               &region);
   FullBarrier(device_, command_buffer);
   PendingRange range{plan.dest_address,
@@ -478,12 +479,12 @@ Resolves::ReadbackBuffer Resolves::AcquireReadbackBuffer() {
     REXLOG_ERROR("[native] could not create a readback buffer");
     return {};
   }
-  device_->functions().vkMapMemory(device_->device(), buffer.memory, 0, VK_WHOLE_SIZE, 0, &buffer.mapping);
+  Vk(device_).vkMapMemory(device_->device(), buffer.memory, 0, VK_WHOLE_SIZE, 0, &buffer.mapping);
   return buffer;
 }
 
 void Resolves::Completed(uint64_t submission) {
-  const auto& dfn = device_->functions();
+  const auto& dfn = Vk(device_);
   size_t done = 0;
   for (; done < pending_.size() && pending_[done].submission <= submission; ++done) {
     const PendingReadback& pending = pending_[done];
@@ -538,7 +539,7 @@ void Resolves::Evict(uint64_t unused_frames, uint64_t submission) {
 }
 
 void Resolves::Destroy(DestImage& image) {
-  const auto& dfn = device_->functions();
+  const auto& dfn = Vk(device_);
   const VkDevice d = device_->device();
   if (image.attachment_view) {
     dfn.vkDestroyImageView(d, image.attachment_view, nullptr);

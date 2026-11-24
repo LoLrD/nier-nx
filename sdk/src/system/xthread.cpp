@@ -357,6 +357,11 @@ int SwitchPriorityFor(bool guest_thread, std::string_view name) {
   if (name.starts_with("Audio Worker") || name.starts_with("XMA Decoder")) {
     return REX_SWITCH_PRIO_AUDIO;
   }
+  // A worker that only replays what a presentation thread queued runs just below it, so the two never take turns
+  // on one core while another core runs the guest.
+  if (name.starts_with("GPU record")) {
+    return REX_SWITCH_PRIO_PRESENT + 1;
+  }
   return REX_SWITCH_PRIO_PRESENT;  // GPU Commands, GPU VSync, Kernel Dispatch
 }
 

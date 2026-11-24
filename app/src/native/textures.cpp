@@ -1,4 +1,5 @@
 #include "textures.h"
+#include "vk_recorder.h"
 
 #include <algorithm>
 #include <array>
@@ -61,7 +62,7 @@ VkImageViewType ViewType(xenos::FetchOpDimension dimension) {
 
 Textures::Textures(const vk::VulkanDevice* device, const uint8_t* physical_base, vk::VulkanUploadBufferPool& staging)
     : device_(device), physical_base_(physical_base), staging_(staging) {
-  const auto& dfn = device_->functions();
+  const auto& dfn = Vk(device_);
   const VkDevice d = device_->device();
   auto make = [&](VkImageType type, uint32_t layers, VkImageCreateFlags flags) {
     Image image;
@@ -107,7 +108,7 @@ Textures::~Textures() {
     Destroy(free.image);
   }
   for (auto& [key, sampler] : samplers_) {
-    device_->functions().vkDestroySampler(device_->device(), sampler, nullptr);
+    Vk(device_).vkDestroySampler(device_->device(), sampler, nullptr);
   }
   Destroy(null_array_);
   Destroy(null_3d_);
@@ -145,7 +146,7 @@ void Textures::Prepare(VkCommandBuffer upload) {
     return;
   }
   prepared_ = true;
-  const auto& dfn = device_->functions();
+  const auto& dfn = Vk(device_);
   std::array<VkImageMemoryBarrier, 2> barriers{};
   const std::array<VkImage, 2> images = {null_array_.image, null_3d_.image};
   for (size_t i = 0; i < barriers.size(); ++i) {
@@ -332,7 +333,7 @@ Textures::Binding Textures::OutOfMemory(uint64_t key, Binding result) {
 
 Textures::Image Textures::CreateImage(const TextureShape& loaded) {
   Image image;
-  const auto& dfn = device_->functions();
+  const auto& dfn = Vk(device_);
   const bool mutable_format = loaded.host.signed_format != loaded.host.format;
   VkImageCreateInfo info{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
   info.flags = (loaded.cube ? VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT : 0) |
@@ -368,7 +369,7 @@ Textures::Image Textures::CreateImage(const TextureShape& loaded) {
 }
 
 bool Textures::Upload(VkCommandBuffer upload, const Image& image, const LoadedTexture& loaded, uint64_t submission) {
-  const auto& dfn = device_->functions();
+  const auto& dfn = Vk(device_);
   VkImageMemoryBarrier barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
   barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
   barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -402,7 +403,7 @@ bool Textures::Upload(VkCommandBuffer upload, const Image& image, const LoadedTe
 }
 
 void Textures::Destroy(Image& image) {
-  const auto& dfn = device_->functions();
+  const auto& dfn = Vk(device_);
   const VkDevice d = device_->device();
   VkImageView destroyed[4] = {};
   size_t count = 0;
@@ -475,7 +476,7 @@ VkSampler Textures::Sampler(const xenos::xe_gpu_texture_fetch_t& fetch, const Sp
   info.minLod = float(fetch.mip_min_level);
   info.maxLod = base_map ? info.minLod + 0.25f : VK_LOD_CLAMP_NONE;
   info.borderColor = white ? VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE : VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
-  device_->functions().vkCreateSampler(device_->device(), &info, nullptr, &it->second);
+  Vk(device_).vkCreateSampler(device_->device(), &info, nullptr, &it->second);
   return it->second;
 }
 

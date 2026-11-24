@@ -13,6 +13,7 @@
 
 #include "shaders/depth_to_color_cs.h"
 #include "submissions.h"
+#include "vk_recorder.h"
 
 namespace nier::native {
 
@@ -47,7 +48,7 @@ void FullBarrier(const vk::VulkanDevice* device, VkCommandBuffer command_buffer)
   VkMemoryBarrier barrier{VK_STRUCTURE_TYPE_MEMORY_BARRIER};
   barrier.srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT;
   barrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
-  device->functions().vkCmdPipelineBarrier(command_buffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+  Vk(device).vkCmdPipelineBarrier(command_buffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
                                            VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 1, &barrier, 0, nullptr, 0,
                                            nullptr);
 }
@@ -60,7 +61,7 @@ RenderTargets::RenderTargets(const vk::VulkanDevice* device, Submissions& submis
 }
 
 void RenderTargets::CreateConverter() {
-  const auto& dfn = device_->functions();
+  const auto& dfn = Vk(device_);
   const VkDevice d = device_->device();
   const std::array<VkDescriptorSetLayoutBinding, 2> bindings = {{
       {0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_COMPUTE_BIT, nullptr},
@@ -103,7 +104,7 @@ void RenderTargets::CreateConverter() {
 }
 
 RenderTargets::~RenderTargets() {
-  const auto& dfn = device_->functions();
+  const auto& dfn = Vk(device_);
   const VkDevice d = device_->device();
   for (auto& [key, target] : targets_) {
     if (target.sampled_view != target.attachment_view) {
@@ -134,7 +135,7 @@ RenderTargets::Target* RenderTargets::Get(VkCommandBuffer command_buffer, const 
   if (!inserted) {
     return &target;
   }
-  const auto& dfn = device_->functions();
+  const auto& dfn = Vk(device_);
   const VkDevice d = device_->device();
   target.format = key.is_depth ? depth_format_ : VK_FORMAT_R8G8B8A8_UNORM;
   target.extent = ExtentFor(key);
@@ -307,7 +308,7 @@ void RenderTargets::BeginRendering(VkCommandBuffer command_buffer, const Bound& 
   info.pColorAttachments = colors.data();
   info.pDepthAttachment = depth ? &depth_attachment : nullptr;
   info.pStencilAttachment = depth ? &depth_attachment : nullptr;
-  device_->functions().vkCmdBeginRendering(command_buffer, &info);
+  Vk(device_).vkCmdBeginRendering(command_buffer, &info);
   rendering_ = true;
   bound_ = bound;
   render_area_ = {width, height};
@@ -317,7 +318,7 @@ void RenderTargets::End(VkCommandBuffer command_buffer) {
   if (!rendering_) {
     return;
   }
-  device_->functions().vkCmdEndRendering(command_buffer);
+  Vk(device_).vkCmdEndRendering(command_buffer);
   rendering_ = false;
   FullBarrier(device_, command_buffer);
 }
@@ -335,7 +336,7 @@ void RenderTargets::ClearColor(VkCommandBuffer command_buffer, const TargetKey& 
   VkClearAttachment clear{VK_IMAGE_ASPECT_COLOR_BIT, 0, {}};
   std::copy(color, color + 4, clear.clearValue.color.float32);
   const VkClearRect clear_rect{rect, 0, 1};
-  device_->functions().vkCmdClearAttachments(command_buffer, 1, &clear, 1, &clear_rect);
+  Vk(device_).vkCmdClearAttachments(command_buffer, 1, &clear, 1, &clear_rect);
   End(command_buffer);
 }
 
@@ -352,7 +353,7 @@ void RenderTargets::ClearDepth(VkCommandBuffer command_buffer, const TargetKey& 
   VkClearAttachment clear{VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT, 0, {}};
   clear.clearValue.depthStencil = {depth, stencil};
   const VkClearRect clear_rect{rect, 0, 1};
-  device_->functions().vkCmdClearAttachments(command_buffer, 1, &clear, 1, &clear_rect);
+  Vk(device_).vkCmdClearAttachments(command_buffer, 1, &clear, 1, &clear_rect);
   End(command_buffer);
 }
 
@@ -413,7 +414,7 @@ void RenderTargets::Claim(VkCommandBuffer command_buffer, const TargetKey& key, 
       if (owner_keys_[owner].is_depth) {
         ConvertDepth(command_buffer, source, *target, regions);
       } else {
-        device_->functions().vkCmdCopyImage(command_buffer, source.image, VK_IMAGE_LAYOUT_GENERAL, target->image,
+        Vk(device_).vkCmdCopyImage(command_buffer, source.image, VK_IMAGE_LAYOUT_GENERAL, target->image,
                                             VK_IMAGE_LAYOUT_GENERAL, uint32_t(regions.size()), regions.data());
       }
       stats_.transfer_regions += regions.size();
@@ -435,7 +436,7 @@ void RenderTargets::ConvertDepth(VkCommandBuffer command_buffer, const Target& d
   if (set == VK_NULL_HANDLE) {
     return;
   }
-  const auto& dfn = device_->functions();
+  const auto& dfn = Vk(device_);
   dfn.vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, convert_pipeline_);
   dfn.vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, convert_layout_, 0, 1, &set, 0,
                               nullptr);
@@ -454,7 +455,7 @@ VkDescriptorSet RenderTargets::ConvertSet(const Target& depth, const Target& col
   if (const auto it = convert_sets_.find(key); it != convert_sets_.end()) {
     return it->second;
   }
-  const auto& dfn = device_->functions();
+  const auto& dfn = Vk(device_);
   VkDescriptorSetAllocateInfo allocate{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
   allocate.descriptorPool = convert_pool_;
   allocate.descriptorSetCount = 1;
