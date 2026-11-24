@@ -58,6 +58,19 @@ class SpirvShader : public Shader {
     return sampler_bindings_;
   }
 
+  // Bindings of a translation taken from a host-side cache; ignored once any translation set them.
+  void SetBindingsFromCache(std::vector<TextureBinding> textures, std::vector<SamplerBinding> samplers) {
+    if (bindings_setup_entered_.test_and_set(std::memory_order_relaxed)) {
+      return;
+    }
+    used_texture_mask_ = 0;
+    for (const TextureBinding& binding : textures) {
+      used_texture_mask_ |= UINT32_C(1) << binding.fetch_constant;
+    }
+    texture_bindings_ = std::move(textures);
+    sampler_bindings_ = std::move(samplers);
+  }
+
  protected:
   Translation* CreateTranslationInstance(uint64_t modification) override;
 

@@ -2,7 +2,12 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdio>
+#include <cstring>
+#include <fstream>
+#include <iterator>
 
+#include <rex/cvar.h>
 #include <rex/hash.h>
 #include <rex/logging.h>
 #include <rex/math.h>
@@ -11,6 +16,10 @@
 #include <rex/graphics/util/draw.h>
 
 #include "perf_modes.h"
+
+REXCVAR_DEFINE_STRING(nier_shader_cache_file, "", "NieR",
+                      "Native renderer: file that keeps translated SPIR-V between runs so a shader seen before is not "
+                      "translated again (dropped when the translator sources change)");
 
 namespace nier::native {
 
@@ -39,15 +48,41 @@ SpirvShaderTranslator::Features TranslatorFeatures(const rex::ui::vulkan::Vulkan
 
 }  // namespace
 
-NativeShaders::NativeShaders(const rex::ui::vulkan::VulkanDevice* device) : device_(device) {
+NativeShaders::NativeShaders(const rex::ui::vulkan::VulkanDevice* device)
+    : device_(device), cache_(NIER_TRANSLATOR_FINGERPRINT) {
   const std::array<std::pair<uint32_t, uint32_t>, kScales> scales = {{{1, 1}, {1, 2}, {2, 2}}};
   for (uint32_t i = 0; i < kScales; ++i) {
     translators_[i] = std::make_unique<SpirvShaderTranslator>(TranslatorFeatures(device), false, false, false,
                                                               scales[i].first, scales[i].second);
   }
+  OpenCache(REXCVAR_GET(nier_shader_cache_file));
+}
+
+void NativeShaders::OpenCache(const std::string& path) {
+  if (path.empty()) {
+    return;
+  }
+  std::vector<uint8_t> bytes;
+  {
+    std::ifstream file(path, std::ios::binary);
+    bytes.assign(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+  }
+  cache_.Load(bytes);
+  if (cache_.stale() || bytes.size() < cache_.Header().size() || cache_.valid_bytes() != bytes.size()) {
+    const size_t keep = cache_.stale() || bytes.size() < cache_.Header().size() ? 0 : cache_.valid_bytes();
+    std::vector<uint8_t> rewritten = keep ? std::vector<uint8_t>(bytes.begin(), bytes.begin() + keep) : cache_.Header();
+    std::ofstream file(path, std::ios::binary | std::ios::trunc);
+    file.write(reinterpret_cast<const char*>(rewritten.data()), std::streamsize(rewritten.size()));
+  }
+  cache_file_ = std::fopen(path.c_str(), "ab");
+  REXLOG_INFO("[native] shader cache: {} translations from '{}'{}", cache_.entries(), path,
+              cache_.stale() ? " (translator changed, started over)" : "");
 }
 
 NativeShaders::~NativeShaders() {
+  if (cache_file_) {
+    std::fclose(cache_file_);
+  }
   for (auto& [translation, specialization] : specializations_) {
     for (auto& [key, module] : specialization.modules) {
       device_->functions().vkDestroyShaderModule(device_->device(), module, nullptr);
@@ -175,13 +210,13 @@ std::optional<NativeShaders::PreparedDraw> NativeShaders::PrepareDraw(const Regi
   PreparedDraw prepared{vertex_shader, nullptr, pixel_shader, nullptr,
                         pixel_shader && param_gen_pos < xenos::kMaxInterpolators};
   prepared.vertex =
-      Translate(*translators_[0], *vertex_shader,
+      Translate(*translators_[0], 0, *vertex_shader,
                 VertexModification(*vertex_shader, host_type, interpolator_mask, param_gen_pos != UINT32_MAX, regs));
   if (!prepared.vertex) {
     return std::nullopt;
   }
   if (pixel_shader) {
-    prepared.pixel = Translate(*translators_[scale], *pixel_shader,
+    prepared.pixel = Translate(*translators_[scale], 0x100 | scale, *pixel_shader,
                                PixelModification(*pixel_shader, interpolator_mask, param_gen_pos, position_shift, regs));
     if (!prepared.pixel) {
       return std::nullopt;
@@ -258,7 +293,8 @@ void NativeShaders::Analyze(VulkanShader& shader) {
   }
 }
 
-VulkanShader::VulkanTranslation* NativeShaders::Translate(SpirvShaderTranslator& translator, VulkanShader& shader,
+VulkanShader::VulkanTranslation* NativeShaders::Translate(SpirvShaderTranslator& translator, uint32_t variant,
+                                                          VulkanShader& shader,
                                                           Modification modification) {
   bool is_new = false;
   auto* translation =
@@ -267,8 +303,33 @@ VulkanShader::VulkanTranslation* NativeShaders::Translate(SpirvShaderTranslator&
     return translation->shader_module() != VK_NULL_HANDLE ? translation : nullptr;
   }
   const auto start = std::chrono::steady_clock::now();
-  const bool ok = translator.TranslateAnalyzedShader(*translation) &&
-                  translation->GetOrCreateShaderModule() != VK_NULL_HANDLE;
+  std::vector<uint32_t> cached_textures, cached_samplers;
+  std::vector<uint8_t> cached_spirv;
+  bool ok;
+  if (cache_.Take(shader.ucode_data_hash(), modification.value, variant, cached_textures, cached_samplers,
+                  cached_spirv)) {
+    std::vector<SpirvShader::TextureBinding> textures(cached_textures.size());
+    std::memcpy(textures.data(), cached_textures.data(), cached_textures.size() * sizeof(uint32_t));
+    std::vector<SpirvShader::SamplerBinding> samplers(cached_samplers.size());
+    std::memcpy(samplers.data(), cached_samplers.data(), cached_samplers.size() * sizeof(uint32_t));
+    shader.SetBindingsFromCache(std::move(textures), std::move(samplers));
+    translation->SetTranslated(std::move(cached_spirv));
+    ok = translation->GetOrCreateShaderModule() != VK_NULL_HANDLE;
+    ++stats_.cache_hits;
+  } else {
+    ok = translator.TranslateAnalyzedShader(*translation) && translation->GetOrCreateShaderModule() != VK_NULL_HANDLE;
+    if (ok && cache_file_) {
+      const auto& textures = shader.GetTextureBindingsAfterTranslation();
+      const auto& samplers = shader.GetSamplerBindingsAfterTranslation();
+      std::vector<uint32_t> texture_words(textures.size()), sampler_words(samplers.size());
+      std::memcpy(texture_words.data(), textures.data(), textures.size() * sizeof(uint32_t));
+      std::memcpy(sampler_words.data(), samplers.data(), samplers.size() * sizeof(uint32_t));
+      const auto record = cache_.Add(shader.ucode_data_hash(), modification.value, variant, texture_words, sampler_words,
+                                     translation->translated_binary());
+      std::fwrite(record.data(), 1, record.size(), cache_file_);
+      std::fflush(cache_file_);
+    }
+  }
   const auto us = uint64_t(
       std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start).count());
   ++stats_.translations;

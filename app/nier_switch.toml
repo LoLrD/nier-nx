@@ -7,6 +7,7 @@ nier_level2_scale = 0.5
 guest_memory_large_pages = 1
 vulkan_robust_buffer_access = false
 nier_pipeline_cache_file = "sdmc:/switch/nier-nx/pipelines.bin"
+nier_shader_cache_file = "sdmc:/switch/nier-nx/shaders.bin"
 readback_resolve = "fast"
 readback_resolve_max_kb = 256
 execute_unclipped_draw_vs_on_cpu = true

@@ -116,3 +116,6 @@ code generator and runtime changes of masseffect-nx. The third-party sources are
 - `src/kernel/crt/memory.cpp`: `rexcrt_memcpy`/`rexcrt_memset` are raw hooks that keep `r3` and, under
   `REX_STORE_CARDS`, mark the store cards of the destination pages; `memcpy` uses `memmove`, so a forward copy onto an
   earlier overlap gives the guest's result.
+- `include/rex/graphics/pipeline/shader/shader.h`, `spirv.h`: `Translation::SetTranslated` and
+  `SpirvShader::SetBindingsFromCache` let a host keep translated SPIR-V and the shader's bindings between runs and
+  skip the translator on a hit.

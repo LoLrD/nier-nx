@@ -107,6 +107,9 @@ class NativeSkeletonTest(unittest.TestCase):
     def test_upscale_plan(self) -> None:
         self.check("upscale_plan", [])
 
+    def test_shader_cache(self) -> None:
+        self.check("shader_cache", ["shader_cache.cpp"])
+
     def test_texture_loader(self) -> None:
         self.check("texture_loader", ["texture_loader.cpp"], link_sdk=True)
 

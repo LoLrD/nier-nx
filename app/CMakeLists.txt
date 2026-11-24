@@ -48,6 +48,7 @@ set(NIER_SOURCES
     src/native/resolve_plan.cpp
     src/native/resolves.cpp
     src/native/scene_upscale.cpp
+    src/native/shader_cache.cpp
     src/native/shader_dump.cpp
     src/native/slow_frames.cpp
     src/native/store_cards.cpp
@@ -59,6 +60,17 @@ set(NIER_SOURCES
     src/native/vk_recorder.cpp
 )
 add_executable(nier ${NIER_SOURCES})
+file(GLOB NIER_TRANSLATOR_SOURCES ${REXSDK_DIR}/src/graphics/pipeline/shader/*.cpp
+     ${REXSDK_DIR}/include/rex/graphics/pipeline/shader/*.h)
+list(SORT NIER_TRANSLATOR_SOURCES)
+set(NIER_TRANSLATOR_HASHES "")
+foreach(translator_source ${NIER_TRANSLATOR_SOURCES})
+    file(SHA256 ${translator_source} translator_hash)
+    string(APPEND NIER_TRANSLATOR_HASHES ${translator_hash})
+endforeach()
+string(SHA256 NIER_TRANSLATOR_HASH "${NIER_TRANSLATOR_HASHES}")
+string(SUBSTRING ${NIER_TRANSLATOR_HASH} 0 16 NIER_TRANSLATOR_FINGERPRINT)
+target_compile_definitions(nier PRIVATE NIER_TRANSLATOR_FINGERPRINT=0x${NIER_TRANSLATOR_FINGERPRINT}ull)
 target_include_directories(nier PRIVATE src ${REXSDK_DIR}/thirdparty/glslang ${REXSDK_DIR}/thirdparty/xxHash
                            ${REXSDK_DIR}/src/ui/shaders/vulkan_spirv)
 

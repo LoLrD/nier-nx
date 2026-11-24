@@ -1544,6 +1544,12 @@ std::string NativeRenderer::Report() {
                       (p.compile_us - reported_pipelines_.compile_us) / 1000, p.max_compile_us / 1000,
                       p.saved_bytes >> 10);
   reported_pipelines_ = p;
+  const NativeShaders::Stats& sh = shaders_.stats();
+  line += fmt::format("; shaders translated {} in {} ms (max {} ms), {} from the cache",
+                      sh.translations - reported_shaders_.translations,
+                      (sh.translate_us - reported_shaders_.translate_us) / 1000, sh.max_translate_us / 1000,
+                      sh.cache_hits - reported_shaders_.cache_hits);
+  reported_shaders_ = sh;
   line += fmt::format("; fsr {} runs, level {}", upscale_->runs() - reported_upscale_runs_, upscale_governor_.level());
   reported_upscale_runs_ = upscale_->runs();
   line += fmt::format("; silent draws skipped {}", s.skipped_silent - r.skipped_silent);

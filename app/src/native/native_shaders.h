@@ -1,9 +1,11 @@
 #pragma once
 
 #include <array>
+#include <cstdio>
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <string>
 #include <span>
 #include <unordered_map>
 #include <utility>
@@ -15,6 +17,7 @@
 #include <rex/string/buffer.h>
 #include <rex/ui/vulkan/api.h>
 
+#include "shader_cache.h"
 #include "spirv_specialize.h"
 
 namespace rex::ui::vulkan {
@@ -31,6 +34,7 @@ class NativeShaders {
     uint64_t translate_us = 0;
     uint64_t max_translate_us = 0;
     uint64_t specialized = 0;
+    uint64_t cache_hits = 0;
   };
 
   struct PreparedDraw {
@@ -90,7 +94,9 @@ class NativeShaders {
                                    std::span<const uint32_t> fetch_constants, bool early_tests);
   rex::graphics::vulkan::VulkanShader* ShaderFor(uint64_t hash, uint32_t scale);
   void Analyze(rex::graphics::vulkan::VulkanShader& shader);
+  void OpenCache(const std::string& path);
   rex::graphics::vulkan::VulkanShader::VulkanTranslation* Translate(rex::graphics::SpirvShaderTranslator& translator,
+                                                                    uint32_t variant,
                                                                     rex::graphics::vulkan::VulkanShader& shader,
                                                                     Modification modification);
 
@@ -113,6 +119,8 @@ class NativeShaders {
   std::vector<uint32_t> specialization_values_;
   std::array<LastModule, 2> last_modules_;
   Stats stats_;
+  ShaderCache cache_;
+  std::FILE* cache_file_ = nullptr;
 };
 
 }  // namespace nier::native
