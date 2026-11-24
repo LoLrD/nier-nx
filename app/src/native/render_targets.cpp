@@ -6,6 +6,7 @@
 
 #include <fmt/format.h>
 
+#include <rex/cvar.h>
 #include <rex/logging.h>
 #include <rex/ui/vulkan/device.h>
 #include <rex/ui/vulkan/instance.h>
@@ -14,6 +15,10 @@
 #include "shaders/depth_to_color_cs.h"
 #include "submissions.h"
 #include "vk_recorder.h"
+
+REXCVAR_DEFINE_BOOL(nier_depth_zcull, true, "NieR",
+                    "Native renderer: create depth targets without transfer-destination usage so the driver gives "
+                    "them a ZCULL plane (hidden pixels rejected before shading); false = old usage, no ZCULL");
 
 namespace nier::native {
 
@@ -147,9 +152,7 @@ RenderTargets::Target* RenderTargets::Get(VkCommandBuffer command_buffer, const 
   info.arrayLayers = 1;
   info.samples = VK_SAMPLE_COUNT_1_BIT;
   info.tiling = VK_IMAGE_TILING_OPTIMAL;
-  info.usage = (key.is_depth ? VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT
-                             : VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT) |
-               VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+  info.usage = TargetUsage(key.is_depth, REXCVAR_GET(nier_depth_zcull));
   if (!vk::util::CreateDedicatedAllocationImage(device_, info, vk::util::MemoryPurpose::kDeviceLocal, target.image,
                                                 target.memory, nullptr, &target.bytes)) {
     REXLOG_ERROR("[native] could not create a {}x{} render target", target.extent.width, target.extent.height);
@@ -172,6 +175,44 @@ RenderTargets::Target* RenderTargets::Get(VkCommandBuffer command_buffer, const 
     view.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
     dfn.vkCreateImageView(d, &view, nullptr, &target.sampled_view);
   }
+  if (key.is_depth) {
+    ClearNewDepth(command_buffer, target);
+  } else {
+    ClearNewColor(command_buffer, target);
+  }
+  FullBarrier(device_, command_buffer);
+  return &target;
+}
+
+void RenderTargets::ClearNewDepth(VkCommandBuffer command_buffer, const Target& target) {
+  const auto& dfn = Vk(device_);
+  VkImageMemoryBarrier barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+  barrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+  barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+  barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+  barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  barrier.image = target.image;
+  barrier.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT, 0, 1, 0, 1};
+  dfn.vkCmdPipelineBarrier(command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                           VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT, 0, 0,
+                           nullptr, 0, nullptr, 1, &barrier);
+  VkRenderingAttachmentInfoKHR attachment{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR};
+  attachment.imageView = target.attachment_view;
+  attachment.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+  attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+  attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+  VkRenderingInfoKHR info{VK_STRUCTURE_TYPE_RENDERING_INFO_KHR};
+  info.renderArea = {{0, 0}, {target.extent.width, target.extent.height}};
+  info.layerCount = 1;
+  info.pDepthAttachment = &attachment;
+  info.pStencilAttachment = &attachment;
+  dfn.vkCmdBeginRendering(command_buffer, &info);
+  dfn.vkCmdEndRendering(command_buffer);
+}
+
+void RenderTargets::ClearNewColor(VkCommandBuffer command_buffer, const Target& target) {
+  const auto& dfn = Vk(device_);
   VkImageMemoryBarrier barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
   barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
   barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -179,19 +220,12 @@ RenderTargets::Target* RenderTargets::Get(VkCommandBuffer command_buffer, const 
   barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
   barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
   barrier.image = target.image;
-  barrier.subresourceRange = {aspects, 0, 1, 0, 1};
+  barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
   dfn.vkCmdPipelineBarrier(command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0,
                            nullptr, 0, nullptr, 1, &barrier);
-  const VkImageSubresourceRange range{aspects, 0, 1, 0, 1};
-  if (key.is_depth) {
-    const VkClearDepthStencilValue zero{};
-    dfn.vkCmdClearDepthStencilImage(command_buffer, target.image, VK_IMAGE_LAYOUT_GENERAL, &zero, 1, &range);
-  } else {
-    const VkClearColorValue zero{};
-    dfn.vkCmdClearColorImage(command_buffer, target.image, VK_IMAGE_LAYOUT_GENERAL, &zero, 1, &range);
-  }
-  FullBarrier(device_, command_buffer);
-  return &target;
+  const VkClearColorValue zero{};
+  dfn.vkCmdClearColorImage(command_buffer, target.image, VK_IMAGE_LAYOUT_GENERAL, &zero, 1,
+                           &barrier.subresourceRange);
 }
 
 bool RenderTargets::Begins(const TargetSet& set) const {

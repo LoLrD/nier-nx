@@ -21,6 +21,7 @@ using nier::native::PassKind;
 using nier::native::ExtentFor;
 using nier::native::TargetKey;
 using nier::native::TargetsFor;
+using nier::native::TargetUsage;
 
 static int failures = 0;
 
@@ -198,6 +199,18 @@ int main() {
     Check(full_size.begin == 3 && full_size.length == 5, "no_shift_keeps_the_range");
     Check(clipped.begin == 300 && clipped.length == 20, "the_range_stops_at_the_limit");
     Check(outside.begin == 320 && outside.length == 0, "a_range_past_the_limit_is_empty");
+  }
+  {
+    const uint32_t depth = TargetUsage(true, true);
+    Check(depth & VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, "depth_target_is_a_depth_attachment");
+    Check(depth & VK_IMAGE_USAGE_SAMPLED_BIT, "depth_target_is_sampled");
+    Check(!(depth & VK_IMAGE_USAGE_TRANSFER_DST_BIT), "zcull_depth_has_no_transfer_destination");
+    Check(TargetUsage(true, false) & VK_IMAGE_USAGE_TRANSFER_DST_BIT, "depth_without_zcull_keeps_transfer_destination");
+    const uint32_t color = TargetUsage(false, true);
+    Check(!(color & VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT), "color_target_is_not_a_depth_attachment");
+    Check((color & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT) && (color & VK_IMAGE_USAGE_STORAGE_BIT) &&
+              (color & VK_IMAGE_USAGE_TRANSFER_DST_BIT),
+          "color_target_keeps_its_usages");
   }
   return failures ? 1 : 0;
 }

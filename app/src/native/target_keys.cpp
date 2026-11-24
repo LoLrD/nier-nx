@@ -163,4 +163,12 @@ ScaledSpan ScaledRange(uint32_t begin, uint32_t length, uint32_t shift, uint32_t
   return {first, last - first};
 }
 
+VkImageUsageFlags TargetUsage(bool is_depth, bool zcull) {
+  const VkImageUsageFlags shared = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+  if (is_depth) {
+    return VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | shared | (zcull ? 0 : VK_IMAGE_USAGE_TRANSFER_DST_BIT);
+  }
+  return VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_STORAGE_BIT | shared | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+}
+
 }  // namespace nier::native

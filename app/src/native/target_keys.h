@@ -8,6 +8,7 @@
 
 #include <rex/graphics/register_file.h>
 #include <rex/graphics/xenos.h>
+#include <rex/ui/vulkan/api.h>
 
 namespace nier::native {
 
@@ -73,6 +74,7 @@ struct ScaledSpan {
 };
 
 ScaledSpan ScaledRange(uint32_t begin, uint32_t length, uint32_t shift, uint32_t limit);
+VkImageUsageFlags TargetUsage(bool is_depth, bool zcull);
 
 class EdramOwnership {
  public:

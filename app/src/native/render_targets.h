@@ -75,6 +75,8 @@ class RenderTargets {
   };
 
   void CreateConverter();
+  void ClearNewDepth(VkCommandBuffer command_buffer, const Target& target);
+  void ClearNewColor(VkCommandBuffer command_buffer, const Target& target);
   void Own(VkCommandBuffer command_buffer, const Bound& bound, uint32_t from_rows, uint32_t to_rows, uint32_t shift,
            bool shadow_map);
   void BeginRendering(VkCommandBuffer command_buffer, const Bound& bound);
