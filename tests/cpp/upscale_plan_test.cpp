@@ -24,6 +24,12 @@ int main() {
   Check(!PlanSceneUpscale(512, 512, 1280).wanted, "square_bloom_image_is_left_alone");
   Check(!PlanSceneUpscale(256, 144, 1280).wanted, "tiny_blur_image_is_left_alone");
   Check(!PlanSceneUpscale(640, 360, 640).wanted, "scene_sized_pass_is_left_alone");
+  const SceneUpscalePlan low = PlanSceneUpscale(512, 288, 1280);
+  Check(low.wanted && low.width == 1280 && low.height == 720, "forty_percent_scene_goes_to_720p");
+  Check(PlanSceneUpscale(1024, 576, 1280).wanted, "eighty_percent_scene_goes_to_720p");
+  Check(!PlanSceneUpscale(768, 432, 800).wanted, "pass_padded_to_edram_tiles_is_left_alone");
+  Check(!PlanSceneUpscale(1024, 576, 1040).wanted, "pass_padded_to_edram_tiles_at_1024_is_left_alone");
+  Check(!PlanSceneUpscale(512, 288, 560).wanted, "pass_padded_to_edram_tiles_at_512_is_left_alone");
   {
     GpuGovernor governor(3, 0, 30.0);
     Check(governor.level() == 3, "starts_at_the_best_level");

@@ -12,7 +12,7 @@ struct SceneUpscalePlan {
 };
 
 inline SceneUpscalePlan PlanSceneUpscale(uint32_t source_width, uint32_t source_height, uint32_t target_width) {
-  if (source_width >= target_width || source_width * 4 < target_width || source_width * 9 != source_height * 16) {
+  if (source_width * 5 > target_width * 4 || source_width * 4 < target_width || source_width * 9 != source_height * 16) {
     return {};
   }
   return {true, target_width, source_height * target_width / source_width};
