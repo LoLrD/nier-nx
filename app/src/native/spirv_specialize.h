@@ -19,7 +19,11 @@ struct UniformSlot {
   auto operator<=>(const UniformSlot&) const = default;
 };
 
+inline constexpr uint32_t kFetchConstantBytes = 24;
+
 std::vector<UniformSlot> SpecializableSlots(std::span<const uint32_t> module, std::span<const ByteRange> system_ranges);
+std::vector<UniformSlot> TextureFetchSlots(std::vector<UniformSlot> slots,
+                                           std::span<const uint32_t> texture_fetch_constants);
 std::vector<uint32_t> Specialize(std::span<const uint32_t> module, std::span<const ByteRange> system_ranges,
                                  std::span<const UniformSlot> slots, std::span<const uint32_t> values);
 std::vector<uint32_t> AllowContraction(std::span<const uint32_t> module);

@@ -12,6 +12,7 @@ using nier::native::AllowContraction;
 using nier::native::ByteRange;
 using nier::native::Specialize;
 using nier::native::SpecializableSlots;
+using nier::native::TextureFetchSlots;
 using nier::native::UniformSlot;
 
 static int failures = 0;
@@ -242,5 +243,12 @@ int main() {
   Check(Decorations(contracted_code, spv::DecorationArrayStride) == 2 && contracted.size() + 3 == specialized.size() &&
             contracted[3] == specialized[3] && CopiesConstant(contracted_code, kFlags, 7),
         "everything_else_is_kept");
+  {
+    const std::vector<UniformSlot> slots = {{false, 4}, {true, 0}, {true, 8}, {true, 24 * 3 + 12}, {true, 24 * 31 + 16}};
+    const std::vector<uint32_t> textures = {3};
+    const std::vector<UniformSlot> kept = TextureFetchSlots(slots, textures);
+    Check(kept == std::vector<UniformSlot>{{false, 4}, {true, 24 * 3 + 12}},
+          "vertex_shaders_keep_system_and_texture_fetch_slots_only");
+  }
   return failures ? 1 : 0;
 }

@@ -53,6 +53,10 @@ class NativeShaders {
   VkShaderModule PixelModule(rex::graphics::vulkan::VulkanShader::VulkanTranslation& translation,
                              const rex::graphics::SpirvShaderTranslator::SystemConstants& system,
                              std::span<const uint32_t> fetch_constants);
+  VkShaderModule VertexModule(const rex::graphics::vulkan::VulkanShader& shader,
+                              rex::graphics::vulkan::VulkanShader::VulkanTranslation& translation,
+                              const rex::graphics::SpirvShaderTranslator::SystemConstants& system,
+                              std::span<const uint32_t> fetch_constants);
   const Stats& stats() const { return stats_; }
 
  private:
@@ -73,6 +77,10 @@ class NativeShaders {
   static constexpr uint32_t kScales = 3;
 
   static uint32_t ScaleIndex(uint32_t scale_x, uint32_t scale_y);
+  VkShaderModule SpecializedModule(rex::graphics::vulkan::VulkanShader::VulkanTranslation& translation,
+                                   const rex::graphics::vulkan::VulkanShader* vertex_shader,
+                                   const rex::graphics::SpirvShaderTranslator::SystemConstants& system,
+                                   std::span<const uint32_t> fetch_constants);
   rex::graphics::vulkan::VulkanShader* ShaderFor(uint64_t hash, uint32_t scale);
   void Analyze(rex::graphics::vulkan::VulkanShader& shader);
   rex::graphics::vulkan::VulkanShader::VulkanTranslation* Translate(rex::graphics::SpirvShaderTranslator& translator,

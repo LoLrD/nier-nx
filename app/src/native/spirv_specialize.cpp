@@ -223,4 +223,13 @@ std::vector<uint32_t> AllowContraction(std::span<const uint32_t> module) {
   return result;
 }
 
+std::vector<UniformSlot> TextureFetchSlots(std::vector<UniformSlot> slots,
+                                           std::span<const uint32_t> texture_fetch_constants) {
+  std::erase_if(slots, [&](const UniformSlot& slot) {
+    return slot.fetch && std::find(texture_fetch_constants.begin(), texture_fetch_constants.end(),
+                                   slot.offset / kFetchConstantBytes) == texture_fetch_constants.end();
+  });
+  return slots;
+}
+
 }  // namespace nier::native

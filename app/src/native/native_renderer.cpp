@@ -52,6 +52,9 @@ REXCVAR_DEFINE_BOOL(nier_store_cards_verify, false, "NieR",
                     "changed, and count misses (slow, for checking)");
 REXCVAR_DEFINE_BOOL(nier_record_thread, true, "NieR",
                     "Native renderer: Vulkan commands are recorded on a worker thread from a queue the ring fills");
+REXCVAR_DEFINE_BOOL(nier_vertex_specialization, true, "NieR",
+                    "Native renderer: vertex shaders get the texture constants and flags of the draw baked in, like "
+                    "pixel shaders");
 REXCVAR_DEFINE_BOOL(nier_gpu_shader_marks, false, "NieR",
                     "Native renderer: GPU timestamps at every pixel shader change (per-shader GPU times in the report)");
 REXCVAR_DEFINE_INT32(nier_shadow_map_shift, 0, "NieR",
@@ -749,7 +752,9 @@ NativeRenderer::DrawResult NativeRenderer::RecordDraw(const RegisterFile& regs) 
   uint32_t fetches[192];
   CopyFetchConstants(regs, fetches);
   PipelineState state = BuildPipelineState(regs, draw, targets, color_mask, targets_->depth_format());
-  state.vertex_module = prepared->vertex->shader_module();
+  state.vertex_module = REXCVAR_GET(nier_vertex_specialization) && !PerfSkip(kGenericShaders)
+                            ? shaders_.VertexModule(*prepared->vertex_shader, *prepared->vertex, system, fetches)
+                            : prepared->vertex->shader_module();
   if (prepared->pixel) {
     state.pixel_module = PerfSkip(kGenericShaders) ? prepared->pixel->shader_module()
                                                    : shaders_.PixelModule(*prepared->pixel, system, fetches);

@@ -57,15 +57,33 @@ NativeShaders::~NativeShaders() {
 
 VkShaderModule NativeShaders::PixelModule(VulkanShader::VulkanTranslation& translation,
                                           const SystemConstants& system, std::span<const uint32_t> fetch_constants) {
+  return SpecializedModule(translation, nullptr, system, fetch_constants);
+}
+
+VkShaderModule NativeShaders::VertexModule(const VulkanShader& shader, VulkanShader::VulkanTranslation& translation,
+                                           const SystemConstants& system, std::span<const uint32_t> fetch_constants) {
+  return SpecializedModule(translation, &shader, system, fetch_constants);
+}
+
+VkShaderModule NativeShaders::SpecializedModule(VulkanShader::VulkanTranslation& translation,
+                                                const VulkanShader* vertex_shader, const SystemConstants& system,
+                                                std::span<const uint32_t> fetch_constants) {
   const std::vector<uint8_t>& binary = translation.translated_binary();
   const std::span<const uint32_t> words(reinterpret_cast<const uint32_t*>(binary.data()), binary.size() / 4);
   auto [it, inserted] = specializations_.try_emplace(&translation);
   Specialization& specialization = it->second;
   if (inserted) {
     specialization.slots = SpecializableSlots(words, kSpecializedSystemFields);
+    if (vertex_shader) {
+      std::vector<uint32_t> textures;
+      for (const auto& binding : vertex_shader->GetTextureBindingsAfterTranslation()) {
+        textures.push_back(binding.fetch_constant);
+      }
+      specialization.slots = TextureFetchSlots(std::move(specialization.slots), textures);
+    }
   }
-  const bool exact = PerfSkip(kExactMath);
-  if (specialization.slots.empty() && exact) {
+  const bool contract = !vertex_shader && !PerfSkip(kExactMath);
+  if (specialization.slots.empty() && !contract) {
     return translation.shader_module();
   }
   const auto* system_words = reinterpret_cast<const uint32_t*>(&system);
@@ -75,10 +93,10 @@ VkShaderModule NativeShaders::PixelModule(VulkanShader::VulkanTranslation& trans
     values.push_back(slot.fetch ? fetch_constants[slot.offset / 4] : system_words[slot.offset / 4]);
   }
   auto [module, created] = specialization.modules.try_emplace(
-      XXH3_64bits_withSeed(values.data(), values.size() * sizeof(uint32_t), exact), VK_NULL_HANDLE);
+      XXH3_64bits_withSeed(values.data(), values.size() * sizeof(uint32_t), contract), VK_NULL_HANDLE);
   if (created) {
     std::vector<uint32_t> specialized = Specialize(words, kSpecializedSystemFields, specialization.slots, values);
-    if (!exact) {
+    if (contract) {
       specialized = AllowContraction(specialized);
     }
     module->second =
