@@ -142,17 +142,27 @@ extern PPCFuncMapping PPCFuncMappings[];
 
 #define REX_RAW_ADDR(x) (base + (u32)(x) + REX_PHYS_HOST_OFFSET(x))
 
-#define REX_LOAD_U8(x) (*(volatile u8*)(base + (u32)(x) + REX_PHYS_HOST_OFFSET(x)))
-#define REX_LOAD_U16(x) __builtin_bswap16(*(volatile u16*)(base + (u32)(x) + REX_PHYS_HOST_OFFSET(x)))
-#define REX_LOAD_U32(x) __builtin_bswap32(*(volatile u32*)(base + (u32)(x) + REX_PHYS_HOST_OFFSET(x)))
-#define REX_LOAD_U64(x) __builtin_bswap64(*(volatile u64*)(base + (u32)(x) + REX_PHYS_HOST_OFFSET(x)))
+// Plain guest memory (REX_PLAIN_GUEST_MEMORY): guest loads and stores are ordinary accesses the compiler may combine
+// and schedule; a compiler barrier at every loop head keeps polling loops reading memory again. MMIO stays volatile.
+#if defined(REX_PLAIN_GUEST_MEMORY)
+#define REX_GUEST_VOLATILE
+#define REX_LOOP_BARRIER() __asm__ __volatile__("" ::: "memory")
+#else
+#define REX_GUEST_VOLATILE volatile
+#define REX_LOOP_BARRIER() ((void)0)
+#endif
+
+#define REX_LOAD_U8(x) (*(REX_GUEST_VOLATILE u8*)(base + (u32)(x) + REX_PHYS_HOST_OFFSET(x)))
+#define REX_LOAD_U16(x) __builtin_bswap16(*(REX_GUEST_VOLATILE u16*)(base + (u32)(x) + REX_PHYS_HOST_OFFSET(x)))
+#define REX_LOAD_U32(x) __builtin_bswap32(*(REX_GUEST_VOLATILE u32*)(base + (u32)(x) + REX_PHYS_HOST_OFFSET(x)))
+#define REX_LOAD_U64(x) __builtin_bswap64(*(REX_GUEST_VOLATILE u64*)(base + (u32)(x) + REX_PHYS_HOST_OFFSET(x)))
 #define REX_LOAD_STRING(x, len) \
   std::string_view(reinterpret_cast<const char*>(base + (u32)(x) + REX_PHYS_HOST_OFFSET(x)), (len))
 
-#define REX_STORE_NC_U8(x, y)  (*(volatile u8*)(base + (u32)(x) + REX_PHYS_HOST_OFFSET(x)) = (y))
-#define REX_STORE_NC_U16(x, y) (*(volatile u16*)(base + (u32)(x) + REX_PHYS_HOST_OFFSET(x)) = __builtin_bswap16(y))
-#define REX_STORE_NC_U32(x, y) (*(volatile u32*)(base + (u32)(x) + REX_PHYS_HOST_OFFSET(x)) = __builtin_bswap32(y))
-#define REX_STORE_NC_U64(x, y) (*(volatile u64*)(base + (u32)(x) + REX_PHYS_HOST_OFFSET(x)) = __builtin_bswap64(y))
+#define REX_STORE_NC_U8(x, y)  (*(REX_GUEST_VOLATILE u8*)(base + (u32)(x) + REX_PHYS_HOST_OFFSET(x)) = (y))
+#define REX_STORE_NC_U16(x, y) (*(REX_GUEST_VOLATILE u16*)(base + (u32)(x) + REX_PHYS_HOST_OFFSET(x)) = __builtin_bswap16(y))
+#define REX_STORE_NC_U32(x, y) (*(REX_GUEST_VOLATILE u32*)(base + (u32)(x) + REX_PHYS_HOST_OFFSET(x)) = __builtin_bswap32(y))
+#define REX_STORE_NC_U64(x, y) (*(REX_GUEST_VOLATILE u64*)(base + (u32)(x) + REX_PHYS_HOST_OFFSET(x)) = __builtin_bswap64(y))
 
 // Store cards (REX_STORE_CARDS): every guest store outside the stack clears the byte of its 4 KB page in a 1 MB
 // table at guest address 0, so a consumer of guest memory learns which pages changed without hashing them.

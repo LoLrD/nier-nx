@@ -385,6 +385,7 @@ std::string FunctionNode::emitCpp(const EmitContext& ctx) const {
   // --- First pass: collect labels from all blocks ---
   std::unordered_set<size_t> labels;
   labels.reserve(64);
+  std::unordered_set<size_t> loopHeads;
 
   for (const auto& block : blocks()) {
     auto* blockData = reinterpret_cast<const uint32_t*>(ctx.binary.translate(block.base));
@@ -396,17 +397,22 @@ std::string FunctionNode::emitCpp(const EmitContext& ctx) const {
           load_and_swap<uint32_t>((const uint8_t*)blockData + addr - block.base);
       if (!PPC_BL(instruction)) {
         const size_t op = PPC_OP(instruction);
-        if (op == PPC_OP_B)
-          labels.emplace(addr + PPC_BI(instruction));
-        else if (op == PPC_OP_BC)
-          labels.emplace(addr + PPC_BD(instruction));
+        if (op == PPC_OP_B || op == PPC_OP_BC) {
+          const size_t target = addr + (op == PPC_OP_B ? PPC_BI(instruction) : PPC_BD(instruction));
+          labels.emplace(target);
+          if (target <= addr)
+            loopHeads.emplace(target);
+        }
       }
 
       // Labels from config switch tables
       auto stIt = ctx.config.switchTables.find(static_cast<uint32_t>(addr));
       if (stIt != ctx.config.switchTables.end()) {
-        for (auto label : stIt->second.targets)
+        for (auto label : stIt->second.targets) {
           labels.emplace(label);
+          if (label <= addr)
+            loopHeads.emplace(label);
+        }
       }
 
       // Labels and extern declarations from mid-asm hooks
@@ -511,6 +517,8 @@ std::string FunctionNode::emitCpp(const EmitContext& ctx) const {
       // Only emit each label once
       if (labels.find(blockBase) != labels.end() && emittedLabels.insert(blockBase).second) {
         emit_println(body, "loc_{:X}:", blockBase);
+        if (loopHeads.contains(blockBase))
+          emit_println(body, "\tREX_LOOP_BARRIER();");
         csrState = CSRState::Unknown;
       }
 

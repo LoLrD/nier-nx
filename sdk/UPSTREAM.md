@@ -107,3 +107,7 @@ code generator and runtime changes of masseffect-nx. The third-party sources are
   `Memory::MarkStoreCards` marks host writes (file reads, physical heap callbacks).
 - `src/ui/vulkan/vulkan_device.cpp`: `vulkan_robust_buffer_access` (default on) gates `robustBufferAccess`; the NieR
   native renderer keeps its shared-memory addresses inside the 512 MB buffer and turns it off on the Switch.
+- Plain guest memory (`REX_PLAIN_GUEST_MEMORY`): `REX_LOAD_*`/`REX_STORE_NC_*` drop `volatile`, and the code generator
+  emits `REX_LOOP_BARRIER()` (a compiler barrier) at every loop head, the target of a backward branch or of a
+  backward jump-table entry, so polling loops still re-read memory. MMIO macros stay volatile. The generated code
+  must be built with `-fno-strict-aliasing`.

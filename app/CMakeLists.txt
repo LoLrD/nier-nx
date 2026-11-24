@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(REXSDK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../sdk" CACHE PATH "Path to the ReXGlue SDK source tree")
 
-add_compile_definitions(REX_PPC_FIXED_FLUSH_MODE REX_STORE_CARDS)
+add_compile_definitions(REX_PPC_FIXED_FLUSH_MODE REX_STORE_CARDS REX_PLAIN_GUEST_MEMORY)
 
 include(generated/rexglue.cmake)
 
@@ -60,6 +60,7 @@ add_executable(nier ${NIER_SOURCES})
 target_include_directories(nier PRIVATE src ${REXSDK_DIR}/thirdparty/glslang ${REXSDK_DIR}/thirdparty/xxHash)
 
 rexglue_setup_target(nier GPU_PLUGINS xenos)
+target_compile_options(nier_recomp PRIVATE -fno-strict-aliasing)
 if(NOT REXGLUE_PLATFORM_SWITCH)
     if(TARGET rexgpu-xenos)
         target_link_libraries(nier PRIVATE rexgpu-xenos)
