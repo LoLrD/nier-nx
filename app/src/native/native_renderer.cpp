@@ -1577,8 +1577,11 @@ std::string NativeRenderer::Report() {
   reported_upscale_runs_ = upscale_->runs();
   line += fmt::format("; silent draws skipped {}", s.skipped_silent - r.skipped_silent);
   line += fmt::format("; draw memo hits {}, mismatches {}", s.memo_hits - r.memo_hits, s.memo_mismatches - r.memo_mismatches);
-  line += fmt::format("; background textures {} started, {} draws waited", t.background_loads - reported_textures_.background_loads,
-                      t.background_waits - reported_textures_.background_waits);
+  line += fmt::format("; background textures {} started, {} draws waited, {} dropped, {} loaded in place when full",
+                      t.background_loads - reported_textures_.background_loads,
+                      t.background_waits - reported_textures_.background_waits,
+                      t.background_dropped - reported_textures_.background_dropped,
+                      t.background_full - reported_textures_.background_full);
   line += fmt::format("; slow frames {} of {} (worst {:.0f} ms): ring busy {}, gpu wait {}, texture uploads {}, other {}",
                       slow_frames_.slow, slow_frames_.frames, slow_frames_.worst_ms, slow_frames_.ring,
                       slow_frames_.gpu, slow_frames_.uploads, slow_frames_.other);

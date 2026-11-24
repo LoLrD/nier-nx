@@ -30,6 +30,9 @@ REXCVAR_DEFINE_INT32(nier_texture_budget_mb, 448, "NieR",
 REXCVAR_DEFINE_BOOL(nier_background_textures, true, "NieR",
                     "Native renderer: decode new textures of 64 KB and more on a worker thread; the draw sees an "
                     "empty texture until it is ready instead of the render thread stalling");
+REXCVAR_DEFINE_INT32(nier_background_textures_mb, 64, "NieR",
+                     "Native renderer: decoded textures the worker may hold before new textures load on the render "
+                     "thread again");
 REXCVAR_DEFINE_BOOL(nier_texture_arena, true, "NieR",
                     "Native renderer: place textures up to 8 MB in shared 32 MB memory blocks instead of one "
                     "allocation each (an allocation costs ~2 ms of CPU on the Switch)");
@@ -143,6 +146,15 @@ void Textures::BeginFrame(uint64_t now_ms) {
   now_ms_ = now_ms;
   if (cards_) {
     cards_->NextInterval();
+  }
+  for (auto it = background_starts_.begin(); it != background_starts_.end();) {
+    if (now_ms_ < it->second.started_ms + kBackgroundStaleMs || !background_->Take(it->first)) {
+      ++it;
+      continue;
+    }
+    background_bytes_ -= it->second.bytes;
+    ++stats_.background_dropped;
+    it = background_starts_.erase(it);
   }
 }
 
@@ -329,15 +341,21 @@ Textures::Binding Textures::View(VkCommandBuffer upload, const xenos::xe_gpu_tex
     TextureFootprint footprint = FootprintOf(fetch);
     uint64_t cards_serial = 0;
     std::optional<LoadedTexture> loaded;
-    if (REXCVAR_GET(nier_background_textures) && reason != UploadReason::kChanged &&
-        shape->bytes >= kBackgroundMinBytes) {
+    const bool pending = background_starts_.contains(key);
+    const uint64_t budget = uint64_t(std::max(0, REXCVAR_GET(nier_background_textures_mb))) << 20;
+    const bool room = background_bytes_ + shape->bytes <= budget;
+    const bool eligible = REXCVAR_GET(nier_background_textures) && reason != UploadReason::kChanged &&
+                          shape->bytes >= kBackgroundMinBytes;
+    stats_.background_full += !pending && eligible && !room;
+    if (pending || (eligible && room)) {
       std::optional<BackgroundLoad> done = background_->Take(key);
       if (!done) {
-        if (!background_->Pending(key)) {
+        if (!pending) {
           if (cards_enabled_) {
             TakeCards(footprint, card_serial_);
           }
-          background_starts_[key] = {card_serial_, footprint, reason};
+          background_starts_[key] = {card_serial_, footprint, reason, shape->bytes, now_ms_};
+          background_bytes_ += shape->bytes;
           background_->Submit(key, [this, fetch] {
             BackgroundLoad load;
             load.loaded = LoadTexture(fetch, physical_base_);
@@ -353,6 +371,7 @@ Textures::Binding Textures::View(VkCommandBuffer upload, const xenos::xe_gpu_tex
       const auto start_it = background_starts_.find(key);
       const BackgroundStart start = start_it->second;
       background_starts_.erase(start_it);
+      background_bytes_ -= start.bytes;
       content = std::move(done->content);
       stats_.hashed_bytes += done->hashed_bytes;
       loaded = std::move(done->loaded);

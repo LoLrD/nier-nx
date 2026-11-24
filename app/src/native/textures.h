@@ -74,11 +74,14 @@ class Textures {
     uint64_t dedicated_images = 0;
     uint64_t background_loads = 0;
     uint64_t background_waits = 0;
+    uint64_t background_dropped = 0;
+    uint64_t background_full = 0;
   };
   static constexpr size_t kTopUploads = 5;
   static constexpr uint64_t kArenaBlockBytes = 32ull << 20;
   static constexpr uint64_t kArenaLargestImage = 8ull << 20;
   static constexpr uint32_t kBackgroundMinBytes = 64 << 10;
+  static constexpr uint64_t kBackgroundStaleMs = 3000;
 
   Textures(const rex::ui::vulkan::VulkanDevice* device, const uint8_t* physical_base,
            rex::ui::vulkan::VulkanUploadBufferPool& staging);
@@ -228,10 +231,13 @@ class Textures {
     uint64_t cards_serial;
     TextureFootprint footprint;
     UploadReason reason;
+    uint64_t bytes;
+    uint64_t started_ms;
   };
 
   Stats stats_;
   std::unordered_map<uint64_t, BackgroundStart> background_starts_;
+  uint64_t background_bytes_ = 0;
   std::unique_ptr<BackgroundJobs<BackgroundLoad>> background_;
 };
 
