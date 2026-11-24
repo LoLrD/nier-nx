@@ -303,6 +303,15 @@ class NativeRenderer {
     uint64_t hash = 0;
   };
   std::array<FloatUpload, 2> float_uploads_{};
+  struct RangeUpload {
+    uint64_t generation = 0;
+    uint64_t submission = 0;
+    uint32_t offset = 0;
+    uint64_t hash = 0;
+    bool valid = false;
+  };
+  RangeUpload fetch_upload_;
+  RangeUpload bool_upload_;
   std::optional<TargetKey> scaled_color_;
   std::optional<TargetKey> scaled_depth_;
   uint32_t scaled_shift_ = 0;

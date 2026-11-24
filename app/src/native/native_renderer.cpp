@@ -1029,8 +1029,6 @@ NativeRenderer::DrawResult NativeRenderer::RecordPrepared(const RegisterFile& re
                                                           const DrawMemo& m, bool set_dynamic_state) {
   Translator::SystemConstants system;
   FillSystemConstants(regs, draw, m.viewport, m.texture_info, system);
-  uint32_t fetches[192];
-  CopyFetchConstants(regs, fetches);
   alignas(16) uint8_t floats[Submissions::kFloatConstantsBytes];
   uint32_t bools[40];
   std::array<uint32_t, Translator::kConstantBufferCount> offsets{};
@@ -1068,9 +1066,27 @@ NativeRenderer::DrawResult NativeRenderer::RecordPrepared(const RegisterFile& re
   upload_floats(Translator::kConstantBufferFloatVertex, &m.prepared.vertex_shader->constant_register_map(), false);
   upload_floats(Translator::kConstantBufferFloatPixel,
                 m.prepared.pixel_shader ? &m.prepared.pixel_shader->constant_register_map() : nullptr, true);
-  CopyBoolLoopConstants(regs, bools);
-  upload(Translator::kConstantBufferBoolLoop, bools, sizeof(bools), sizeof(bools));
-  upload(Translator::kConstantBufferFetch, fetches, sizeof(fetches), sizeof(fetches));
+  auto upload_range = [&](uint32_t stream, uint32_t first, uint32_t count, RangeUpload& cached, auto&& fill,
+                          void* data, size_t size) {
+    const uint64_t generation = registers_.ConstantsGeneration(first, count);
+    if (filter && cached.valid && cached.generation == generation && cached.submission == submissions_->current()) {
+      offsets[stream] = cached.offset;
+      ++stats_.uniforms_reused;
+      if (verify_floats) {
+        fill();
+        stats_.uniforms_stale += XXH3_64bits(data, size) != cached.hash;
+      }
+      return;
+    }
+    fill();
+    upload(stream, data, size, size);
+    cached = {generation, submissions_->current(), offsets[stream], verify_floats ? XXH3_64bits(data, size) : 0, true};
+  };
+  upload_range(Translator::kConstantBufferBoolLoop, XE_GPU_REG_SHADER_CONSTANT_BOOL_000_031, 40, bool_upload_,
+               [&] { CopyBoolLoopConstants(regs, bools); }, bools, sizeof(bools));
+  uint32_t fetches[192];
+  upload_range(Translator::kConstantBufferFetch, XE_GPU_REG_SHADER_CONSTANT_FETCH_00_0, 192, fetch_upload_,
+               [&] { CopyFetchConstants(regs, fetches); }, fetches, sizeof(fetches));
   const VkCommandBuffer cmd = submissions_->main();
   if (targets_->Begins(m.targets)) {
     targets_->End(cmd);
