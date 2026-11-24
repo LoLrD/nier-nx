@@ -1,7 +1,7 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
-#include <unordered_set>
 #include <vector>
 
 namespace nier::native {
@@ -71,9 +71,15 @@ class PageReaders {
   uint64_t Pending(uint32_t first_page, uint32_t count, uint64_t completed) const;
 
  private:
+  struct Recorded {
+    uint64_t key = 0;
+    uint64_t submission = 0;
+  };
+  static constexpr uint32_t kRecordedSlots = 4096;
+  static constexpr uint32_t kRecordedProbes = 8;
+
   PageSerials readers_;
-  std::unordered_set<uint64_t> recorded_;
-  uint64_t recorded_submission_ = 0;
+  std::array<Recorded, kRecordedSlots> recorded_{};
 };
 
 }  // namespace nier::native

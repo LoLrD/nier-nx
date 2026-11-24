@@ -154,12 +154,17 @@ void PageReaders::Record(uint32_t physical_address, uint32_t bytes, uint64_t sub
   if (!bytes) {
     return;
   }
-  if (submission != recorded_submission_) {
-    recorded_.clear();
-    recorded_submission_ = submission;
-  }
-  if (!recorded_.insert((uint64_t(physical_address) << 32) | bytes).second) {
-    return;
+  const uint64_t key = (uint64_t(physical_address) << 32) | bytes;
+  uint32_t slot = uint32_t((key * 0x9E3779B97F4A7C15ull) >> 52);
+  for (uint32_t probe = 0; probe < kRecordedProbes; ++probe, slot = (slot + 1) % kRecordedSlots) {
+    Recorded& recorded = recorded_[slot];
+    if (recorded.submission != submission) {
+      recorded = {key, submission};
+      break;
+    }
+    if (recorded.key == key) {
+      return;
+    }
   }
   const uint32_t first = physical_address >> kCardPageShift;
   const uint32_t last = uint32_t((uint64_t(physical_address) + bytes - 1) >> kCardPageShift);

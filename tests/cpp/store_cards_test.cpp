@@ -139,6 +139,14 @@ int main() {
     Check(readers.Pending(0x10, 2, 5) == 0, "completed_reader_does_not_block");
     readers.Record(0x10800, 0x1000, 6);
     Check(readers.Pending(0x10, 1, 5) == 6, "newer_submission_replaces_reader");
+    for (uint32_t i = 0; i < 6000; ++i) {
+      readers.Record(0x1000000 + i * 0x1000, 0x100, 7);
+    }
+    bool all = true;
+    for (uint32_t i = 0; i < 6000; ++i) {
+      all &= readers.Pending((0x1000000 >> 12) + i, 1, 6) == 7;
+    }
+    Check(all, "every_range_recorded_when_the_dedup_table_overflows");
   }
   return failures ? 1 : 0;
 }
