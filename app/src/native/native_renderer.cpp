@@ -70,17 +70,38 @@ using Translator = SpirvShaderTranslator;
 
 namespace {
 
+#if REX_PLATFORM_SWITCH
+uint64_t ReadTicks() {
+  uint64_t ticks;
+  asm volatile("mrs %0, cntpct_el0" : "=r"(ticks));
+  return ticks;
+}
+
+double MicrosPerTick() {
+  uint64_t frequency;
+  asm volatile("mrs %0, cntfrq_el0" : "=r"(frequency));
+  return 1e6 / double(frequency);
+}
+#else
+uint64_t ReadTicks() {
+  return uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                      std::chrono::steady_clock::now().time_since_epoch())
+                      .count());
+}
+
+double MicrosPerTick() { return 1e-3; }
+#endif
+
+const double kMicrosPerTick = MicrosPerTick();
+
 class ScopedMicros {
  public:
-  explicit ScopedMicros(uint64_t& total) : total_(total), start_(std::chrono::steady_clock::now()) {}
-  ~ScopedMicros() {
-    total_ += uint64_t(
-        std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start_).count());
-  }
+  explicit ScopedMicros(uint64_t& total) : total_(total), start_(ReadTicks()) {}
+  ~ScopedMicros() { total_ += uint64_t(double(ReadTicks() - start_) * kMicrosPerTick); }
 
  private:
   uint64_t& total_;
-  std::chrono::steady_clock::time_point start_;
+  uint64_t start_;
 };
 
 constexpr VkDeviceSize kMemoryProbeBytes = 8 << 20;
