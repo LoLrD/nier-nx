@@ -45,7 +45,6 @@ class SceneUpscale {
   struct FormatPipelines {
     VkPipeline easu = VK_NULL_HANDLE;
     VkPipeline rcas = VK_NULL_HANDLE;
-    VkPipeline alpha = VK_NULL_HANDLE;
   };
 
   Output* OutputFor(VkImageView source, VkFormat format, uint32_t width, uint32_t height);
@@ -53,11 +52,11 @@ class SceneUpscale {
                    VkImageView& view, VkImageView& array_view);
   void DestroyOutput(Output& output);
   const FormatPipelines& PipelinesFor(VkFormat format);
-  VkPipeline CreatePipeline(VkShaderModule fragment, VkFormat format, VkColorComponentFlags write_mask);
+  VkPipeline CreatePipeline(VkShaderModule fragment, VkFormat format);
   VkDescriptorSet SourceSet(VkImageView view);
   void Initialize(VkCommandBuffer command_buffer, const Output& output);
   void Pass(VkCommandBuffer command_buffer, VkPipeline pipeline, VkDescriptorSet set, VkImageView target,
-            uint32_t width, uint32_t height, const void* constants, uint32_t size, VkAttachmentLoadOp load);
+            uint32_t width, uint32_t height, const void* constants, uint32_t size);
 
   const rex::ui::vulkan::VulkanDevice* device_;
   Submissions& submissions_;
@@ -67,7 +66,6 @@ class SceneUpscale {
   VkShaderModule vertex_ = VK_NULL_HANDLE;
   VkShaderModule easu_ = VK_NULL_HANDLE;
   VkShaderModule rcas_ = VK_NULL_HANDLE;
-  VkShaderModule alpha_ = VK_NULL_HANDLE;
   std::unordered_map<uint64_t, Output> outputs_;
   std::unordered_map<VkFormat, FormatPipelines> pipelines_;
   uint64_t runs_ = 0;

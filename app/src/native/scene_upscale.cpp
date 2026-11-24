@@ -8,15 +8,14 @@
 #include <rex/ui/vulkan/util.h>
 
 #include "render_targets.h"
-#include "shaders/upscale_alpha_ps.h"
+#include "shaders/fsr_easu_alpha_ps.h"
+#include "shaders/fsr_rcas_alpha_ps.h"
 #include "submissions.h"
 #include "vk_recorder.h"
 
 namespace nier::native {
 
 namespace shaders {
-#include "guest_output_ffx_fsr_easu_ps.h"
-#include "guest_output_ffx_fsr_rcas_ps.h"
 #include "guest_output_triangle_strip_rect_vs.h"
 }  // namespace shaders
 
@@ -38,13 +37,6 @@ struct RcasConstants {
   float padding;
 };
 
-struct AlphaConstants {
-  float inverse_output_size[2];
-  float padding[2];
-};
-
-constexpr VkColorComponentFlags kColorChannels =
-    VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT;
 
 uint64_t OutputKey(VkImageView source, VkFormat format, uint32_t width, uint32_t height) {
   return reinterpret_cast<uint64_t>(source) * 0x9E3779B97F4A7C15ull ^
@@ -85,11 +77,8 @@ SceneUpscale::SceneUpscale(const vk::VulkanDevice* device, Submissions& submissi
   dfn.vkCreatePipelineLayout(d, &layout_info, nullptr, &layout_);
   vertex_ = vk::util::CreateShaderModule(device_, shaders::guest_output_triangle_strip_rect_vs,
                                          sizeof(shaders::guest_output_triangle_strip_rect_vs));
-  easu_ = vk::util::CreateShaderModule(device_, shaders::guest_output_ffx_fsr_easu_ps,
-                                       sizeof(shaders::guest_output_ffx_fsr_easu_ps));
-  rcas_ = vk::util::CreateShaderModule(device_, shaders::guest_output_ffx_fsr_rcas_ps,
-                                       sizeof(shaders::guest_output_ffx_fsr_rcas_ps));
-  alpha_ = vk::util::CreateShaderModule(device_, upscale_alpha_ps, sizeof(upscale_alpha_ps));
+  easu_ = vk::util::CreateShaderModule(device_, fsr_easu_alpha_ps, sizeof(fsr_easu_alpha_ps));
+  rcas_ = vk::util::CreateShaderModule(device_, fsr_rcas_alpha_ps, sizeof(fsr_rcas_alpha_ps));
 }
 
 SceneUpscale::~SceneUpscale() {
@@ -101,9 +90,7 @@ SceneUpscale::~SceneUpscale() {
   for (auto& [format, pipelines] : pipelines_) {
     dfn.vkDestroyPipeline(d, pipelines.easu, nullptr);
     dfn.vkDestroyPipeline(d, pipelines.rcas, nullptr);
-    dfn.vkDestroyPipeline(d, pipelines.alpha, nullptr);
   }
-  dfn.vkDestroyShaderModule(d, alpha_, nullptr);
   dfn.vkDestroyShaderModule(d, rcas_, nullptr);
   dfn.vkDestroyShaderModule(d, easu_, nullptr);
   dfn.vkDestroyShaderModule(d, vertex_, nullptr);
@@ -131,8 +118,7 @@ VkImageView SceneUpscale::Upscale(VkCommandBuffer command_buffer, VkImageView so
   }
   const bool sharpen = sharpness_stops >= 0.0f;
   const FormatPipelines& pipelines = PipelinesFor(format);
-  if (pipelines.easu == VK_NULL_HANDLE || pipelines.alpha == VK_NULL_HANDLE ||
-      (sharpen && pipelines.rcas == VK_NULL_HANDLE)) {
+  if (pipelines.easu == VK_NULL_HANDLE || (sharpen && pipelines.rcas == VK_NULL_HANDLE)) {
     return source;
   }
   const VkDescriptorSet source_set = SourceSet(source_plain);
@@ -148,17 +134,13 @@ VkImageView SceneUpscale::Upscale(VkCommandBuffer command_buffer, VkImageView so
   const EasuConstants easu{{float(width) / float(output_width), float(height) / float(output_height)},
                            {1.0f / float(width), 1.0f / float(height)}};
   Pass(command_buffer, pipelines.easu, source_set, output->easu_view, output_width, output_height, &easu,
-       sizeof(easu), VK_ATTACHMENT_LOAD_OP_DONT_CARE);
+       sizeof(easu));
   if (sharpen) {
     FullBarrier(device_, command_buffer);
     const RcasConstants rcas{{0, 0}, std::exp2(-sharpness_stops), 0.0f};
     Pass(command_buffer, pipelines.rcas, easu_set, output->rcas_view, output_width, output_height, &rcas,
-         sizeof(rcas), VK_ATTACHMENT_LOAD_OP_DONT_CARE);
+         sizeof(rcas));
   }
-  FullBarrier(device_, command_buffer);
-  const AlphaConstants alpha{{1.0f / float(output_width), 1.0f / float(output_height)}, {0.0f, 0.0f}};
-  Pass(command_buffer, pipelines.alpha, source_set, sharpen ? output->rcas_view : output->easu_view, output_width,
-       output_height, &alpha, sizeof(alpha), VK_ATTACHMENT_LOAD_OP_LOAD);
   FullBarrier(device_, command_buffer);
   output->source = source;
   output->version = version;
@@ -226,14 +208,13 @@ void SceneUpscale::DestroyOutput(Output& output) {
 const SceneUpscale::FormatPipelines& SceneUpscale::PipelinesFor(VkFormat format) {
   auto [it, inserted] = pipelines_.try_emplace(format);
   if (inserted) {
-    it->second.easu = CreatePipeline(easu_, format, kColorChannels | VK_COLOR_COMPONENT_A_BIT);
-    it->second.rcas = CreatePipeline(rcas_, format, kColorChannels | VK_COLOR_COMPONENT_A_BIT);
-    it->second.alpha = CreatePipeline(alpha_, format, VK_COLOR_COMPONENT_A_BIT);
+    it->second.easu = CreatePipeline(easu_, format);
+    it->second.rcas = CreatePipeline(rcas_, format);
   }
   return it->second;
 }
 
-VkPipeline SceneUpscale::CreatePipeline(VkShaderModule fragment, VkFormat format, VkColorComponentFlags write_mask) {
+VkPipeline SceneUpscale::CreatePipeline(VkShaderModule fragment, VkFormat format) {
   const std::array<VkPipelineShaderStageCreateInfo, 2> stages = {{
       {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_VERTEX_BIT, vertex_, "main",
        nullptr},
@@ -254,7 +235,8 @@ VkPipeline SceneUpscale::CreatePipeline(VkShaderModule fragment, VkFormat format
   multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
   VkPipelineDepthStencilStateCreateInfo depth_stencil{VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
   VkPipelineColorBlendAttachmentState attachment{};
-  attachment.colorWriteMask = write_mask;
+  attachment.colorWriteMask =
+      VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
   VkPipelineColorBlendStateCreateInfo blend{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
   blend.attachmentCount = 1;
   blend.pAttachments = &attachment;
@@ -326,13 +308,12 @@ void SceneUpscale::Initialize(VkCommandBuffer command_buffer, const Output& outp
 }
 
 void SceneUpscale::Pass(VkCommandBuffer command_buffer, VkPipeline pipeline, VkDescriptorSet set, VkImageView target,
-                        uint32_t width, uint32_t height, const void* constants, uint32_t size,
-                        VkAttachmentLoadOp load) {
+                        uint32_t width, uint32_t height, const void* constants, uint32_t size) {
   const auto& dfn = Vk(device_);
   VkRenderingAttachmentInfoKHR color{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO_KHR};
   color.imageView = target;
   color.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-  color.loadOp = load;
+  color.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
   color.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
   VkRenderingInfoKHR info{VK_STRUCTURE_TYPE_RENDERING_INFO_KHR};
   info.renderArea = {{0, 0}, {width, height}};
