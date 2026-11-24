@@ -105,5 +105,22 @@ int main() {
     regs.Store(GpuRegisters::kCount, 1);
     Check(regs.Get(GpuRegisters::kCount) == 0, "mmio_store_out_of_range_ignored");
   }
+  {
+    GpuRegisters regs;
+    const uint64_t vs20[4] = {1ull << 20, 0, 0, 0};
+    const uint64_t vs_far[4] = {0, 0, 0, 1ull << 5};
+    const uint64_t vs_before = regs.FloatGeneration(vs20, false);
+    const uint64_t ps_before = regs.FloatGeneration(vs20, true);
+    regs.Set(0x4000 + 1024 + 20 * 4 + 2, 0x3F800000);
+    Check(regs.FloatGeneration(vs20, true) > ps_before, "pixel_constant_write_changes_its_generation");
+    Check(regs.FloatGeneration(vs20, false) == vs_before, "vertex_constants_untouched_by_pixel_write");
+    const uint64_t far_before = regs.FloatGeneration(vs_far, false);
+    regs.Set(0x4000 + (3 * 64 + 5) * 4, 1);
+    Check(regs.FloatGeneration(vs_far, false) > far_before, "high_vertex_constant_write_changes_its_generation");
+    Check(regs.FloatGeneration(vs20, false) == vs_before, "other_groups_keep_their_generation");
+    const uint64_t loops = regs.ConstantsGeneration(0x4900, 40);
+    regs.Store(0x4908, 7);
+    Check(regs.ConstantsGeneration(0x4900, 40) > loops, "mmio_store_to_loop_constants_changes_generation");
+  }
   return failures ? 1 : 0;
 }

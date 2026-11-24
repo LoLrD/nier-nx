@@ -58,6 +58,7 @@ std::optional<MemoryStore> GpuRegisters::Set(uint32_t index, uint32_t value) {
     return std::nullopt;
   }
   file_.values[index] = value;
+  Touch(index);
   if (index == XE_GPU_REG_DC_LUT_RW_INDEX) {
     gamma_component_ = 0;
   } else if (index == XE_GPU_REG_DC_LUT_SEQ_COLOR) {
@@ -78,7 +79,30 @@ std::optional<MemoryStore> GpuRegisters::Set(uint32_t index, uint32_t value) {
 void GpuRegisters::Store(uint32_t index, uint32_t value) {
   if (index < kCount) {
     std::atomic_ref<uint32_t>(file_.values[index]).store(value, std::memory_order_relaxed);
+    Touch(index);
   }
+}
+
+uint64_t GpuRegisters::FloatGeneration(const uint64_t (&bitmap)[4], bool pixel) const {
+  const uint32_t first_group = pixel ? 1024 >> kGroupShift : 0;
+  uint64_t newest = 0;
+  for (uint32_t block = 0; block < 4; ++block) {
+    for (uint32_t part = 0; part < 4; ++part) {
+      if ((bitmap[block] >> (part * 16)) & 0xFFFF) {
+        newest = std::max(newest, generations_[first_group + block * 4 + part]);
+      }
+    }
+  }
+  return newest;
+}
+
+uint64_t GpuRegisters::ConstantsGeneration(uint32_t first, uint32_t count) const {
+  uint64_t newest = 0;
+  for (uint32_t group = (first - kConstantBase) >> kGroupShift; group <= (first + count - 1 - kConstantBase) >> kGroupShift;
+       ++group) {
+    newest = std::max(newest, generations_[group]);
+  }
+  return newest;
 }
 
 uint32_t GpuRegisters::ReadMmio(uint32_t index, uint32_t display_width, uint32_t display_height) const {
