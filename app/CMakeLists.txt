@@ -69,6 +69,13 @@ if(NOT REXGLUE_PLATFORM_SWITCH)
     endif()
 endif()
 
+option(NIER_LTO "Link-time optimization of the game code and the port on the Switch" ON)
+if(REXGLUE_PLATFORM_SWITCH AND NIER_LTO)
+    target_compile_options(nier_recomp PRIVATE -flto=auto -fno-fat-lto-objects)
+    target_compile_options(nier PRIVATE -flto=auto -fno-fat-lto-objects)
+    target_link_options(nier PRIVATE -flto=auto -flto-partition=balanced -O3)
+endif()
+
 if(REXGLUE_PLATFORM_SWITCH)
     rexglue_switch_add_nro(nier
         NAME "NieR"
