@@ -19,6 +19,22 @@ from it yourself.
 - A Russian language pack is included (see [lang/README.md](lang/README.md)).
 - Tested on a Switch OLED only.
 
+### What has been tested
+
+Measured on the console, handheld mode, stock clocks, with the logs kept in `docs/performance.md`:
+
+| Tested | Result |
+|---|---|
+| Prologue, including the sealed-verse abilities (up to 1,380 draws per frame) | 30 fps, every frame on time |
+| The village and its surroundings (300 to 800 draws per frame) | 30 fps |
+| The heaviest scene met so far (700 to 800 draws per frame) | 30 fps with about a fifth of the three cores free; the game's own main thread uses 70 to 77 % of one core |
+| Cutscenes with subtitles | 30 fps, clean audio |
+| Menus, saving and loading, the Russian language pack | Work |
+
+Not tested yet: everything after the first hours of the game (later areas and bosses may be heavier than
+anything above), sessions longer than about ten minutes, docked mode, the DLC in play, and a full
+playthrough with its later routes and endings. Reports are welcome.
+
 Known issues: a short stutter the first time new shaders or pipelines are met (they are cached on the SD card
 after that), short hitches while textures stream in, and occasional faint audio crackle. See
 [docs/performance.md](docs/performance.md) for the measurements behind all of this.
