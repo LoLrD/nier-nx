@@ -30,11 +30,14 @@ Measured on the console, handheld mode, stock clocks, with the logs kept in `doc
 | The heaviest scene met so far (700 to 800 draws per frame) | 30 fps with about a fifth of the three cores free; the game's own main thread uses 70 to 77 % of one core |
 | Cutscenes with subtitles | 30 fps, clean audio |
 | Menus, saving and loading, the Russian language pack | Work |
-| One two-hour session without a restart, the first hours of the story with its boss fights | 30 fps in 739 of 740 ten-second periods; 100 slow frames out of 232,641; no crash; memory use levels off after about 20 minutes |
+| The story from the prologue to the Aerie: the village, the Northern Plains, the Lost Shrine with its boss fight, the Aerie and the fight against Hook alongside Kainé | Played through, 30 fps, no softlock |
+| The same stretch as one two-hour session without a restart | 30 fps in 739 of 740 ten-second periods; 100 slow frames out of 232,641; no crash; memory use levels off after about 20 minutes |
 
-Not tested yet: everything after the first two hours of the game (later areas and bosses may be heavier than
-anything above), docked mode, the DLC in play, and a full playthrough with its later routes and endings.
-Reports are welcome.
+That is roughly the first fifth of one playthrough (about 1 h 45 min of a 9.5-hour run of the first route).
+
+Not tested yet: everything after the Aerie, starting with Seafront, the Junk Heap and the Forest of Myth (later
+areas and bosses may be heavier than anything above), the second half of the game, the later routes and endings,
+docked mode, and the DLC in play. Reports are welcome.
 
 Known issues: a short stutter the first time new shaders or pipelines are met (they are cached on the SD card
 after that) and short hitches while textures stream in. See [docs/performance.md](docs/performance.md) for the
