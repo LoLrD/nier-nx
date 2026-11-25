@@ -31,6 +31,7 @@
 #include "nier_fps_meter.h"
 #include "nier_input_driver.h"
 #include "nier_input_script.h"
+#include "nier_packaged.h"
 #include "nier_pgo.h"
 #include "nier_archive_patches.h"
 #include "native/native_graphics_system.h"
@@ -59,6 +60,7 @@ class NierApp : public rex::ReXApp {
   }
 
   void OnConfigurePaths(rex::PathConfig& paths) override {
+    nier::packaged::ConfigurePaths(paths);
     if (!paths.game_data_root.empty()) {
       return;
     }
@@ -203,6 +205,7 @@ class NierApp : public rex::ReXApp {
   }
 
   void OnPostSetup() override {
+    nier::packaged::LogStatus();
     WatchControlFile();
     RunAbSchedule();
     nier::pgo::Start("sdmc:/switch/nier-nx/pgo", REXCVAR_GET(nier_pgo_dump_s));

@@ -88,6 +88,24 @@ sdmc:/switch/nier-nx/
 Start it from the homebrew menu in application mode (hold R while starting any game), not from the album.
 `tools/console-test/deploy.sh` does the copying over FTP; see [docs/switch-setup.md](docs/switch-setup.md).
 
+### One installable NSP
+
+The same build can be installed as an application, with the game data inside it, so it starts from the HOME menu:
+
+```bash
+python3 -m pip install cryptography pillow
+python3 tools/build_nsp.py --keys /path/to/prod.keys --language out/lang/ru
+```
+
+The result is `out/nsp/nier-nx.nsp`, about 6.5 GB: the program, `game_root`, the DLC from `assets/marketplace` and,
+with `--language`, a built language pack. The icon is cut from the dashboard art on your own disc; `--icon` takes
+another picture. `prod.keys` is the key dump of your own console (Lockpick_RCM); only `header_key` and
+`key_area_key_application_00` are read from it, and nothing is stored. Install the NSP with DBI or another installer
+on a console with signature patches.
+
+Saves, caches and logs stay in `sdmc:/switch/nier-nx/`, the same folder the NRO uses, so both share one save. A
+`nier.toml` in that folder replaces the packaged settings. Neither the NSP nor the keys belong in the repository.
+
 ## Settings
 
 `nier.toml` next to the NRO. The ones worth knowing:

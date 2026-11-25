@@ -16,6 +16,7 @@ set(NIER_SOURCES
     src/nier_audio_mix.cpp
     src/nier_audio_mix_hook.cpp
     src/nier_pgo.cpp
+    src/nier_packaged.cpp
     src/nier_frame_pacing.cpp
     src/nier_frame_pacing_hook.cpp
     src/nier_npc_lod.cpp

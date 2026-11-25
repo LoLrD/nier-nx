@@ -6,6 +6,7 @@
 | `codegen.sh` | Checks the game dump and regenerates `app/generated` |
 | `build_mac.sh` | Builds the macOS binary (`out/mac/nier`) |
 | `build_nro.sh` | Builds the Switch NRO in Docker (`out/nx/nier-nx.nro`); `CMAKE_EXTRA="-DNIER_PGO=use"` applies the profile in `pgo/` |
+| `build_nsp.py` | Packs the NRO and your own game data into one installable NSP (`out/nsp/nier-nx.nsp`); needs your console's `prod.keys` |
 | `fetch_thirdparty.py` | Downloads the SDK's third-party sources at pinned revisions |
 | `check_repo_clean.py` | Fails if game data or generated code is tracked |
 | `game/` | Unpacking and verifying your own disc dump, re-encoding the videos |
