@@ -54,8 +54,8 @@ REXCVAR_DEFINE_BOOL(ignore_thread_affinities, true, "Kernel",
                     "Ignores game-specified thread affinities");
 
 REXCVAR_DEFINE_STRING(switch_guest_audio_threads, "", "Kernel",
-                      "Switch: guest thread entry addresses (hex, comma-separated) that run just below the "
-                      "presentation threads instead of at the guest priority; only for threads that sleep or "
+                      "Switch: guest thread entry addresses (hex, comma-separated) that run at the audio priority "
+                      "instead of the guest one; only for threads that sleep or "
                       "block between short bursts of work, such as the game's audio feeder");
 
 namespace rex::system {
