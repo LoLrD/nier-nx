@@ -224,7 +224,7 @@ const std::vector<uint32_t>& Shader::Spirv() const {
   // handle before giving up. A real mismatch with the index fails every attempt the same way.
   const char* error = ReadEntry(file->principal, *this, temporal, data);
   for (int attempt = 1; error && attempt <= 3; ++attempt) {
-    std::fprintf(stderr, "[masseffect] shader library %s: entry %016llX: %s (attempt %d, retrying)\n",
+    std::fprintf(stderr, "[native] shader library %s: entry %016llX: %s (attempt %d, retrying)\n",
                  file->path.string().c_str(), static_cast<unsigned long long>(fingerprint), error, attempt);
     std::fflush(stderr);
     if (std::FILE* reopened = std::fopen(file->path.string().c_str(), "rb")) {
@@ -236,7 +236,7 @@ const std::vector<uint32_t>& Shader::Spirv() const {
     error = ReadEntry(file->principal, *this, temporal, data);
   }
   if (error) {
-    std::fprintf(stderr, "[masseffect] shader library %s: entry %016llX: %s\n", file->path.string().c_str(),
+    std::fprintf(stderr, "[native] shader library %s: entry %016llX: %s\n", file->path.string().c_str(),
                  static_cast<unsigned long long>(fingerprint), error);
     std::fflush(stderr);
     std::abort();

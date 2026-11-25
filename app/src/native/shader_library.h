@@ -9,7 +9,7 @@
 
 namespace nier::native {
 
-struct FileShaders;  // open package of an indexed load (masseffect_shader_library.cpp)
+struct FileShaders;  // open package of an indexed load (shader_library.cpp)
 
 // The original container also identifies constants and interface. The physical
 // code alone is not enough. It is looked up before the driver creates its object.
@@ -95,7 +95,7 @@ class LibraryShaders {
 std::vector<uint8_t> PackShaders(std::vector<Shader> shaders);
 
 // The index (<package>.idx) of a package, given the bytes of the whole .mesp (fully loaded
-// and verified here). Format: HeaderIndex in masseffect_shader_library.cpp.
+// and verified here). Format: HeaderIndex in shader_library.cpp.
 std::vector<uint8_t> IndexShaders(std::span<const uint8_t> package);
 
 // Facts about a SPIR-V module the native renderer needs at start-up (stored in the index).
