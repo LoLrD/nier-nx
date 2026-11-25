@@ -1573,11 +1573,24 @@ uint16_t NativeRenderer::PassId(const TargetSet& set) {
 }
 
 uint16_t NativeRenderer::ResolveId(const ResolvePlan& plan) {
-  return NamedPass(fmt::format("{} {:X} w{} {}x{}{}{}{}", plan.source.is_depth ? "d" : "c", plan.source.base_tiles,
-                               ExtentFor(plan.source).width, plan.source_width, plan.source_height,
-                               plan.copy ? "" : " no copy", plan.readback ? " readback" : "",
-                               plan.clear_color || plan.clear_depth ? " clear" : ""),
-                   true);
+  const std::array<uint32_t, 6> key = {0x5E501E00u | uint32_t(plan.source.is_depth) | uint32_t(plan.copy) << 1 |
+                                           uint32_t(plan.readback) << 2 |
+                                           uint32_t(plan.clear_color || plan.clear_depth) << 3,
+                                       plan.source.base_tiles, ExtentFor(plan.source).width, plan.source_width,
+                                       plan.source_height, 0};
+  const uint64_t hash =
+      std::hash<std::string_view>{}(std::string_view(reinterpret_cast<const char*>(key.data()), sizeof(key)));
+  if (auto it = pass_keys_.find(hash); it != pass_keys_.end()) {
+    return it->second;
+  }
+  const uint16_t id =
+      NamedPass(fmt::format("{} {:X} w{} {}x{}{}{}{}", plan.source.is_depth ? "d" : "c", plan.source.base_tiles,
+                            ExtentFor(plan.source).width, plan.source_width, plan.source_height,
+                            plan.copy ? "" : " no copy", plan.readback ? " readback" : "",
+                            plan.clear_color || plan.clear_depth ? " clear" : ""),
+                true);
+  pass_keys_.emplace(hash, id);
+  return id;
 }
 
 uint16_t NativeRenderer::NamedPass(const std::string& name, bool resolve) {
