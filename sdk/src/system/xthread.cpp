@@ -366,7 +366,7 @@ bool IsGuestAudioEntry(uint32_t entry) {
 
 int SwitchPriorityFor(bool guest_thread, std::string_view name, uint32_t entry) {
   if (guest_thread) {
-    return IsGuestAudioEntry(entry) ? REX_SWITCH_PRIO_PRESENT + 2 : REX_SWITCH_PRIO_GUEST;
+    return IsGuestAudioEntry(entry) ? REX_SWITCH_PRIO_AUDIO : REX_SWITCH_PRIO_GUEST;
   }
   // set_name() stores the name with the handle appended ("Audio Worker (F8000014)"),
   // so the prefix is compared. With an exact comparison the Audio Worker and the
