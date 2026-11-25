@@ -3,12 +3,13 @@ import sys
 from pathlib import Path
 
 import numpy as np
-from PIL import Image, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageFilter
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "switch_prompts"))
 
 import cpk  # noqa: E402
 import title  # noqa: E402
+import typeface  # noqa: E402
 import xenos_dxt  # noqa: E402
 
 PACK = "2D/COMMON"
@@ -32,12 +33,12 @@ BADGES = {
 def lettering(shape: tuple, letters: tuple, label: str, face: tuple) -> np.ndarray:
     height, width = shape
     x0, y0, x1, y1 = letters
-    probe = ImageFont.truetype(face[0], 100, index=face[1])
+    probe = typeface.Face(face[0], 100, face[1])
     cap = -probe.getbbox("Н", anchor="ls")[1]
-    font = ImageFont.truetype(face[0], round(100 * (y1 - y0) * SCALE / cap), index=face[1])
+    font = typeface.Face(face[0], round(100 * (y1 - y0) * SCALE / cap), face[1])
     left, _, right, _ = font.getbbox(label, anchor="ls")
     strip = Image.new("L", (right - left + 2 * SCALE, height * SCALE), 0)
-    ImageDraw.Draw(strip).text((SCALE - left, y1 * SCALE), label, font=font, fill=255, anchor="ls")
+    font.text(strip, (SCALE - left, y1 * SCALE), label, "ls")
     squeeze = min(1.0, (x1 - x0) * SCALE / (right - left))
     strip = strip.resize((max(1, round(strip.width * squeeze)), strip.height), Image.LANCZOS)
     ink_left, _, ink_right, _ = strip.getbbox()

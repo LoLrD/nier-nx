@@ -3,12 +3,13 @@ import sys
 from pathlib import Path
 
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "switch_prompts"))
 
 import cpk  # noqa: E402
 import kpky  # noqa: E402
+import typeface  # noqa: E402
 import xenos_dxt  # noqa: E402
 
 FACE = "/System/Library/Fonts/Times.ttc"
@@ -29,15 +30,15 @@ MAIN = "FONT/FONT_MAIN.X360.BIN"
 VRAM = "FONT/FONT_VRAM.X360.BIN"
 
 
-def load_font() -> ImageFont.FreeTypeFont:
-    return ImageFont.truetype(FACE, round(SIZE * SCALE), index=FACE_INDEX)
+def load_font() -> typeface.Face:
+    return typeface.Face(FACE, round(SIZE * SCALE), FACE_INDEX)
 
 
 def round_up(value: int, step: int) -> int:
     return -(-value // step) * step
 
 
-def render_glyph(face: ImageFont.FreeTypeFont, code: int) -> tuple:
+def render_glyph(face: typeface.Face, code: int) -> tuple:
     char = chr(code)
     left, top, right, bottom = face.getbbox(char, anchor="ls")
     origin_x = round_up(max(0, -left) + 2 * SCALE, ORIGIN_STEP)
@@ -45,7 +46,7 @@ def render_glyph(face: ImageFont.FreeTypeFont, code: int) -> tuple:
     width = round_up(origin_x + right + 2 * SCALE, ORIGIN_STEP)
     height = round_up(origin_y + max(0, bottom) + 2 * SCALE, SCALE)
     big = Image.new("L", (width, height), 0)
-    ImageDraw.Draw(big).text((origin_x, origin_y), char, font=face, fill=255, anchor="ls")
+    face.text(big, (origin_x, origin_y), char, "ls")
     squeezed = big.resize((round(width * SQUEEZE), height), Image.LANCZOS)
     small = np.array(squeezed.resize((squeezed.width // SCALE, height // SCALE), Image.LANCZOS))
     small[small < FAINT] = 0

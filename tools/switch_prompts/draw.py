@@ -3,6 +3,7 @@ from pathlib import Path
 
 from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
 
+import typeface
 import xenos_dxt
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -193,7 +194,7 @@ def skill_label(label: str, width: int, height: int) -> Image.Image:
 
 
 def measure(label: str, size: float, tracking: float = TRACKING, face: str = TITLE_THIN) -> tuple:
-    font = ImageFont.truetype(face, round(size))
+    font = typeface.Face(face, round(size))
     advances = [size * WORD_GAP if ch == " " else font.getlength(ch) + size * tracking for ch in label]
     _, top, _, bottom = font.getbbox(label, anchor="ls")
     return font, advances, sum(advances) - size * tracking, top, bottom
@@ -221,11 +222,10 @@ def layout(label: str, width: int, height: int) -> tuple:
 
 def lettering(font_path: str, placement: tuple, width: int, height: int) -> Image.Image:
     size, glyphs, baseline = placement
-    font = ImageFont.truetype(font_path, size)
+    font = typeface.Face(font_path, size)
     coverage = Image.new("L", (width * SCALE, height * SCALE), 0)
-    draw = ImageDraw.Draw(coverage)
     for ch, x in glyphs:
-        draw.text((width * SCALE / 2 + x, height * SCALE / 2 + baseline), ch, font=font, fill=255, anchor="ms")
+        font.text(coverage, (width * SCALE / 2 + x, height * SCALE / 2 + baseline), ch, "ms")
     return coverage
 
 

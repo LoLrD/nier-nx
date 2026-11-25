@@ -8,6 +8,7 @@ import flash
 import font
 import textfiles
 import title
+import typeface
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -20,6 +21,7 @@ def main() -> int:
     parser.add_argument("--out", type=Path, default=ROOT / "out" / "lang")
     args = parser.parse_args()
     tables = ROOT / "lang" / args.language
+    typeface.use(tables / "art")
     failed = False
     for table in sorted(table for table in tables.rglob("*.tsv") if table.parent != tables):
         path = table.relative_to(tables).as_posix()[:-len(".tsv")]
@@ -45,6 +47,7 @@ def main() -> int:
     listed = sorted(path.relative_to(target).as_posix() for path in target.rglob("*")
                     if path.is_file() and path.name != "files.txt")
     (target / "files.txt").write_text("".join(f"{path}\n" for path in listed))
+    typeface.finish()
     return 1 if failed else 0
 
 

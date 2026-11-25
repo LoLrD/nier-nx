@@ -3,12 +3,13 @@ import sys
 from pathlib import Path
 
 import numpy as np
-from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageDraw, ImageFilter
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "switch_prompts"))
 
 import cpk  # noqa: E402
 import title  # noqa: E402
+import typeface  # noqa: E402
 import xenos_dxt  # noqa: E402
 
 PACK = "2D/SCRIPT/FLASH01_US"
@@ -84,7 +85,7 @@ def redraw(image: Image.Image, polygon: list, text: str) -> Image.Image:
     pitch = (high_v - low_v) / (ROWS - 1 + LAST_ROW)
     spread = np.array(Image.fromarray((letters * 255).astype(np.uint8)).filter(ImageFilter.MaxFilter(7))) > 0
     cleaned = np.where(spread[..., None], paper, rgb)
-    font = ImageFont.truetype(FACE, round(pitch / LINE_TO_SIZE * SCALE))
+    font = typeface.Face(FACE, round(pitch / LINE_TO_SIZE * SCALE))
     width = (high_u - low_u) * SCALE
     lines = wrap(text.replace("<NIER>", PLAYER), width, font.getlength)[:ROWS]
     ascent = font.getbbox("Н", anchor="ls")[1]
@@ -92,7 +93,7 @@ def redraw(image: Image.Image, polygon: list, text: str) -> Image.Image:
     draw = ImageDraw.Draw(flat)
     for number, line in enumerate(lines):
         baseline = number * pitch * SCALE - ascent
-        draw.text((0, baseline), line, font=font, fill=255, anchor="ls")
+        font.text(flat, (0, baseline), line, "ls")
         span = word_span(line, REDACTED, font.getlength)
         if span:
             draw.rounded_rectangle((span[0] - SCALE, baseline + ascent - SCALE, span[1] + SCALE, baseline + 2 * SCALE),

@@ -17,8 +17,10 @@ python3 tools/lang/build.py ru                        # writes out/lang/ru from 
 tools/console-test/deploy.sh --language ru            # copies it to the console and turns it on
 ```
 
-The build draws the Cyrillic glyphs and the translated title menu with fonts that ship with macOS, so for now
-it runs on macOS only.
+The Cyrillic glyphs, the title menu and a few other pictures with text are drawn with fonts that ship with
+macOS. Their drawings are stored in `lang/ru/art/typeface.json`, so the pack builds the same on any system. If
+you change a text that is drawn (`titles.tsv`, the four reports in the prologue), rebuild on macOS to redraw it;
+elsewhere the build stops and says which text has no drawing.
 
 By hand: copy `out/lang/ru` to `sdmc:/switch/nier-nx/lang/ru` and put
 `nier_language_dir = "sdmc:/switch/nier-nx/lang/ru"` at the top of `nier.toml`. The pack takes the place of the
