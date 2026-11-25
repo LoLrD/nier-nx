@@ -25,9 +25,7 @@ Measured on the console, handheld mode, stock clocks, with the logs kept in `doc
 
 | Tested | Result |
 |---|---|
-| The story from the prologue to the Aerie: the village, the Northern Plains, the Lost Shrine with its boss fight, the Aerie and the fight against Hook alongside Kainé | Played through at 30 fps, no softlock, clean audio in cutscenes |
-| The same stretch as one two-hour session without a restart | 30 fps in 739 of 740 ten-second periods; 100 slow frames out of 232,641; no crash; memory use levels off after about 20 minutes |
-| The heaviest scene so far: the sealed-verse abilities in the prologue (up to 1,380 draws per frame) | 30 fps, every frame on time |
+| The story from the prologue to the Aerie: the village, the Northern Plains, the Lost Shrine with its boss fight, the Aerie and the fight against Hook alongside Kainé | Played through with no softlock and no crash, clean audio in cutscenes. Measured over one two-hour session without a restart: 30 fps in 739 of 740 ten-second periods, 100 slow frames out of 232,641, memory use levels off after about 20 minutes |
 | Menus, saving and loading, the Russian language pack | Work |
 
 That is roughly the first fifth of one playthrough (about 1 h 45 min of a 9.5-hour run of the first route).
