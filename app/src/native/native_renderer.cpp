@@ -62,7 +62,7 @@ REXCVAR_DEFINE_BOOL(nier_draw_memo, true, "NieR",
 REXCVAR_DEFINE_BOOL(nier_draw_memo_verify, false, "NieR",
                     "Native renderer: on every reused draw also prepare it again and log '[native] draw memo "
                     "DIFFERENCE' when the results differ");
-REXCVAR_DEFINE_BOOL(nier_readback_poll, true, "NieR",
+REXCVAR_DEFINE_BOOL(nier_readback_poll, false, "NieR",
                     "Native renderer: while resolves read back to guest memory are in flight, check every 16 draws "
                     "whether the GPU finished them, so the game (auto exposure) gets them sooner");
 REXCVAR_DEFINE_BOOL(nier_readback_submit, true, "NieR",
