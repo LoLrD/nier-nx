@@ -13,6 +13,8 @@ include(generated/rexglue.cmake)
 set(NIER_SOURCES
     src/main.cpp
     src/nier_d3d_wait.cpp
+    src/nier_audio_mix.cpp
+    src/nier_audio_mix_hook.cpp
     src/nier_frame_pacing.cpp
     src/nier_frame_pacing_hook.cpp
     src/nier_npc_lod.cpp
