@@ -1703,11 +1703,12 @@ std::string NativeRenderer::Report() {
                       p.saved_bytes >> 10);
   reported_pipelines_ = p;
   const NativeShaders::Stats& sh = shaders_.stats();
-  line += fmt::format("; shaders translated {} in {} ms (max {} ms), {} from the cache, {} in the background, {} "
-                      "draws waited",
+  line += fmt::format("; shaders translated {} in {} ms (max {} ms), {} from the cache, {} in the background "
+                      "(installed in {} ms, max {} ms), {} draws waited",
                       sh.translations - reported_shaders_.translations,
                       (sh.translate_us - reported_shaders_.translate_us) / 1000, sh.max_translate_us / 1000,
                       sh.cache_hits - reported_shaders_.cache_hits, sh.background - reported_shaders_.background,
+                      (sh.install_us - reported_shaders_.install_us) / 1000, sh.max_install_us / 1000,
                       sh.pending_draws - reported_shaders_.pending_draws);
   reported_shaders_ = sh;
   line += fmt::format("; fsr {} runs, gpu level {}, reduced scene frames {}", upscale_->runs() - reported_upscale_runs_,

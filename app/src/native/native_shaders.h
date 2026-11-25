@@ -1,12 +1,16 @@
 #pragma once
 
 #include <array>
+#include <condition_variable>
 #include <cstdio>
 #include <cstdint>
+#include <deque>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <span>
+#include <thread>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -38,6 +42,8 @@ class NativeShaders {
     uint64_t cache_hits = 0;
     uint64_t background = 0;
     uint64_t pending_draws = 0;
+    uint64_t install_us = 0;
+    uint64_t max_install_us = 0;
   };
 
   struct PreparedDraw {
@@ -116,6 +122,7 @@ class NativeShaders {
                rex::graphics::vulkan::VulkanShader::VulkanTranslation& translation, Translated translated);
   void Record(const rex::graphics::vulkan::VulkanShader& shader, uint64_t modification, uint32_t variant,
               const rex::graphics::vulkan::VulkanShader::VulkanTranslation& translation);
+  void WriteRecords();
   void Count(uint64_t us, bool ok, const rex::graphics::vulkan::VulkanShader& shader, uint64_t modification);
 
   const rex::ui::vulkan::VulkanDevice* device_;
@@ -139,6 +146,11 @@ class NativeShaders {
   Stats stats_;
   ShaderCache cache_;
   std::FILE* cache_file_ = nullptr;
+  std::mutex write_mutex_;
+  std::condition_variable write_ready_;
+  std::deque<std::vector<uint8_t>> write_queue_;
+  bool write_stopping_ = false;
+  std::thread writer_;
   std::array<std::unique_ptr<rex::graphics::SpirvShaderTranslator>, kScales> worker_translators_;
   std::unique_ptr<BackgroundJobs<Translated>> background_;
 };

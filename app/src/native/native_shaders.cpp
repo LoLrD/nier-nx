@@ -89,6 +89,9 @@ void NativeShaders::OpenCache(const std::string& path) {
     file.write(reinterpret_cast<const char*>(rewritten.data()), std::streamsize(rewritten.size()));
   }
   cache_file_ = std::fopen(path.c_str(), "ab");
+  if (cache_file_) {
+    writer_ = std::thread([this] { WriteRecords(); });
+  }
   REXLOG_INFO("[native] shader cache: {} translations from '{}'{}", cache_.entries(), path,
               cache_.stale() ? " (translator changed, started over)" : "");
 }
@@ -96,6 +99,12 @@ void NativeShaders::OpenCache(const std::string& path) {
 NativeShaders::~NativeShaders() {
   background_.reset();
   if (cache_file_) {
+    {
+      std::lock_guard lock(write_mutex_);
+      write_stopping_ = true;
+    }
+    write_ready_.notify_all();
+    writer_.join();
     std::fclose(cache_file_);
   }
   for (auto& [translation, specialization] : specializations_) {
@@ -329,13 +338,18 @@ VulkanShader::VulkanTranslation* NativeShaders::Translate(SpirvShaderTranslator&
       return nullptr;
     }
     ++stats_.background;
+    const auto install_start = std::chrono::steady_clock::now();
     const bool ok = done->ok && Install(shader, *translation, std::move(*done));
     Count(done->us, ok, shader, modification.value);
-    if (!ok) {
-      return nullptr;
+    if (ok) {
+      Record(shader, modification.value, variant, *translation);
     }
-    Record(shader, modification.value, variant, *translation);
-    return translation;
+    const uint64_t install_us = uint64_t(
+        std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - install_start)
+            .count());
+    stats_.install_us += install_us;
+    stats_.max_install_us = std::max(stats_.max_install_us, install_us);
+    return ok ? translation : nullptr;
   }
   const auto start = std::chrono::steady_clock::now();
   Translated cached;
@@ -413,11 +427,31 @@ void NativeShaders::Record(const VulkanShader& shader, uint64_t modification, ui
   std::vector<uint32_t> texture_words(textures.size()), sampler_words(samplers.size());
   std::memcpy(texture_words.data(), textures.data(), textures.size() * sizeof(uint32_t));
   std::memcpy(sampler_words.data(), samplers.data(), samplers.size() * sizeof(uint32_t));
-  const auto record =
-      cache_.Add(shader.ucode_data_hash(), modification, variant, texture_words, sampler_words,
-                 translation.translated_binary());
-  std::fwrite(record.data(), 1, record.size(), cache_file_);
-  std::fflush(cache_file_);
+  auto record = cache_.Add(shader.ucode_data_hash(), modification, variant, texture_words, sampler_words,
+                           translation.translated_binary());
+  {
+    std::lock_guard lock(write_mutex_);
+    write_queue_.push_back(std::move(record));
+  }
+  write_ready_.notify_one();
+}
+
+void NativeShaders::WriteRecords() {
+  std::unique_lock lock(write_mutex_);
+  for (;;) {
+    write_ready_.wait(lock, [this] { return write_stopping_ || !write_queue_.empty(); });
+    if (write_queue_.empty()) {
+      return;
+    }
+    std::deque<std::vector<uint8_t>> records = std::move(write_queue_);
+    write_queue_.clear();
+    lock.unlock();
+    for (const auto& record : records) {
+      std::fwrite(record.data(), 1, record.size(), cache_file_);
+    }
+    std::fflush(cache_file_);
+    lock.lock();
+  }
 }
 
 void NativeShaders::Count(uint64_t us, bool ok, const VulkanShader& shader, uint64_t modification) {
