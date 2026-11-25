@@ -17,6 +17,7 @@ execute_unclipped_draw_vs_on_cpu = true
 execute_unclipped_draw_vs_on_cpu_with_scissor = true
 dlc_enable = true
 content_marketplace_root = "sdmc:/switch/nier-nx/marketplace"
+nier_npc_update_scale = 0.8
 
 [log.levels]
 gpu = "debug"
