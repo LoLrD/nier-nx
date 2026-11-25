@@ -111,9 +111,10 @@ if(REXGLUE_PLATFORM_SWITCH AND NIER_PGO STREQUAL "generate")
 elseif(REXGLUE_PLATFORM_SWITCH AND NIER_PGO STREQUAL "use")
     foreach(pgo_target nier_recomp nier)
         target_compile_options(${pgo_target} PRIVATE -fprofile-use=${NIER_PGO_DIR} -fprofile-partial-training
-                               -fprofile-prefix-path=${CMAKE_BINARY_DIR} -Wno-missing-profile)
+                               -fprofile-correction -fprofile-prefix-path=${CMAKE_BINARY_DIR}
+                               -Wno-missing-profile -Wno-coverage-mismatch)
     endforeach()
-    target_link_options(nier PRIVATE -fprofile-use=${NIER_PGO_DIR} -fprofile-partial-training)
+    target_link_options(nier PRIVATE -fprofile-use=${NIER_PGO_DIR} -fprofile-partial-training -fprofile-correction)
 endif()
 
 if(REXGLUE_PLATFORM_SWITCH)
