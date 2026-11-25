@@ -7,6 +7,7 @@ nier_dynamic_resolution = false
 nier_level1_scale = 0.5
 nier_level2_scale = 0.4
 guest_memory_large_pages = 1
+switch_guest_audio_threads = "82115FA0,824B2A50"
 vulkan_robust_buffer_access = false
 nier_pipeline_cache_file = "sdmc:/switch/nier-nx/pipelines.bin"
 nier_shader_cache_file = "sdmc:/switch/nier-nx/shaders.bin"

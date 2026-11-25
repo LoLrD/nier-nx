@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cstring>
+#include <string>
 
 #include <fmt/format.h>
 
@@ -51,6 +52,11 @@ REXCVAR_DEFINE_BOOL(ignore_thread_priorities, true, "Kernel",
 
 REXCVAR_DEFINE_BOOL(ignore_thread_affinities, true, "Kernel",
                     "Ignores game-specified thread affinities");
+
+REXCVAR_DEFINE_STRING(switch_guest_audio_threads, "", "Kernel",
+                      "Switch: guest thread entry addresses (hex, comma-separated) that run just below the "
+                      "presentation threads instead of at the guest priority; only for threads that sleep or "
+                      "block between short bursts of work, such as the game's audio feeder");
 
 namespace rex::system {
 
@@ -346,9 +352,21 @@ namespace {
 // the GPU and the kernel's own workers. This is the scheme MarathonRecomp-NX
 // ships with. Host threads are told apart by the name their owner gives them
 // before Create().
-int SwitchPriorityFor(bool guest_thread, std::string_view name) {
+bool IsGuestAudioEntry(uint32_t entry) {
+  const std::string list = REXCVAR_GET(switch_guest_audio_threads);
+  for (size_t at = 0; at < list.size();) {
+    const size_t end = std::min(list.find(',', at), list.size());
+    if (end > at && std::stoul(list.substr(at, end - at), nullptr, 16) == entry) {
+      return true;
+    }
+    at = end + 1;
+  }
+  return false;
+}
+
+int SwitchPriorityFor(bool guest_thread, std::string_view name, uint32_t entry) {
   if (guest_thread) {
-    return REX_SWITCH_PRIO_GUEST;
+    return IsGuestAudioEntry(entry) ? REX_SWITCH_PRIO_PRESENT + 2 : REX_SWITCH_PRIO_GUEST;
   }
   // set_name() stores the name with the handle appended ("Audio Worker (F8000014)"),
   // so the prefix is compared. With an exact comparison the Audio Worker and the
@@ -477,7 +495,8 @@ X_STATUS XThread::Create() {
   thread_ = rex::thread::Thread::Create(params, [this]() {
     rex::initialize_seh_thread();
 #if REX_PLATFORM_SWITCH
-    RexSwitchSetCurrentThreadPriority(SwitchPriorityFor(guest_thread_, thread_name_));
+    RexSwitchSetCurrentThreadPriority(
+        SwitchPriorityFor(guest_thread_, thread_name_, creation_params_.start_address));
     if (guest_thread_) {
       RexSwitchPerfSetCurrentGuestEntry(creation_params_.start_address, creation_params_.start_context);
     }
