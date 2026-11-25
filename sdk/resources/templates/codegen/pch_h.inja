@@ -351,7 +351,7 @@ extern PPCFuncMapping PPCFuncMappings[];
 //=============================================================================
 // Setjmp/Longjmp
 //=============================================================================
-
+#if !defined(REX_CUSTOM_GUEST_JMP)
 inline std::unordered_map<u32, jmp_buf>& get_jmp_buf_map() {
   static thread_local std::unordered_map<u32, jmp_buf> map;
   return map;
@@ -367,7 +367,7 @@ inline std::unordered_map<u32, jmp_buf>& get_jmp_buf_map() {
   }
   std::abort();
 }
-
+#endif
 //=============================================================================
 // Trap Handling
 //=============================================================================

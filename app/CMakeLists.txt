@@ -17,6 +17,7 @@ set(NIER_SOURCES
     src/nier_audio_mix_hook.cpp
     src/nier_pgo.cpp
     src/nier_packaged.cpp
+    src/nier_guest_jmp.cpp
     src/nier_frame_pacing.cpp
     src/nier_frame_pacing_hook.cpp
     src/nier_npc_lod.cpp
@@ -79,7 +80,7 @@ target_include_directories(nier PRIVATE src ${REXSDK_DIR}/thirdparty/glslang ${R
                            ${REXSDK_DIR}/src/ui/shaders/vulkan_spirv)
 
 rexglue_setup_target(nier GPU_PLUGINS xenos)
-target_compile_options(nier_recomp PRIVATE -fno-strict-aliasing)
+target_compile_options(nier_recomp PRIVATE -fno-strict-aliasing -include ${CMAKE_CURRENT_SOURCE_DIR}/src/nier_guest_jmp.h)
 set(NIER_INDIRECT_DISPATCH 2 CACHE STRING "Guest indirect calls: 0 legacy table, 1 compact table, 2 inline cache per call site")
 option(NIER_INDIRECT_DISPATCH_VERIFY "Compare guest indirect call targets with the legacy lookup" OFF)
 target_compile_definitions(nier_recomp PRIVATE REX_INDIRECT_DISPATCH=${NIER_INDIRECT_DISPATCH})

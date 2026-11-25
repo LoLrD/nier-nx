@@ -18,3 +18,5 @@ non_argument_as_local = true
 non_volatile_as_local = true
 args_in_registers = true
 args_in_registers_exclude_file = "args_in_registers_exclude.txt"
+setjmp_address = 0x825D5DE0
+longjmp_address = 0x825D5AC0
