@@ -203,6 +203,14 @@ bool ValidBlock(const BlockFps* block) { return block != nullptr && block->magic
  * row until the corresponding field has something, so seeding it as soon as the block exists is
  * what makes the data appear without restarting the game.
  */
+void FillEmptyTicks(BlockFps* block, uint32_t value) {
+  for (unsigned i = 0; i < 10; ++i) {
+    if (block->ticks[i] == 0) {
+      block->ticks[i] = value;
+    }
+  }
+}
+
 void SeedBlock(BlockFps* block) {
   block->plugin_active = true;  // the overlay sets it to false to check that we are still alive
   block->api = kApiVulkan;
@@ -217,16 +225,9 @@ void SeedBlock(BlockFps* block) {
     block->viewport[0] = r;
   }
   // The overlay computes its average from ticks[], not from fps_average: with the array at zero it shows
-  // "inf". A freshly created block has it at zero, so if a rate has already been measured it is
-  // filled in by hand. Beat corrects it with real times as soon as there are two presents.
-  if (g_last_fps != 0 && block->ticks[0] == 0) {
-    // By index, not by reference: the block is packed and ticks[] sits at an odd offset; taking the
-    // address of an element would give an unaligned pointer (-Waddress-of-packed-member).
-    const uint32_t per_frame = uint32_t(armGetSystemTickFreq() / g_last_fps);
-    for (unsigned i = 0; i < 10; ++i) {
-      block->ticks[i] = per_frame;
-    }
-  }
+  // "inf". A freshly created block has it at zero, so its empty entries are filled in by hand (1 FPS
+  // until a rate is measured). Beat corrects it with real times as soon as there are two presents.
+  FillEmptyTicks(block, uint32_t(armGetSystemTickFreq() / (g_last_fps ? g_last_fps : 1)));
 }
 
 /*
@@ -767,7 +768,9 @@ void Beat(uint32_t width, uint32_t height) {
   const uint64_t now = armGetSystemTick();
   if (g_tick_previous != 0) {
     const uint64_t jump = now - g_tick_previous;
-    block->ticks[g_tick_pos] = uint32_t(jump > 0xFFFFFFFFull ? 0xFFFFFFFFull : jump);
+    const uint32_t ticks = uint32_t(jump > 0xFFFFFFFFull ? 0xFFFFFFFFull : (jump ? jump : 1));
+    block->ticks[g_tick_pos] = ticks;
+    FillEmptyTicks(block, ticks);
     g_tick_pos = (g_tick_pos + 1) % 10;
     ++g_frames;
     block->frame_number = g_frames;

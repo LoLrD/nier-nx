@@ -119,3 +119,5 @@ code generator and runtime changes of masseffect-nx. The third-party sources are
 - `include/rex/graphics/pipeline/shader/shader.h`, `spirv.h`: `Translation::SetTranslated` and
   `SpirvShader::SetBindingsFromCache` let a host keep translated SPIR-V and the shader's bindings between runs and
   skip the translator on a hit.
+- `src/ui/switch_saltynx.cpp`: no entry of the frame-time array the console overlay reads is ever zero (empty ones get
+  the first measured interval, or 1 FPS before any present), so its average and maximum FPS never show `inf`.
