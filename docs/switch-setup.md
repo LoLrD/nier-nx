@@ -1,64 +1,37 @@
-# Подготовка Switch к тестам nier-nx
+# Preparing the console for test runs
 
-Консоль: Switch OLED, UltraNX 3.x (модифицированный Atmosphère), загрузка в emuMMC. Всё ниже делается только в emuMMC.
-Нужно один раз; после этого Мак сам заливает сборки и забирает логи, а игру запускаешь ты.
+The test scripts in `tools/console-test` copy builds to the console and bring logs back over FTP, so the game
+only has to be started and closed by hand.
 
-## 1. Wi-Fi в emuMMC
+## Once
 
-1. Загрузиться в emuMMC (как обычно).
-2. Настройки → Интернет → Настройки интернета → подключиться к домашней Wi-Fi (той же сети, что и Мак).
-3. Настройки → Интернет → Состояние подключения → записать **IP-адрес** (например, 192.168.1.37).
-4. Твой файл `atmosphere/hosts/emummc.txt` (90DNS) остаётся: он закрывает серверы Nintendo, локальную сеть не трогает.
-
-Лучше закрепить за консолью постоянный IP в настройках роутера (DHCP-резервирование), иначе после перезагрузки адрес может смениться.
-
-## 2. sys-ftpd — файлы по сети (порт 5000)
-
-Сначала проверь, нет ли его уже в UltraNX: в оверлее (L + D-pad вниз + правый стик) раздел Sysmodules — если есть
-`sys-ftpd` / `ftpd`, просто включи. Если нет:
-
-1. Скачать релиз `sys-ftpd` (cathery/sys-ftpd, файл `sys-ftpd-*.zip`) с GitHub.
-2. Распаковать на SD так, чтобы появилась папка `atmosphere/contents/420000000000000E/`.
-3. По умолчанию сервер открыт без пароля на порту 5000 — это нормально для домашней сети.
-4. Перезагрузить консоль.
-
-## 3. sys-botbase не используем
-
-На UltraNX 3.x sys-botbase 2.5 роняет службу `hid` (fatal 2001-0132), как только игра запускается с зажатой R. Модуль
-лежит в `atmosphere/contents/430000000000000B/`, но выключен: удалён `flags/boot2.flag`.
-
-## 4. Проверка
-
-Напиши мне IP. Я с Мака проверю FTP (порт 5000).
-
-## 5. Файлы игры на SD
-
-Нужно около 7 ГБ свободного места.
-
-- **Вариант А (без рук, медленно):** после шага 4 я сам залью `game_root` (6 ГБ) и DLC по FTP. По Wi-Fi это
-  примерно 20–60 минут; консоль должна быть включена и не засыпать (Настройки → Управление питанием → не выключать экран
-  при игре... или просто держать на зарядке с открытым hbmenu).
-- **Вариант Б (быстро):** вставить SD-карту в Мак через картридер и сказать мне — я скопирую файлы в
-  `switch/nier-nx/` сам.
-
-Раскладка, которая получится:
+1. Connect the console to the same network as the build machine and note its IP address
+   (Settings → Internet → Connection Status). A fixed address in the router's DHCP settings saves trouble.
+2. Install an FTP sysmodule such as [sys-ftpd](https://github.com/cathery/sys-ftpd) (port 5000) and reboot.
+3. Copy `tools/console-test/credentials.env.example` to `credentials.env` next to it and put the address in.
+   That file is ignored by git.
+4. Put the game on the SD card, about 7 GB:
 
 ```
 sdmc:/switch/nier-nx/
-  nier-nx.nro                 сборка (я заливаю после каждой пересборки)
-  nier.toml                   настройки
-  game_root/                  содержимое диска (default.xex, media/, ...)
-  marketplace/0000000000000000/535107E8/00000002/B5849AE0...  DLC «15 Nightmares»
-  nier.log                    лог последнего запуска
+  nier-nx.nro
+  nier.toml
+  game_root/                  the unpacked disc (default.xex, media/, ...)
+  marketplace/0000000000000000/535107E8/00000002/...   DLC, optional
+  nier.log                    log of the last start
 ```
 
-## 6. Цикл отладки
+## A test run
 
-1. Я собираю NRO и заливаю его с настройками: `tools/console-test/deploy.sh` (`--route app/input/x.tsv` — скриптовый
-   ввод, `--stacks` — выборка стеков в профиле).
-2. Ты запускаешь игру: удержание **R** при запуске любой игры с главного экрана → hbmenu → `nier-nx` в списке.
-3. Закрываешь игру (HOME → X). Пока игра открыта, её лог по FTP не читается.
-4. Я забираю лог, профиль и новые отчёты Atmosphère: `tools/console-test/collect.sh ИМЯ` → `out/console-test/ИМЯ/`.
+1. `tools/console-test/deploy.sh` copies the NRO and its settings. `--route app/input/<file>.tsv` adds scripted
+   input, `--stacks` turns stack sampling on in the profile, `--language ru` adds a language pack.
+2. Start the game from the homebrew menu in application mode (hold R while starting any game).
+3. Close it. The log cannot be read over FTP while the game is open.
+4. `tools/console-test/collect.sh NAME` brings the log, the profile and any new crash reports to
+   `out/console-test/NAME`; `tools/analysis/periods.py out/console-test/NAME` prints one line per ten seconds.
 
-Во время сессий консоль на зарядке, автосон выключен (Настройки → Управление питанием), разгон в Horizon OC выключен
-(меряем на стоковых частотах).
+Keep the console on the charger with auto-sleep off, and overclocking off: the numbers in
+`docs/performance.md` are for stock clocks.
+
+sys-botbase is not used: on some custom firmware builds it crashes the `hid` service when a game is started in
+application mode.
