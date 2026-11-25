@@ -117,6 +117,13 @@ This port stands on other people's work; the full list with licenses is in
 - [mesa-switch](https://github.com/danfromtico/mesa-switch): Mesa NVK for Horizon
 - FidelityFX Super Resolution 1 by AMD
 
+## How it was made
+
+Most of the code, the tooling and the documentation were written with an AI coding assistant (Claude) under the
+author's direction: the author set the goals and constraints, ran every build on a real console and decided from
+the measurements what to keep. The Russian language pack is a machine translation checked against the Japanese
+text, with the key scenes proofread by hand. The performance numbers come from logs of real console runs.
+
 ## Legal
 
 No affiliation with Square Enix, Cavia, Microsoft or Nintendo. "NieR" is a trademark of Square Enix. This
