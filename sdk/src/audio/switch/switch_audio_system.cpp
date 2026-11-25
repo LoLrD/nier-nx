@@ -153,6 +153,8 @@ struct SwitchAudioSystem::Output {
   std::array<AudioOutBuffer, kBufferCount> buffers{};
   std::array<s16*, kBufferCount> samples{};
   std::array<float, kBufferSamples * 2> mix{};
+  std::array<float, 2> last_sample{};
+  bool last_frame_silent = true;
 };
 
 std::unique_ptr<AudioSystem> SwitchAudioSystem::Create(
@@ -310,6 +312,31 @@ void SwitchAudioSystem::FillAndAppend(size_t buffer_index) {
       }
     }
   }
+  uint32_t dropouts = 0;
+  uint32_t edge_jumps = 0;
+  float largest_edge_jump = 0.0f;
+  for (uint32_t frame = 0; frame < kFramesPerBuffer; ++frame) {
+    const float* in = output.mix.data() + frame * SwitchAudioDriver::kChannelSamples * 2;
+    const float edge = std::max(std::abs(in[0] - output.last_sample[0]), std::abs(in[1] - output.last_sample[1]));
+    float inner = 0.0f;
+    bool silent = in[0] == 0.0f && in[1] == 0.0f;
+    for (uint32_t i = 2; i < SwitchAudioDriver::kChannelSamples * 2; ++i) {
+      inner = std::max(inner, std::abs(in[i] - in[i - 2]));
+      silent = silent && in[i] == 0.0f;
+    }
+    if (silent && !output.last_frame_silent) {
+      ++dropouts;
+    }
+    if (edge > 0.1f && edge > 4.0f * inner) {
+      ++edge_jumps;
+      largest_edge_jump = std::max(largest_edge_jump, edge);
+    }
+    output.last_frame_silent = silent;
+    output.last_sample = {in[SwitchAudioDriver::kChannelSamples * 2 - 2], in[SwitchAudioDriver::kChannelSamples * 2 - 1]};
+  }
+  RexSwitchPerfAdd(59, dropouts);
+  RexSwitchPerfAdd(60, edge_jumps);
+  RexSwitchPerfMax(61, static_cast<u64>(std::min(largest_edge_jump, 100.0f) * 10000.0f));
   s16* samples = output.samples[buffer_index];
   bool pcm_nonzero = false;
   // How much the mix saturates before it is clipped (the crackling in handheld mode). Counting only.

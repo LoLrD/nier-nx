@@ -644,12 +644,15 @@ void Report(u64 elapsed_ticks, u64 tick_freq, u64 counters_last[kCounterCount],
   // more, 23 maximum peak of the interval in ten-thousandths) and the console mode, for the crackling
   // in handheld mode.
   const u64 audio_peak = g_counters[23].exchange(0, std::memory_order_relaxed);
+  const u64 audio_edge = g_counters[61].exchange(0, std::memory_order_relaxed);
   std::fprintf(f,
                "     audio: %.0f client blocks mixed, %.0f requests without data, "
                "%.0f/%.0f audout buffers with non-zero PCM, %.0f saturated samples (above 1.0 before clipping), "
-               "%.0f buffers with a peak of 0.98 or more, maximum peak %.3f | XMA: %.0f blocks written, "
+               "%.0f buffers with a peak of 0.98 or more, maximum peak %.3f, %.0f blocks cut to silence, "
+               "%.0f jumps at block edges (largest %.3f) | XMA: %.0f blocks written, "
                "%.0f repeated-block runs, %.0f stalls of 1 s or more (audio_xma_diag) | console in %s mode\n",
                delta(24), delta(25), delta(26), delta(27), delta(21), delta(22), double(audio_peak) / 10000.0,
+               delta(59), delta(60), double(audio_edge) / 10000.0,
                delta(58), delta(56), delta(57),
                rex::ui::switch_saltynx::BaseMode(appletGetOperationMode() == AppletOperationMode_Console)
                    ? "docked"
