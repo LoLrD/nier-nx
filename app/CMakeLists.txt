@@ -104,7 +104,7 @@ set(NIER_PGO_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../out/pgo" CACHE PATH "Profile a 
 if(REXGLUE_PLATFORM_SWITCH AND NIER_PGO STREQUAL "generate")
     foreach(pgo_target nier_recomp nier)
         target_compile_options(${pgo_target} PRIVATE -fprofile-generate=sdmc:/switch/nier/pgo
-                               -fprofile-prefix-path=${CMAKE_BINARY_DIR})
+                               -fno-profile-values -fprofile-prefix-path=${CMAKE_BINARY_DIR})
     endforeach()
     target_compile_definitions(nier PRIVATE NIER_PGO_GENERATE)
     target_link_options(nier PRIVATE -fprofile-generate)
