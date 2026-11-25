@@ -336,11 +336,12 @@ void Submissions::Wait(uint64_t submission) {
 
 bool Submissions::Poll() {
   uint64_t done = completed_;
-  for (Slot& slot : slots_) {
-    if (slot.submission > done &&
-        Vk(device_).vkGetFenceStatus(device_->device(), slot.fence) == VK_SUCCESS) {
-      done = slot.submission;
+  for (uint64_t next = done + 1;; ++next) {
+    const Slot& slot = slots_[next % kSlots];
+    if (slot.submission != next || Vk(device_).vkGetFenceStatus(device_->device(), slot.fence) != VK_SUCCESS) {
+      break;
     }
+    done = next;
   }
   const bool changed = done != completed_;
   completed_ = done;
