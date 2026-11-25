@@ -33,8 +33,12 @@ class GpuRegisters {
   bool SetRange(uint32_t first, const uint32_t* words_big_endian, uint32_t count);
   uint64_t FloatGeneration(const uint64_t (&bitmap)[4], bool pixel) const;
   uint64_t ConstantsGeneration(uint32_t first, uint32_t count) const;
-  void BeginStateJournal() const;
-  bool StateUnchanged() const;
+  static constexpr size_t kStateScanLimit = 96;
+  static constexpr size_t kStateLogRecords = 4096;
+  uint64_t StateMark() const { return state_log_base_ + state_log_.size(); }
+  bool StateUnchangedSince(uint64_t mark) const { return FirstChangedSince(mark) == 0; }
+  uint32_t FirstChangedSince(uint64_t mark) const;
+  void ResetStateLog();
   uint64_t foreign_state_writes() const { return foreign_state_writes_.load(std::memory_order_relaxed); }
 
   GpuRegisters();
@@ -58,8 +62,8 @@ class GpuRegisters {
   std::array<uint64_t, kGroups> generations_{};
   uint64_t generation_ = 0;
   std::atomic<uint64_t> foreign_state_writes_{0};
-  mutable std::vector<std::pair<uint32_t, uint32_t>> state_journal_;
-  mutable std::array<uint64_t, (kCount + 63) / 64> journaled_{};
+  std::vector<std::pair<uint32_t, uint32_t>> state_log_;
+  uint64_t state_log_base_ = 0;
 };
 
 }  // namespace nier::native

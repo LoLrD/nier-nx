@@ -797,50 +797,118 @@ NativeRenderer::DrawResult NativeRenderer::RecordDraw(const RegisterFile& regs) 
     ++stats_.skipped_empty;
     return DrawResult::kDone;
   }
-  if (REXCVAR_GET(nier_draw_memo) && MemoMatches(regs, draw)) {
+  if (DrawMemo* memo = REXCVAR_GET(nier_draw_memo) ? FindMemo(regs, draw) : nullptr) {
     BeginSubmission();
     const uint64_t submission = submissions_->current();
     if (submissions_->HasUniformSpace(kDrawUniformBytes)) {
-      SyncDrawRanges(regs, draw, *memo_.prepared.vertex_shader);
+      SyncDrawRanges(regs, draw, *memo->prepared.vertex_shader);
       if (submissions_->current() == submission) {
         ++stats_.memo_hits;
+        const bool same = memo == last_memo_;
+        last_memo_ = memo;
         if (!REXCVAR_GET(nier_draw_memo_verify)) {
-          return RecordPrepared(regs, draw, memo_, false);
+          return RecordPrepared(regs, draw, *memo, !same);
         }
-        VerifyMemo(regs, draw, polygonal);
+        VerifyMemo(regs, draw, polygonal, *memo);
         if (submissions_->current() == submission) {
-          return RecordPrepared(regs, draw, memo_, true);
+          return RecordPrepared(regs, draw, *memo, true);
         }
       }
     }
   }
-  memo_.valid = false;
+  last_memo_ = nullptr;
   DrawMemo next;
   if (const auto result = PrepareState(regs, draw, polygonal, next)) {
     return *result;
   }
-  memo_ = next;
-  return RecordPrepared(regs, draw, memo_, true);
+  DrawMemo& slot = MemoToReplace();
+  slot = next;
+  slot.used = ++memo_uses_;
+  last_memo_ = &slot;
+  return RecordPrepared(regs, draw, slot, true);
 }
 
-bool NativeRenderer::MemoMatches(const RegisterFile& regs, const HostDraw& draw) const {
-  const DrawMemo& m = memo_;
-  if (!m.valid || !registers_.StateUnchanged() || m.foreign_state_writes != registers_.foreign_state_writes() ||
-      m.texture_bindings != textures_->binding_version() || m.submission != submissions_->current() ||
-      m.swaps != stats_.swaps || !shaders_.Current(m.vertex_hash, m.pixel_hash) || m.topology != draw.topology ||
-      m.primitive_restart != draw.primitive_restart || m.vs_type != draw.vs_type ||
+NativeRenderer::MemoMiss NativeRenderer::MemoMatches(const DrawMemo& m, const RegisterFile& regs,
+                                                     const HostDraw& draw) const {
+  if (!m.valid) {
+    return MemoMiss::kInvalid;
+  }
+  if (m.swaps != stats_.swaps) {
+    return MemoMiss::kSwap;
+  }
+  if (m.submission != submissions_->current()) {
+    return MemoMiss::kSubmission;
+  }
+  if (!shaders_.Current(m.vertex_hash, m.pixel_hash)) {
+    return MemoMiss::kShaders;
+  }
+  if (m.topology != draw.topology || m.primitive_restart != draw.primitive_restart || m.vs_type != draw.vs_type ||
       m.index_source != draw.index_source || m.index_32bit != draw.index_32bit ||
-      m.index_endian != draw.index_endian || Tracing()) {
-    return false;
+      m.index_endian != draw.index_endian) {
+    return MemoMiss::kPrimitive;
   }
   for (uint32_t mask = m.fetch_mask; mask; mask &= mask - 1) {
     const uint32_t slot = uint32_t(std::countr_zero(mask));
     if (std::memcmp(&regs[XE_GPU_REG_SHADER_CONSTANT_FETCH_00_0 + slot * 6], &m.fetch_words[slot * 6],
                     6 * sizeof(uint32_t)) != 0) {
-      return false;
+      return MemoMiss::kFetch;
     }
   }
-  return true;
+  if (m.foreign_state_writes != registers_.foreign_state_writes()) {
+    return MemoMiss::kForeign;
+  }
+  if (m.texture_bindings != textures_->binding_version()) {
+    return MemoMiss::kTextures;
+  }
+  if (!registers_.StateUnchangedSince(m.state_mark)) {
+    return MemoMiss::kState;
+  }
+  return MemoMiss::kNone;
+}
+
+NativeRenderer::DrawMemo* NativeRenderer::FindMemo(const RegisterFile& regs, const HostDraw& draw) {
+  if (Tracing()) {
+    ++stats_.memo_misses[size_t(MemoMiss::kInvalid) - 1];
+    return nullptr;
+  }
+  MemoMiss closest = MemoMiss::kInvalid;
+  const DrawMemo* closest_memo = nullptr;
+  for (DrawMemo& m : memos_) {
+    const MemoMiss miss = MemoMatches(m, regs, draw);
+    if (miss == MemoMiss::kNone) {
+      m.used = ++memo_uses_;
+      return &m;
+    }
+    if (miss > closest) {
+      closest = miss;
+      closest_memo = &m;
+    }
+  }
+  ++stats_.memo_misses[size_t(closest) - 1];
+  if (closest == MemoMiss::kState) {
+    ++memo_state_misses_[registers_.FirstChangedSince(closest_memo->state_mark)];
+  }
+  return nullptr;
+}
+
+NativeRenderer::DrawMemo& NativeRenderer::MemoToReplace() {
+  DrawMemo* oldest = &memos_[0];
+  for (DrawMemo& m : memos_) {
+    if (!m.valid) {
+      return m;
+    }
+    if (m.used < oldest->used) {
+      oldest = &m;
+    }
+  }
+  return *oldest;
+}
+
+void NativeRenderer::ForgetMemos() {
+  for (DrawMemo& m : memos_) {
+    m.valid = false;
+  }
+  last_memo_ = nullptr;
 }
 
 void NativeRenderer::SyncDrawRanges(const RegisterFile& regs, const HostDraw& draw,
@@ -1003,7 +1071,7 @@ std::optional<NativeRenderer::DrawResult> NativeRenderer::PrepareState(const Reg
   shaders_.CurrentHashes(out.vertex_hash, out.pixel_hash);
   out.foreign_state_writes = registers_.foreign_state_writes();
   out.texture_bindings = textures_->binding_version();
-  registers_.BeginStateJournal();
+  out.state_mark = registers_.StateMark();
   out.submission = submissions_->current();
   out.swaps = stats_.swaps;
   out.valid = !Tracing() && textures_->stats().background_waits == texture_waits &&
@@ -1027,13 +1095,13 @@ uint32_t NativeRenderer::UsedFetchConstants(const NativeShaders::PreparedDraw& p
   return mask;
 }
 
-void NativeRenderer::VerifyMemo(const RegisterFile& regs, const HostDraw& draw, bool polygonal) {
+void NativeRenderer::VerifyMemo(const RegisterFile& regs, const HostDraw& draw, bool polygonal,
+                                const DrawMemo& m) {
   DrawMemo fresh;
   const uint64_t submission = submissions_->current();
   if (PrepareState(regs, draw, polygonal, fresh) || submissions_->current() != submission) {
     return;
   }
-  const DrawMemo& m = memo_;
   std::string differences;
   auto check = [&](bool same, const char* what) {
     if (!same) {
@@ -1060,7 +1128,7 @@ void NativeRenderer::VerifyMemo(const RegisterFile& regs, const HostDraw& draw, 
 }
 
 NativeRenderer::DrawResult NativeRenderer::RecordPrepared(const RegisterFile& regs, const HostDraw& draw,
-                                                          const DrawMemo& m, bool set_dynamic_state) {
+                                                          DrawMemo& m, bool set_dynamic_state) {
   Translator::SystemConstants system;
   FillSystemConstants(regs, draw, m.viewport, m.texture_info, system);
   alignas(16) uint8_t floats[Submissions::kFloatConstantsBytes];
@@ -1138,7 +1206,7 @@ NativeRenderer::DrawResult NativeRenderer::RecordPrepared(const RegisterFile& re
                   m.shift, KindOf(m.targets) == PassKind::kShadowMap);
   if (!targets_->rendering()) {
     ++stats_.skipped_target;
-    memo_.valid = false;
+    ForgetMemos();
     return DrawResult::kDone;
   }
   const auto& dfn = Vk(device_);
@@ -1168,10 +1236,10 @@ NativeRenderer::DrawResult NativeRenderer::RecordPrepared(const RegisterFile& re
     ++stats_.set_binds_skipped;
   }
   if (set_dynamic_state) {
-    memo_scissor_ = SetDynamicState(regs, m.viewport, m.targets.scale, m.polygonal, m.shift);
+    m.scissor = SetDynamicState(regs, m.viewport, m.targets.scale, m.polygonal, m.shift);
   }
   if (!trace_pass_.draws++) {
-    trace_pass_.first_scissor = memo_scissor_;
+    trace_pass_.first_scissor = m.scissor;
   }
   switch (draw.index_source) {
     case IndexSource::kGuestDma:
@@ -1232,7 +1300,7 @@ void NativeRenderer::Resolve(const RegisterFile& regs) {
   }
   const uint64_t readbacks = resolves_->stats().readbacks;
   resolves_->Resolve(submissions_->main(), plan, submissions_->current());
-  memo_.valid = false;
+  ForgetMemos();
   if (REXCVAR_GET(nier_readback_submit) && resolves_->stats().readbacks != readbacks &&
       resolves_->LastReadbackOfFrame(plan.dest_address)) {
     ++stats_.readback_submits;
@@ -1634,6 +1702,24 @@ std::string NativeRenderer::Report() {
   reported_upscale_runs_ = upscale_->runs();
   line += fmt::format("; silent draws skipped {}", s.skipped_silent - r.skipped_silent);
   line += fmt::format("; draw memo hits {}, mismatches {}", s.memo_hits - r.memo_hits, s.memo_mismatches - r.memo_mismatches);
+  {
+    static constexpr std::array<const char*, 9> kNames = {"invalid", "swap", "submission", "shaders", "primitive",
+                                                          "fetch", "foreign", "textures", "state"};
+    line += "; memo misses:";
+    for (size_t i = 0; i < kNames.size(); ++i) {
+      line += fmt::format(" {} {}", kNames[i], s.memo_misses[i] - r.memo_misses[i]);
+    }
+    std::vector<std::pair<uint64_t, uint32_t>> changed;
+    for (const auto& [index, count] : memo_state_misses_) {
+      changed.emplace_back(count, index);
+    }
+    std::sort(changed.rbegin(), changed.rend());
+    line += ", first changed register";
+    for (size_t i = 0; i < std::min<size_t>(changed.size(), 8); ++i) {
+      line += fmt::format(" {:04X}x{}", changed[i].second, changed[i].first);
+    }
+    memo_state_misses_.clear();
+  }
   {
     const Resolves::Stats& rv = resolves_->stats();
     line += fmt::format("; readbacks written after 0/1/2/3+ frames {}/{}/{}/{}, early submits {}",

@@ -70,6 +70,7 @@ class NativeRenderer {
     uint64_t readback_submits = 0;
     uint64_t reduced_scene_frames = 0;
     uint64_t memo_mismatches = 0;
+    std::array<uint64_t, 9> memo_misses{};
     uint64_t resolves = 0;
     uint64_t swaps = 0;
     uint64_t black_frames = 0;
@@ -130,6 +131,9 @@ class NativeRenderer {
 
   struct DrawMemo {
     bool valid = false;
+    uint64_t state_mark = 0;
+    uint64_t used = 0;
+    VkRect2D scissor{};
     uint64_t foreign_state_writes = 0;
     uint64_t texture_bindings = 0;
     uint64_t submission = 0;
@@ -159,14 +163,18 @@ class NativeRenderer {
   };
 
   DrawResult RecordDraw(const rex::graphics::RegisterFile& regs);
-  bool MemoMatches(const rex::graphics::RegisterFile& regs, const HostDraw& draw) const;
+  enum class MemoMiss : uint8_t { kNone, kInvalid, kSwap, kSubmission, kShaders, kPrimitive, kFetch, kForeign, kTextures, kState };
+  MemoMiss MemoMatches(const DrawMemo& m, const rex::graphics::RegisterFile& regs, const HostDraw& draw) const;
+  DrawMemo* FindMemo(const rex::graphics::RegisterFile& regs, const HostDraw& draw);
+  DrawMemo& MemoToReplace();
+  void ForgetMemos();
   void SyncDrawRanges(const rex::graphics::RegisterFile& regs, const HostDraw& draw,
                       const rex::graphics::vulkan::VulkanShader& vertex_shader);
   std::optional<DrawResult> PrepareState(const rex::graphics::RegisterFile& regs, const HostDraw& draw, bool polygonal,
                                          DrawMemo& out);
   static uint32_t UsedFetchConstants(const NativeShaders::PreparedDraw& prepared);
-  void VerifyMemo(const rex::graphics::RegisterFile& regs, const HostDraw& draw, bool polygonal);
-  DrawResult RecordPrepared(const rex::graphics::RegisterFile& regs, const HostDraw& draw, const DrawMemo& m,
+  void VerifyMemo(const rex::graphics::RegisterFile& regs, const HostDraw& draw, bool polygonal, const DrawMemo& m);
+  DrawResult RecordPrepared(const rex::graphics::RegisterFile& regs, const HostDraw& draw, DrawMemo& m,
                             bool set_dynamic_state);
   uint16_t PassId(const TargetSet& set);
   uint16_t ResolveId(const ResolvePlan& plan);
@@ -218,8 +226,11 @@ class NativeRenderer {
   std::unique_ptr<Textures> textures_;
   std::unique_ptr<Resolves> resolves_;
   std::unique_ptr<SceneUpscale> upscale_;
-  DrawMemo memo_;
-  VkRect2D memo_scissor_{};
+  static constexpr size_t kMemos = 8;
+  std::array<DrawMemo, kMemos> memos_;
+  const DrawMemo* last_memo_ = nullptr;
+  uint64_t memo_uses_ = 0;
+  std::unordered_map<uint32_t, uint64_t> memo_state_misses_;
   uint32_t upscale_target_width_ = 0;
   uint64_t reported_upscale_runs_ = 0;
   GpuGovernor gpu_governor_{{}, 30.0};

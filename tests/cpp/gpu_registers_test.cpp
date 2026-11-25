@@ -141,12 +141,12 @@ int main() {
   }
   {
     GpuRegisters regs;
-    regs.BeginStateJournal();
-    Check(regs.StateUnchanged(), "fresh_journal_is_unchanged");
+    uint64_t mark = regs.StateMark();
+    Check(regs.StateUnchangedSince(mark), "fresh_journal_is_unchanged");
     regs.Set(XE_GPU_REG_RB_COLORCONTROL, 5);
-    Check(!regs.StateUnchanged(), "render_state_write_changes_state");
+    Check(!regs.StateUnchangedSince(mark), "render_state_write_changes_state");
     regs.Set(XE_GPU_REG_RB_COLORCONTROL, 0);
-    Check(regs.StateUnchanged(), "state_written_back_is_unchanged");
+    Check(regs.StateUnchangedSince(mark), "state_written_back_is_unchanged");
     regs.Set(XE_GPU_REG_VGT_DRAW_INITIATOR, 0x1234);
     regs.Set(XE_GPU_REG_VGT_DMA_BASE, 0x1000);
     regs.Set(XE_GPU_REG_VGT_DMA_SIZE, 64);
@@ -159,21 +159,38 @@ int main() {
     regs.Set(XE_GPU_REG_SHADER_CONSTANT_FETCH_00_0, 0x10);
     regs.Set(XE_GPU_REG_SHADER_CONSTANT_BOOL_000_031, 1);
     regs.Set(XE_GPU_REG_SHADER_CONSTANT_LOOP_00, 2);
-    Check(regs.StateUnchanged(), "per_draw_registers_and_constants_keep_state");
+    Check(regs.StateUnchangedSince(mark), "per_draw_registers_and_constants_keep_state");
     regs.Set(XE_GPU_REG_RB_COLORCONTROL, 7);
-    regs.BeginStateJournal();
-    Check(regs.StateUnchanged(), "new_journal_starts_from_current_values");
+    const uint64_t older = mark;
+    mark = regs.StateMark();
+    Check(regs.StateUnchangedSince(mark), "new_journal_starts_from_current_values");
     regs.Set(XE_GPU_REG_RB_COLORCONTROL, 0);
     regs.Set(XE_GPU_REG_RB_COLORCONTROL, 7);
-    Check(regs.StateUnchanged(), "round_trip_since_the_journal_is_unchanged");
+    Check(regs.StateUnchangedSince(mark), "round_trip_since_the_journal_is_unchanged");
     const uint64_t foreign = regs.foreign_state_writes();
     regs.Store(XE_GPU_REG_PA_SC_WINDOW_OFFSET, 0x00100010);
     Check(regs.foreign_state_writes() > foreign, "mmio_store_to_render_state_is_counted");
     const uint32_t words[2] = {__builtin_bswap32(1u), __builtin_bswap32(2u)};
     regs.SetRange(XE_GPU_REG_SHADER_CONSTANT_000_X, words, 2);
-    Check(regs.StateUnchanged(), "bulk_float_constants_keep_state");
+    Check(regs.StateUnchangedSince(mark), "bulk_float_constants_keep_state");
     regs.SetRange(XE_GPU_REG_SHADER_CONSTANT_LOOP_31 + 1, words, 2);
-    Check(!regs.StateUnchanged(), "bulk_write_past_loop_constants_changes_state");
+    Check(!regs.StateUnchangedSince(mark), "bulk_write_past_loop_constants_changes_state");
+    Check(!regs.StateUnchangedSince(older), "older_mark_sees_the_value_it_started_from_changed");
+    regs.Set(XE_GPU_REG_RB_COLORCONTROL, 0);
+    Check(regs.FirstChangedSince(older) == XE_GPU_REG_SHADER_CONSTANT_LOOP_31 + 1, "first_changed_register_is_named");
+    const uint64_t busy = regs.StateMark();
+    for (uint32_t i = 0; i <= GpuRegisters::kStateScanLimit; ++i) {
+      regs.Set(XE_GPU_REG_RB_COLORCONTROL, i + 1);
+    }
+    regs.Set(XE_GPU_REG_RB_COLORCONTROL, 0);
+    Check(!regs.StateUnchangedSince(busy), "mark_older_than_the_scan_limit_is_not_trusted");
+    const uint64_t kept = regs.StateMark();
+    regs.Set(XE_GPU_REG_RB_COLORCONTROL, 3);
+    regs.Set(XE_GPU_REG_RB_COLORCONTROL, 0);
+    Check(regs.StateUnchangedSince(kept), "round_trip_since_a_later_mark_is_unchanged");
+    regs.ResetStateLog();
+    Check(!regs.StateUnchangedSince(kept), "mark_from_before_a_reset_is_not_trusted");
+    Check(regs.StateUnchangedSince(regs.StateMark()), "mark_after_a_reset_is_unchanged");
   }
   return failures ? 1 : 0;
 }

@@ -99,28 +99,38 @@ bool GpuRegisters::AffectsState(uint32_t index) {
 }
 
 void GpuRegisters::JournalState(uint32_t index) {
-  uint64_t& word = journaled_[index >> 6];
-  const uint64_t bit = uint64_t(1) << (index & 63);
-  if (!(word & bit)) {
-    word |= bit;
-    state_journal_.emplace_back(index, file_.values[index]);
+  if (state_log_.size() >= kStateLogRecords) {
+    ResetStateLog();
   }
+  state_log_.emplace_back(index, file_.values[index]);
 }
 
-void GpuRegisters::BeginStateJournal() const {
-  for (const auto& [index, value] : state_journal_) {
-    journaled_[index >> 6] &= ~(uint64_t(1) << (index & 63));
-  }
-  state_journal_.clear();
+void GpuRegisters::ResetStateLog() {
+  state_log_base_ += state_log_.size();
+  state_log_.clear();
 }
 
-bool GpuRegisters::StateUnchanged() const {
-  for (const auto& [index, value] : state_journal_) {
-    if (file_.values[index] != value) {
-      return false;
+uint32_t GpuRegisters::FirstChangedSince(uint64_t mark) const {
+  if (mark < state_log_base_) {
+    return UINT32_MAX;
+  }
+  const size_t first = size_t(mark - state_log_base_);
+  const size_t count = state_log_.size() - first;
+  if (count > kStateScanLimit) {
+    return UINT32_MAX;
+  }
+  const auto* records = state_log_.data() + first;
+  for (size_t i = 0; i < count; ++i) {
+    const uint32_t index = records[i].first;
+    bool earlier = false;
+    for (size_t j = 0; j < i; ++j) {
+      earlier |= records[j].first == index;
+    }
+    if (!earlier && file_.values[index] != records[i].second) {
+      return index;
     }
   }
-  return true;
+  return 0;
 }
 
 bool GpuRegisters::SetRange(uint32_t first, const uint32_t* words_big_endian, uint32_t count) {
