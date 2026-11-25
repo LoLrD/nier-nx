@@ -1,65 +1,65 @@
 # NieR-specific analysis corrections. Every entry names the tool or evidence that justifies it
-# (tools/gap_fixpoint.py, tools/runtime_gap_resolver.py, or a manual inspection noted here).
+# (tools/codegen/gap_fixpoint.py, tools/codegen/runtime_gap_resolver.py, or a manual inspection noted here).
 
 [functions]
 
-# Structural gap scan, fixpoint pass 2 (tools/gap_fixpoint.py).
+# Structural gap scan, fixpoint pass 2 (tools/codegen/gap_fixpoint.py).
 "0x8225C478" = { }
 
-# Structural gap scan, fixpoint pass 1 (tools/gap_fixpoint.py).
+# Structural gap scan, fixpoint pass 1 (tools/codegen/gap_fixpoint.py).
 "0x8225C468" = { }
 
-# Structural gap scan, fixpoint pass 19 (tools/gap_fixpoint.py).
+# Structural gap scan, fixpoint pass 19 (tools/codegen/gap_fixpoint.py).
 "0x8225C458" = { }
 
-# Structural gap scan, fixpoint pass 18 (tools/gap_fixpoint.py).
+# Structural gap scan, fixpoint pass 18 (tools/codegen/gap_fixpoint.py).
 "0x82255858" = { }
 "0x8225C448" = { }
 
-# Structural gap scan, fixpoint pass 17 (tools/gap_fixpoint.py).
+# Structural gap scan, fixpoint pass 17 (tools/codegen/gap_fixpoint.py).
 "0x82255848" = { }
 "0x8225C438" = { }
 "0x82386640" = { }
 
-# Structural gap scan, fixpoint pass 16 (tools/gap_fixpoint.py).
+# Structural gap scan, fixpoint pass 16 (tools/codegen/gap_fixpoint.py).
 "0x82255838" = { }
 "0x8225C428" = { }
 "0x82386630" = { }
 
-# Structural gap scan, fixpoint pass 15 (tools/gap_fixpoint.py).
+# Structural gap scan, fixpoint pass 15 (tools/codegen/gap_fixpoint.py).
 "0x82255828" = { }
 "0x8225C418" = { }
 "0x8235F378" = { }
 "0x82386620" = { }
 
-# Structural gap scan, fixpoint pass 14 (tools/gap_fixpoint.py).
+# Structural gap scan, fixpoint pass 14 (tools/codegen/gap_fixpoint.py).
 "0x82255818" = { }
 "0x8225C408" = { }
 "0x8235F368" = { }
 "0x82386610" = { }
 
-# Structural gap scan, fixpoint pass 13 (tools/gap_fixpoint.py).
+# Structural gap scan, fixpoint pass 13 (tools/codegen/gap_fixpoint.py).
 "0x82255808" = { }
 "0x8225C3F8" = { }
 "0x822D8E38" = { }
 "0x8235F358" = { }
 "0x82386600" = { }
 
-# Structural gap scan, fixpoint pass 12 (tools/gap_fixpoint.py).
+# Structural gap scan, fixpoint pass 12 (tools/codegen/gap_fixpoint.py).
 "0x822557F8" = { }
 "0x8225C3E8" = { }
 "0x822D8E2C" = { }
 "0x8235F348" = { }
 "0x823865F0" = { }
 
-# Structural gap scan, fixpoint pass 11 (tools/gap_fixpoint.py).
+# Structural gap scan, fixpoint pass 11 (tools/codegen/gap_fixpoint.py).
 "0x822557E8" = { }
 "0x8225C3D8" = { }
 "0x822D8E20" = { }
 "0x8235F338" = { }
 "0x823865E0" = { }
 
-# Structural gap scan, fixpoint pass 10 (tools/gap_fixpoint.py).
+# Structural gap scan, fixpoint pass 10 (tools/codegen/gap_fixpoint.py).
 "0x822557D8" = { }
 "0x8225C3C8" = { }
 "0x82296A20" = { }
@@ -67,7 +67,7 @@
 "0x8235F328" = { }
 "0x823865D0" = { }
 
-# Structural gap scan, fixpoint pass 9 (tools/gap_fixpoint.py).
+# Structural gap scan, fixpoint pass 9 (tools/codegen/gap_fixpoint.py).
 "0x822557C8" = { }
 "0x8225C3B8" = { }
 "0x8228F414" = { }
@@ -76,7 +76,7 @@
 "0x8235F318" = { }
 "0x823865C0" = { }
 
-# Structural gap scan, fixpoint pass 8 (tools/gap_fixpoint.py).
+# Structural gap scan, fixpoint pass 8 (tools/codegen/gap_fixpoint.py).
 "0x822557B8" = { }
 "0x8225C3A8" = { }
 "0x8228743C" = { }
@@ -87,7 +87,7 @@
 "0x8235F308" = { }
 "0x823865B0" = { }
 
-# Structural gap scan, fixpoint pass 7 (tools/gap_fixpoint.py).
+# Structural gap scan, fixpoint pass 7 (tools/codegen/gap_fixpoint.py).
 "0x8213276C" = { }
 "0x822557A8" = { }
 "0x8225C398" = { }
@@ -102,7 +102,7 @@
 "0x823B9930" = { }
 "0x823B9A00" = { }
 
-# Structural gap scan, fixpoint pass 6 (tools/gap_fixpoint.py).
+# Structural gap scan, fixpoint pass 6 (tools/codegen/gap_fixpoint.py).
 "0x82132764" = { }
 "0x82255798" = { }
 "0x8225C388" = { }
@@ -123,7 +123,7 @@
 "0x823B9A58" = { }
 "0x824A1B70" = { }
 
-# Structural gap scan, fixpoint pass 5 (tools/gap_fixpoint.py).
+# Structural gap scan, fixpoint pass 5 (tools/codegen/gap_fixpoint.py).
 "0x8213275C" = { }
 "0x82255788" = { }
 "0x8225C378" = { }
@@ -154,7 +154,7 @@
 "0x823B9A50" = { }
 "0x824A1B68" = { }
 
-# Structural gap scan, fixpoint pass 4 (tools/gap_fixpoint.py).
+# Structural gap scan, fixpoint pass 4 (tools/codegen/gap_fixpoint.py).
 "0x82132754" = { }
 "0x82255778" = { }
 "0x8225C368" = { }
@@ -188,7 +188,7 @@
 "0x8249D498" = { }
 "0x824A1B60" = { }
 
-# Structural gap scan, fixpoint pass 3 (tools/gap_fixpoint.py).
+# Structural gap scan, fixpoint pass 3 (tools/codegen/gap_fixpoint.py).
 "0x8213274C" = { }
 "0x82255768" = { }
 "0x8225C358" = { }
@@ -220,7 +220,7 @@
 "0x824A1B58" = { }
 "0x824A1B90" = { }
 
-# Structural gap scan, fixpoint pass 2 (tools/gap_fixpoint.py).
+# Structural gap scan, fixpoint pass 2 (tools/codegen/gap_fixpoint.py).
 "0x82132744" = { }
 "0x82140908" = { }
 "0x82255758" = { }
@@ -260,7 +260,7 @@
 "0x824A1B50" = { }
 "0x824A1B88" = { }
 
-# Structural gap scan, fixpoint pass 1 (tools/gap_fixpoint.py).
+# Structural gap scan, fixpoint pass 1 (tools/codegen/gap_fixpoint.py).
 "0x82103038" = { }
 "0x8210F7F8" = { }
 "0x8211EAC0" = { }
@@ -414,7 +414,7 @@
 "0x824A6C30" = { }
 
 # Validation of the first generation: a direct unconditional branch to each address below had no function.
-# tools/find_gaps.py --check confirmed every target starts an unclaimed code gap (20, 8, 8, 24, 32 bytes).
+# tools/codegen/find_gaps.py --check confirmed every target starts an unclaimed code gap (20, 8, 8, 24, 32 bytes).
 # No sizes are imposed: Discover determines the boundary from the PPC code.
 "0x821AE070" = { }
 "0x82499C50" = { }
@@ -457,7 +457,7 @@
 # Exact start the 232-byte gap 0x8214DA18-0x8214DB00; only this address is declared.
 "0x8214DA18" = { }
 
-# Data pointer scan (tools/pointer_scan.py over a NIER_DUMP_IMAGE dump of default.xex 0.0.0.1): code addresses
+# Data pointer scan (tools/codegen/pointer_scan.py over a NIER_DUMP_IMAGE dump of default.xex 0.0.0.1): code addresses
 # stored in data (vtables, callback tables) that start an unclaimed gap of >= 8 bytes. Same shape as the
 # runtime-resolved entries (mostly 232-byte gaps). 0x822667CC (4-byte gap) and interior pointers are left out.
 "0x8210D408" = { }  # 88 bytes, refs=1, first_ref=0x8200C148

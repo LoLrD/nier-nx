@@ -115,7 +115,7 @@ if(REXGLUE_PLATFORM_SWITCH AND NIER_PGO STREQUAL "generate")
 elseif(REXGLUE_PLATFORM_SWITCH AND NIER_PGO STREQUAL "use")
     file(GLOB NIER_PGO_FILES "${NIER_PGO_DIR}/*.gcda")
     if(NOT NIER_PGO_FILES)
-        message(FATAL_ERROR "NIER_PGO=use: no profile in ${NIER_PGO_DIR}; collect one with tools/pgo_collect.sh")
+        message(FATAL_ERROR "NIER_PGO=use: no profile in ${NIER_PGO_DIR}; collect one with tools/pgo/collect.sh")
     endif()
     foreach(pgo_target nier_recomp nier)
         target_compile_options(${pgo_target} PRIVATE -fprofile-use=${NIER_PGO_DIR}

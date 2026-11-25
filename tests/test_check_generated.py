@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-CHECK = Path(__file__).resolve().parents[1] / "tools" / "check_generated.py"
+CHECK = Path(__file__).resolve().parents[1] / "tools" / "codegen" / "check_generated.py"
 
 
 class CheckGeneratedTest(unittest.TestCase):

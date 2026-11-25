@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parents[2]
 
 FATAL_RE = re.compile(
     r"Call to invalid or unregistered function at guest address (0x[0-9A-Fa-f]+)"
@@ -63,7 +63,7 @@ def parse_args() -> argparse.Namespace:
         "--find-gaps",
         type=Path,
         default=Path(__file__).resolve().parent / "find_gaps.py",
-        help="path to tools/find_gaps.py",
+        help="path to tools/codegen/find_gaps.py",
     )
     parser.add_argument(
         "--report",

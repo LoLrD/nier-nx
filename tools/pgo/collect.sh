@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-source "$(dirname "${BASH_SOURCE[0]}")/console-test/common.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/../console-test/common.sh"
 source "$ROOT/tools/switch/docker.sh"
 
 PGO_DIR="${PGO_DIR:-$ROOT/out/pgo}"
@@ -25,7 +25,7 @@ docker run --rm -v "$ROOT:$ROOT" -w "$ROOT" -e STREAMS="$STREAMS" "$IMAGE" bash 
     /opt/devkitpro/devkitA64/bin/aarch64-none-elf-gcov-tool merge-stream "$stream"
   done
 '
-python3 "$ROOT/tools/pgo_summary.py" "$PGO_DIR" "${#streams[@]}"
+python3 "$ROOT/tools/pgo/summary.py" "$PGO_DIR" "${#streams[@]}"
 git -C "$ROOT" rev-parse HEAD > "$PGO_DIR/trained_at.txt"
 rm -rf "$STREAMS"
 for stream in "${streams[@]}"; do

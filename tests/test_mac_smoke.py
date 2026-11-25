@@ -6,8 +6,8 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SMOKE = ROOT / "tools" / "mac_smoke.py"
-sys.path.insert(0, str(ROOT / "tools"))
+SMOKE = ROOT / "tools" / "mac" / "mac_smoke.py"
+sys.path.insert(0, str(ROOT / "tools" / "mac"))
 
 import mac_smoke
 

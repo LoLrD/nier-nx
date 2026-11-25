@@ -7,7 +7,7 @@ tier 2) -> append the accepted entries to app/overrides.toml -> real codegen (to
 sees the code the new entries exposed. Evidence goes to <scratch>/gapscan-accepted.txt. Stops when a pass accepts
 nothing.
 
-  python3 tools/gap_fixpoint.py SCRATCH_DIR [examined.txt ...]
+  python3 tools/codegen/gap_fixpoint.py SCRATCH_DIR [examined.txt ...]
 
 SCRATCH_DIR  work folder (one subfolder per pass; it is not cleaned).
 examined.txt files whose lines start with an address that must not be examined again (selected.txt of earlier
@@ -18,7 +18,7 @@ Needs the game in assets/game_root and an existing generated tree (tools/codegen
 """
 import os, re, subprocess, sys
 
-root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 app = os.path.join(root, "app")
 if len(sys.argv) < 2:
     sys.exit(__doc__)
@@ -95,7 +95,7 @@ for n in range(1, 20):
         break
     with open(evidence_path, "a") as ev_file:
         ev_file.writelines(accepted)
-    block = f"\n# Structural gap scan, fixpoint pass {n} (tools/gap_fixpoint.py).\n" + "".join(
+    block = f"\n# Structural gap scan, fixpoint pass {n} (tools/codegen/gap_fixpoint.py).\n" + "".join(
         f'"{l.split()[0]}" = {{ }}\n' for l in accepted)
     open(overrides_path, "w").write(ov[:m.end()] + block + ov[m.end():])
     b = subprocess.run(["bash", os.path.join(tools, "codegen.sh")], capture_output=True, text=True,

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Find code pointers stored in data that land in unclaimed code gaps.
 
-  usage: python3 tools/pointer_scan.py IMAGE_DUMP GAPS.toml
+  usage: python3 tools/codegen/pointer_scan.py IMAGE_DUMP GAPS.toml
 
-Input: a guest image dump (NIER_DUMP_IMAGE) and the candidate list that tools/find_gaps.py writes
+Input: a guest image dump (NIER_DUMP_IMAGE) and the candidate list that tools/codegen/find_gaps.py writes
 (out/gaps/candidates.toml). Scans every 4-byte aligned big-endian word outside the code range;
 keeps values that are 4-aligned, inside the code range and inside a gap.
 These are candidate function entries (vtables, callback tables) that static

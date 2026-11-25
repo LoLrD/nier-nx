@@ -6,8 +6,8 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-CHECK = ROOT / "tools" / "check_game.py"
-UNPACK = ROOT / "tools" / "unpack_dumps.sh"
+CHECK = ROOT / "tools" / "game" / "check_game.py"
+UNPACK = ROOT / "tools" / "game" / "unpack_dumps.sh"
 
 
 def sha256(data: bytes) -> str:

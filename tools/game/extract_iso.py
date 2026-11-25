@@ -5,12 +5,12 @@ Pure Python 3.8+, no dependencies and no external extraction tool. Stage 1 of th
 assets/game_root, is the game folder that app/nier_manifest.toml and the console build read.
 
 Usage:
-    python3 tools/extract_iso.py "path/to/Nier.iso"                 extract into assets/game_root
-    python3 tools/extract_iso.py "path/to/Nier.iso" -o some/folder  extract somewhere else
-    python3 tools/extract_iso.py "path/to/Nier.iso" --list          list the files, extract nothing
-    python3 tools/extract_iso.py "path/to/Nier.iso" --xex-only      extract only default.xex
-    python3 tools/extract_iso.py assets/game_root/default.xex --info       print the XEX header of an extracted game
-    python3 tools/extract_iso.py assets/game_root --check-packages         find packages cut shorter than their data
+    python3 tools/game/extract_iso.py "path/to/Nier.iso"                 extract into assets/game_root
+    python3 tools/game/extract_iso.py "path/to/Nier.iso" -o some/folder  extract somewhere else
+    python3 tools/game/extract_iso.py "path/to/Nier.iso" --list          list the files, extract nothing
+    python3 tools/game/extract_iso.py "path/to/Nier.iso" --xex-only      extract only default.xex
+    python3 tools/game/extract_iso.py assets/game_root/default.xex --info       print the XEX header of an extracted game
+    python3 tools/game/extract_iso.py assets/game_root --check-packages         find packages cut shorter than their data
 
 What it does:
   1. Finds where the game partition starts (XGD1, XGD2, XGD3 or a raw partition image).
@@ -306,7 +306,7 @@ def check_packages(folder):
 
 
 def default_output():
-    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     return os.path.join(root, "assets", "game_root")
 
 

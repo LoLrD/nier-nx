@@ -8,7 +8,7 @@ import threading
 import time
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_COMMAND = [str(ROOT / "out" / "mac" / "nier")]
 DEFAULT_LOG_FILE = ROOT / "out" / "logs" / "nier.log"
 UNREGISTERED = re.compile(r"Call to invalid or unregistered function at guest address (?:0x)?([0-9A-Fa-f]{8})")
@@ -63,7 +63,7 @@ def window_id(pid: int) -> str:
     binary = ROOT / "out" / "bin" / "window_id"
     if not binary.exists():
         binary.parent.mkdir(parents=True, exist_ok=True)
-        subprocess.run(["swiftc", "-O", str(ROOT / "tools" / "window_id.swift"), "-o", str(binary)], check=True)
+        subprocess.run(["swiftc", "-O", str(ROOT / "tools" / "mac" / "window_id.swift"), "-o", str(binary)], check=True)
     return subprocess.run([str(binary), str(pid)], capture_output=True, text=True).stdout.strip()
 
 

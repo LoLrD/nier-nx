@@ -5,7 +5,7 @@ import sys
 import tomllib
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 DLC_DIR = Path("content") / "535107E8" / "00000002"
 
 
@@ -44,7 +44,7 @@ def main(argv: list[str] | None = None) -> int:
 
     xex = args.root / "game_root" / "default.xex"
     if not xex.is_file():
-        print(f"{xex}: default.xex not found; run tools/unpack_dumps.sh first", file=sys.stderr)
+        print(f"{xex}: default.xex not found; run tools/game/unpack_dumps.sh first", file=sys.stderr)
         return 3
     got = file_sha256(xex)
     if got != lock["xex_sha256"]:

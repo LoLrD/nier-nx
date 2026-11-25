@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Classify gap candidates (tools/find_gaps.py) from a scratch ReXGlue codegen listing.
+"""Classify gap candidates (tools/codegen/find_gaps.py) from a scratch ReXGlue codegen listing.
 
 Accept only gaps whose generated function is a complete, self-contained leaf or
 thunk: every instruction fits inside the gap, it ends in blr/bctr or a tail

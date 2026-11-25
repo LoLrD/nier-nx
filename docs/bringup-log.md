@@ -7,9 +7,9 @@ Each entry: symptom → cause → fix, with the evidence. Newest last.
 - Edition: `default.xex` 0.0.0.1, title 535107E8, media 507D2720, image base 0x82000000, entry 0x8255CEA0
   (`app/game.lock`). Code generation takes ~3.5 s on the M4.
 - First generation failed validation: 5 direct `b` branches to addresses outside any function
-  (0x821AE070, 0x82499C50, 0x824EA3D0, 0x8252DF28, 0x8252EA50). `tools/find_gaps.py --check` showed each one starts
+  (0x821AE070, 0x82499C50, 0x824EA3D0, 0x8252DF28, 0x8252EA50). `tools/codegen/find_gaps.py --check` showed each one starts
   an unclaimed gap (20, 8, 8, 24, 32 bytes) → declared as functions in `app/overrides.toml`.
-- Structural gap scan (`tools/gap_fixpoint.py`) to fixpoint: 21 passes in two runs, 370 accepted entries.
+- Structural gap scan (`tools/codegen/gap_fixpoint.py`) to fixpoint: 21 passes in two runs, 370 accepted entries.
 - Result: 22,348 functions, 97 generated `.cpp` files (109 MB), 0 warnings. Remaining 11,297 gaps / 74,776 bytes are
   mostly 4-byte padding between functions; the rest were rejected by `gap_classify.py` (stack/LR use or registers
   read before written) and are left for the runtime resolver.
@@ -35,7 +35,7 @@ Each entry: symptom → cause → fix, with the evidence. Newest last.
   Screenshots: CRIWARE logo (8 s), SQUARE ENIX logo (25 s), title-screen ember animation (40 s).
 - Open: at 25 s a dialogue subtitle line is drawn over the SQUARE ENIX logo. Not expected on a logo screen; check
   whether the original shows it (subtitle state/string index or timing).
-- `tools/mac_smoke.py --shots 8,15,25` captures the game window (`tools/window_id.swift` finds it by PID).
+- `tools/mac/mac_smoke.py --shots 8,15,25` captures the game window (`tools/mac/window_id.swift` finds it by PID).
 
 ## 2026-11-17 — boot to the prologue (Task 7)
 
@@ -52,11 +52,11 @@ Each entry: symptom → cause → fix, with the evidence. Newest last.
 - Crash in the prologue: "Unresolved branch from 0x8226045C to 0x82260468". The structural gap scan had declared
   0x8226044C (a lone `blr` inside the jump-table switch sub_82260360) as a function, cutting the switch short. Same
   pattern at 0x823FE8F8 (loop tail of sub_823FE7C0). Both removed and the owners given explicit `end`s; the generated
-  code now has 0 `Unresolved branch` fatals. `tools/gap_fixpoint.py` now rejects candidates whose scratch listing has
+  code now has 0 `Unresolved branch` fatals. `tools/codegen/gap_fixpoint.py` now rejects candidates whose scratch listing has
   an unresolved branch.
 - Reached: opening credits, prologue cutscene ("Go on... Take my power..."), first tutorial prompt
   ("Press X to attack and LT to defend"). The scene behind the prompt is white — snowstorm or a render bug, to check.
-- Pointer scan (`NIER_DUMP_IMAGE` + `tools/pointer_scan.py`): 15 data pointers start unclaimed gaps; 14 (>= 8 bytes)
+- Pointer scan (`NIER_DUMP_IMAGE` + `tools/codegen/pointer_scan.py`): 15 data pointers start unclaimed gaps; 14 (>= 8 bytes)
   declared at once instead of one crash per 15-minute run. One more runtime-resolved function: 0x8214DA18.
 - **Acceptance (Task 7):** generated tree deleted and regenerated with `tools/codegen.sh` (0 unresolved branches),
   `tools/build_mac.sh`, then `mac_smoke.py --seconds 600 --name accept` with `app/input/prologue.tsv`: `timeout_ok`,
@@ -81,7 +81,7 @@ Each entry: symptom → cause → fix, with the evidence. Newest last.
 ## 2026-11-17 — 15 Nightmares DLC (Task 8)
 
 - Layout the SDK expects: `<content_marketplace_root>/0000000000000000/535107E8/00000002/<package>` (raw STFS is
-  mounted directly). `tools/unpack_dumps.sh` links `marketplace/0000000000000000` to `content/`; `nier.toml` sets
+  mounted directly). `tools/game/unpack_dumps.sh` links `marketplace/0000000000000000` to `content/`; `nier.toml` sets
   `dlc_enable = true`, `content_marketplace_root = "assets/marketplace"`.
 - NieR enumerates Marketplace content right after boot. The entry first came out as `'@0p'`: `ListContent` tested the
   `X_RESULT` of `ReadContentHeaderFile` with `XFAILED`, so a missing `.header` (`X_ERROR_FILE_NOT_FOUND` = 2) counted
@@ -326,7 +326,7 @@ Temporary counters in the native path (reverted), route title → menu → prolo
 - Not right yet (input for N3b): many frames of the prologue cinematic are washed out white or show blocky 8×8
   patterns, and large flat triangles flash over the scene; no EDRAM ownership transfers between aliased targets, no
   gamma ramp, depth resolves take sample 0.
-- `tools/compare_paths.py` runs the Xenos and native paths at once on the same input route and captures frames through
+- `tools/mac/compare_paths.py` runs the Xenos and native paths at once on the same input route and captures frames through
   the control file's `capture` command at the same seconds (sheet `compare.png`). The prologue cinematic on the native
   path flashed white with large flat triangles and 8×8 garbage while Xenos was right; serializing every draw with the
   GPU did not help, copying every vertex range on every draw did. Cause: when a mirror range was copied, other keys
@@ -347,7 +347,7 @@ Temporary counters in the native path (reverted), route title → menu → prolo
   through `DC_LUT_30_COLOR` (one entry per `DC_LUT_RW_INDEX`), which the register mirror now keeps (and
   `DC_LUT_SEQ_COLOR`); VdSwap presents through a compute pass that applies the 256-entry ramp. Mean colours of the
   captures at 160–220 s now match Xenos within ±2.
-- `tools/compare_paths.py` over the whole prologue route (300–600 s): the native path plays the whole prologue (snow
+- `tools/mac/compare_paths.py` over the whole prologue route (300–600 s): the native path plays the whole prologue (snow
   fight, Grimoire Noir, the crowd of Shades, the red Shade) without crashes, hangs or visible artefacts; it runs
   ~80 s ahead of Xenos on the same script because loading is faster. Validation layer: no errors from the renderer.
 - Not done: EDRAM ownership transfers between aliased targets, depth resolves take sample 0, no FXAA; areas after the

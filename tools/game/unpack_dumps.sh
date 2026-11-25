@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 DATA="${NIER_DATA:-$HOME/work/nier-nx-data}"
 MIN_FREE_GB="${MIN_FREE_GB:-25}"
 
-[[ $# -eq 2 ]] || { echo "usage: tools/unpack_dumps.sh <game.7z> <dlc.zip>" >&2; exit 2; }
+[[ $# -eq 2 ]] || { echo "usage: tools/game/unpack_dumps.sh <game.7z> <dlc.zip>" >&2; exit 2; }
 GAME_7Z="$1"
 DLC_ZIP="$2"
 
@@ -20,11 +20,11 @@ mkdir -p "$DATA/iso" "$DATA/content"
 7z x -y -o"$DATA/iso" "$GAME_7Z"
 ISO="$(find "$DATA/iso" -maxdepth 1 -name '*.iso' | head -1)"
 [[ -n "$ISO" ]] || { echo "no .iso inside $GAME_7Z" >&2; exit 1; }
-python3 "$ROOT/tools/check_game.py" --iso "$ISO"
-python3 -I "$ROOT/tools/extract_iso.py" "$ISO" -o "$DATA/game_root"
+python3 "$ROOT/tools/game/check_game.py" --iso "$ISO"
+python3 -I "$ROOT/tools/game/extract_iso.py" "$ISO" -o "$DATA/game_root"
 unzip -o -q "$DLC_ZIP" -d "$DATA/content"
 mkdir -p "$DATA/marketplace"
 ln -sfn ../content "$DATA/marketplace/0000000000000000"
 ln -sfn "$DATA" "$ROOT/assets"
-python3 "$ROOT/tools/check_game.py"
+python3 "$ROOT/tools/game/check_game.py"
 echo "ok: $ROOT/assets -> $DATA"
