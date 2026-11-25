@@ -94,7 +94,7 @@ if(NOT REXGLUE_PLATFORM_SWITCH)
 endif()
 
 set(NIER_PGO "" CACHE STRING "Profile-guided optimization on the Switch: empty, generate (training build) or use")
-set(NIER_PGO_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../out/pgo" CACHE PATH "Profile a NIER_PGO=use build reads")
+set(NIER_PGO_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../pgo" CACHE PATH "Profile a NIER_PGO=use build reads")
 option(NIER_LTO "Link-time optimization of the game code and the port on the Switch" ON)
 target_compile_definitions(nier PRIVATE XXH_FORCE_MEMORY_ACCESS=0)
 target_compile_options(nier PRIVATE -fno-strict-aliasing)

@@ -3,7 +3,8 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/../console-test/common.sh"
 source "$ROOT/tools/switch/docker.sh"
 
-PGO_DIR="${PGO_DIR:-$ROOT/out/pgo}"
+PGO_DIR="$ROOT/pgo"
+BUILD_ROOT="$(cat "$PGO_DIR/build_root.txt")"
 STREAMS="$ROOT/out/pgo-streams"
 
 check_console
@@ -17,10 +18,9 @@ shopt -s nullglob
 streams=("$STREAMS"/*.stream)
 [[ ${#streams[@]} -gt 0 ]] || { echo "error: no .stream files in $SD_DIR/pgo on the console" >&2; exit 1; }
 
-rm -rf "$PGO_DIR"
-mkdir -p "$PGO_DIR"
+rm -f "$PGO_DIR"/*.gcda
 ensure_image
-docker run --rm -v "$ROOT:$ROOT" -w "$ROOT" -e STREAMS="$STREAMS" "$IMAGE" bash -euo pipefail -c '
+docker run --rm -v "$ROOT:$BUILD_ROOT" -w "$BUILD_ROOT" -e STREAMS="$BUILD_ROOT/out/pgo-streams" "$IMAGE" bash -euo pipefail -c '
   for stream in "$STREAMS"/*.stream; do
     /opt/devkitpro/devkitA64/bin/aarch64-none-elf-gcov-tool merge-stream "$stream"
   done

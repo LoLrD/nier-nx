@@ -5,6 +5,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 MESA_SDK="${MESA_SDK:-$HOME/work/nier-nx-data/mesa-sdk}"
 NRO_OUT="${NRO_OUT:-out/nx}"
 JOBS="${JOBS:-8}"
+BUILD_ROOT="$(cat "$ROOT/pgo/build_root.txt")"
 LIBVULKAN="$MESA_SDK/opt/devkitpro/portlibs/switch/lib/libvulkan.a"
 
 [[ -f "$LIBVULKAN" ]] || { echo "error: the NVK driver was not found at $LIBVULKAN; build it with mesa/build_mesa_docker.sh" >&2; exit 1; }
@@ -13,8 +14,12 @@ MESA_SDK="$(cd "$MESA_SDK" && pwd -P)"
 source "$ROOT/tools/switch/docker.sh"
 ensure_image
 
-docker run --rm -v "$ROOT:$ROOT" -v "$MESA_SDK:$MESA_SDK:ro" -w "$ROOT" \
-  -e MESA_SDK="$MESA_SDK" -e NRO_OUT="$NRO_OUT" -e JOBS="$JOBS" -e ROOT="$ROOT" -e CMAKE_EXTRA="${CMAKE_EXTRA:-}" \
+if [[ -f "$ROOT/$NRO_OUT/CMakeCache.txt" ]] && ! grep -q "^CMAKE_HOME_DIRECTORY:INTERNAL=$BUILD_ROOT/app$" "$ROOT/$NRO_OUT/CMakeCache.txt"; then
+  rm -rf "${ROOT:?}/$NRO_OUT"
+fi
+
+docker run --rm -v "$ROOT:$BUILD_ROOT" -v "$MESA_SDK:/mesa-sdk:ro" -w "$BUILD_ROOT" \
+  -e MESA_SDK=/mesa-sdk -e NRO_OUT="$NRO_OUT" -e JOBS="$JOBS" -e ROOT="$BUILD_ROOT" -e CMAKE_EXTRA="${CMAKE_EXTRA:-}" \
   "$IMAGE" bash -euo pipefail -c '
     /opt/devkitpro/devkitA64/bin/aarch64-none-elf-nm --defined-only \
       "$MESA_SDK/opt/devkitpro/portlibs/switch/lib/libvulkan.a" > /tmp/nvk-symbols.txt

@@ -30,14 +30,15 @@ Measured on the console, handheld mode, stock clocks, with the logs kept in `doc
 | The heaviest scene met so far (700 to 800 draws per frame) | 30 fps with about a fifth of the three cores free; the game's own main thread uses 70 to 77 % of one core |
 | Cutscenes with subtitles | 30 fps, clean audio |
 | Menus, saving and loading, the Russian language pack | Work |
+| One two-hour session without a restart, the first hours of the story with its boss fights | 30 fps in 739 of 740 ten-second periods; 100 slow frames out of 232,641; no crash; memory use levels off after about 20 minutes |
 
-Not tested yet: everything after the first hours of the game (later areas and bosses may be heavier than
-anything above), sessions longer than about ten minutes, docked mode, the DLC in play, and a full
-playthrough with its later routes and endings. Reports are welcome.
+Not tested yet: everything after the first two hours of the game (later areas and bosses may be heavier than
+anything above), docked mode, the DLC in play, and a full playthrough with its later routes and endings.
+Reports are welcome.
 
 Known issues: a short stutter the first time new shaders or pipelines are met (they are cached on the SD card
-after that), short hitches while textures stream in, and occasional faint audio crackle. See
-[docs/performance.md](docs/performance.md) for the measurements behind all of this.
+after that) and short hitches while textures stream in. See [docs/performance.md](docs/performance.md) for the
+measurements behind all of this.
 
 ## How it works
 
@@ -70,10 +71,9 @@ mesa/build_mesa_docker.sh                        # builds the graphics driver, o
 tools/build_nro.sh                               # builds out/nx/nier-nx.nro
 ```
 
-The build can also be profile-guided, which takes roughly 15 to 20 % off the render thread: you record a profile
-on your own console and rebuild with it. It is optional, the frame rate above holds without it; the steps are in
-[docs/performance.md](docs/performance.md). The Docker image is pinned to the devkitA64 release the port was
-measured with.
+Add `CMAKE_EXTRA="-DNIER_PGO=use"` in front of the last command to build with the profile in [pgo/](pgo/README.md),
+recorded on the console; it takes roughly 15 to 20 % off the render thread. The Docker image is pinned to the
+devkitA64 release the port was measured with.
 
 ## Install
 
