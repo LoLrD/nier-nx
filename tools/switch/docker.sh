@@ -11,7 +11,7 @@ ensure_image() {
   docker image inspect "$IMAGE" >/dev/null 2>&1 && return
   echo "== building the Docker image $IMAGE (devkitpro/devkita64 + glslang-tools), once" >&2
   docker build -t "$IMAGE" - <<'DOCKERFILE'
-FROM devkitpro/devkita64:latest
+FROM devkitpro/devkita64:20260219
 RUN apt-get update && apt-get install -y --no-install-recommends glslang-tools && rm -rf /var/lib/apt/lists/*
 DOCKERFILE
 }

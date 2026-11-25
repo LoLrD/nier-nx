@@ -17,6 +17,9 @@ python3 tools/lang/build.py ru                        # writes out/lang/ru from 
 tools/console-test/deploy.sh --language ru            # copies it to the console and turns it on
 ```
 
+The build draws the Cyrillic glyphs and the translated title menu with fonts that ship with macOS, so for now
+it runs on macOS only.
+
 By hand: copy `out/lang/ru` to `sdmc:/switch/nier-nx/lang/ru` and put
 `nier_language_dir = "sdmc:/switch/nier-nx/lang/ru"` at the top of `nier.toml`. The pack takes the place of the
 English text; leave the setting empty to get the original back.

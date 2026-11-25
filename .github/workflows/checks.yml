@@ -1,0 +1,21 @@
+name: checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  repository:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: No game data or generated code is tracked
+        run: python3 tools/check_repo_clean.py
+      - name: Tool tests that need neither the game nor a build
+        run: |
+          python3 -m pip install pytest
+          python3 -m pytest -q tests/test_check_repo_clean.py tests/test_check_generated.py tests/test_ab_table.py

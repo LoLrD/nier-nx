@@ -70,7 +70,10 @@ mesa/build_mesa_docker.sh                        # builds the graphics driver, o
 tools/build_nro.sh                               # builds out/nx/nier-nx.nro
 ```
 
-A profile-guided build is described in [docs/performance.md](docs/performance.md).
+The build can also be profile-guided, which takes roughly 15 to 20 % off the render thread: you record a profile
+on your own console and rebuild with it. It is optional, the frame rate above holds without it; the steps are in
+[docs/performance.md](docs/performance.md). The Docker image is pinned to the devkitA64 release the port was
+measured with.
 
 ## Install
 
