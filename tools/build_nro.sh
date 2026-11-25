@@ -23,10 +23,14 @@ docker run --rm -v "$ROOT:$ROOT" -v "$MESA_SDK:$MESA_SDK:ro" -w "$ROOT" \
       -DCMAKE_TOOLCHAIN_FILE="$ROOT/tools/switch/cmake/switch-devkitA64.cmake" \
       -DDEVKITPRO=/opt/devkitpro -DREXSDK_DIR="$ROOT/sdk" \
       -DREXGLUE_SWITCH_NVK_SDK="$MESA_SDK/opt/devkitpro/portlibs/switch" $CMAKE_EXTRA
-    cmake --build "$NRO_OUT" -j "$JOBS"
+    cmake --build "$NRO_OUT" -j "$JOBS" 2>&1 | tee "$NRO_OUT/build.log"
     /opt/devkitpro/devkitA64/bin/aarch64-none-elf-nm "$NRO_OUT/nier" | grep "^0000000000000000 T _start$" > /dev/null
     echo "OK: _start at 0"
   '
+if grep -q "NIER_PGO:STRING=use" "$ROOT/$NRO_OUT/CMakeCache.txt"; then
+  echo "profile: $(grep -c "Wcoverage-mismatch" "$ROOT/$NRO_OUT/build.log" || true) functions changed since training," \
+    "$(grep -c "Wmissing-profile" "$ROOT/$NRO_OUT/build.log" || true) files without a profile"
+fi
 cp -f "$ROOT/$NRO_OUT/nier.nro" "$ROOT/$NRO_OUT/nier-nx.nro"
 cp -f "$ROOT/app/nier_switch.toml" "$ROOT/$NRO_OUT/nier.toml"
 echo "ok: $ROOT/$NRO_OUT/nier-nx.nro"

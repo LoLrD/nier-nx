@@ -15,6 +15,7 @@ set(NIER_SOURCES
     src/nier_d3d_wait.cpp
     src/nier_audio_mix.cpp
     src/nier_audio_mix_hook.cpp
+    src/nier_pgo.cpp
     src/nier_frame_pacing.cpp
     src/nier_frame_pacing_hook.cpp
     src/nier_npc_lod.cpp
@@ -92,27 +93,35 @@ if(NOT REXGLUE_PLATFORM_SWITCH)
     endif()
 endif()
 
-option(NIER_LTO "Link-time optimization of the game code and the port on the Switch" ON)
-if(REXGLUE_PLATFORM_SWITCH AND NIER_LTO)
-    target_compile_options(nier_recomp PRIVATE -flto=auto -fno-fat-lto-objects)
-    target_compile_options(nier PRIVATE -flto=auto -fno-fat-lto-objects)
-    target_link_options(nier PRIVATE -flto=auto -flto-partition=balanced -O3)
-endif()
-
 set(NIER_PGO "" CACHE STRING "Profile-guided optimization on the Switch: empty, generate (training build) or use")
 set(NIER_PGO_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../out/pgo" CACHE PATH "Profile a NIER_PGO=use build reads")
+option(NIER_LTO "Link-time optimization of the game code and the port on the Switch" ON)
+target_compile_definitions(nier PRIVATE XXH_FORCE_MEMORY_ACCESS=0)
+target_compile_options(nier PRIVATE -fno-strict-aliasing)
+if(REXGLUE_PLATFORM_SWITCH AND NIER_LTO AND NOT NIER_PGO STREQUAL "generate")
+    target_compile_options(nier_recomp PRIVATE -flto=auto -fno-fat-lto-objects)
+    target_compile_options(nier PRIVATE -flto=auto -fno-fat-lto-objects)
+    target_link_options(nier PRIVATE -flto=auto -flto-partition=balanced -O3 -fno-strict-aliasing)
+endif()
+
 if(REXGLUE_PLATFORM_SWITCH AND NIER_PGO STREQUAL "generate")
     foreach(pgo_target nier_recomp nier)
-        target_compile_options(${pgo_target} PRIVATE -fprofile-generate=sdmc:/switch/nier/pgo
-                               -fno-profile-values -fprofile-prefix-path=${CMAKE_BINARY_DIR})
+        target_compile_options(${pgo_target} PRIVATE -fprofile-generate=${NIER_PGO_DIR}
+                               -fprofile-prefix-path=${CMAKE_BINARY_DIR} -fno-profile-values
+                               -fprofile-update=single -fprofile-info-section=gcov_info)
     endforeach()
     target_compile_definitions(nier PRIVATE NIER_PGO_GENERATE)
     target_link_options(nier PRIVATE -fprofile-generate)
 elseif(REXGLUE_PLATFORM_SWITCH AND NIER_PGO STREQUAL "use")
+    file(GLOB NIER_PGO_FILES "${NIER_PGO_DIR}/*.gcda")
+    if(NOT NIER_PGO_FILES)
+        message(FATAL_ERROR "NIER_PGO=use: no profile in ${NIER_PGO_DIR}; collect one with tools/pgo_collect.sh")
+    endif()
     foreach(pgo_target nier_recomp nier)
-        target_compile_options(${pgo_target} PRIVATE -fprofile-use=${NIER_PGO_DIR} -fprofile-partial-training
-                               -fprofile-correction -fprofile-prefix-path=${CMAKE_BINARY_DIR}
-                               -Wno-missing-profile -Wno-coverage-mismatch)
+        target_compile_options(${pgo_target} PRIVATE -fprofile-use=${NIER_PGO_DIR}
+                               -fprofile-prefix-path=${CMAKE_BINARY_DIR} -fno-profile-values
+                               -fprofile-partial-training -fprofile-correction
+                               -Wno-error=coverage-mismatch -Wno-error=missing-profile)
     endforeach()
     target_link_options(nier PRIVATE -fprofile-use=${NIER_PGO_DIR} -fprofile-partial-training -fprofile-correction)
 endif()
