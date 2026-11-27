@@ -115,7 +115,7 @@ Saves, caches and logs stay in `sdmc:/switch/nier-nx/`, the same folder the NRO 
 | `nier_resolution_level` | Scene resolution: 0 full, 1 and 2 reduced (`nier_level1_scale`, `nier_level2_scale`) |
 | `nier_dynamic_resolution` | Lower the resolution level by itself when the GPU falls behind |
 | `nier_language_dir` | Folder of a built language pack; empty keeps the original text |
-| `user_language` | Language of the game's own text: 1 English (default), 3 German, 4 French; needs a copy of the game that has that language. Put the line above the `[log.levels]` section |
+| `user_language` | Language of the game's own text: 1 English (default), 2 Japanese, 3 German, 4 French; needs a copy of the game that has that language. Put the line above the `[log.levels]` section |
 | `nier_npc_update_scale` | Distance scale for updating far-away characters; below 1.0 saves CPU time in villages |
 
 ## Tests
